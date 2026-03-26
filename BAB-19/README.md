@@ -333,6 +333,13 @@ void loop() {
         digitalWrite(PIN_BUZZER, buzzerState ? HIGH : LOW);
         digitalWrite(PIN_LED_RED, buzzerState ? HIGH : LOW);
       }
+    } else {
+      // Pastikan mati jika cahaya kembali normal
+      if (buzzerState) {
+        buzzerState = false;
+        digitalWrite(PIN_BUZZER, LOW);
+        digitalWrite(PIN_LED_RED, LOW);
+      }
     }
   }
 }
