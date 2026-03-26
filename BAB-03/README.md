@@ -139,7 +139,7 @@ Beberapa komponen beroperasi pada 5V:
 | Komponen | Tegangan Operasi | Aman untuk ESP32? |
 |----------|-----------------|-------------------|
 | LED 5mm | 3.3V (via resistor) | ✅ Aman — didrive langsung dari GPIO |
-| WS2812 | 5V (power), 3.3V (data) | ✅ Aman — data 3.3V biasanya diterima |
+| WS2812 | 3.3V (power & data) | ✅ Aman — pada kit ini terhubung ke 3.3V |
 | Relay 5V | 5V (koil) | ✅ Aman — menggunakan transistor driver |
 | Servo | 5V (power), 3.3V (sinyal) | ✅ Aman — sinyal 3.3V cukup |
 | HC-SR04 | 5V (power + echo) | ⚠️ **Echo = 5V** — PERLU voltage divider! |
@@ -233,18 +233,18 @@ Transistor bisa berfungsi sebagai **saklar elektronik** yang dikendalikan oleh s
 ### Pada Kit Bluino: IC 78M05
 
 ```
-   +12V ──── 1N4001 ──┬── IN │78M05│ OUT ──┬── +5V
-                       │                    │
-                    C1 ═ 100µF/6V        C2 ═ keramik
-                       │                    │
-                      GND                  GND
+   +12V ──── 1N4001 ───── IN │78M05│ OUT ──┬──────┬── +5V
+                                    │      │      │
+                                 C1 ═     C2 ═    │
+                          100µF/6V  │  keramik    │
+                                    │      │      │
+                                   GND    GND    GND
 ```
 
 - **Input:** 7V–35V DC (biasanya adaptor 12V)
 - **Output:** 5V DC stabil
-- **1N4001:** Mencegah kerusakan jika kabel daya terbalik
-- **C1 (100µF/6V):** Filter ripple tegangan input
-- **C2 (keramik):** Filter noise frekuensi tinggi
+- **1N4001:** Mencegah kerusakan jika kabel daya (polaritas) terbalik
+- **C1 (100µF/6V) & C2 (keramik):** Filter pada **output** untuk menstabilkan tegangan 5V dan menghilangkan noise frekuensi tinggi.
 
 > **Penting:** Untuk penggunaan normal via USB, regulator ini tidak digunakan. Regulator ini dipakai saat kit dipasang pada sistem yang membutuhkan supply 12V eksternal (misalnya pemasangan permanen di rumah).
 
