@@ -171,11 +171,10 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
 
-  // Inisialisasi hardware timer
-  // Parameter: timer number (0-3), prescaler, count up
-  // Clock = 80 MHz / prescaler
-  // Prescaler 80 → 1 tick = 1 µs
-  timer = timerBegin(1000000);  // 1 MHz (1 µs per tick)
+  // Inisialisasi hardware timer (API Arduino Core 3.x)
+  // Parameter: frekuensi timer dalam Hertz (Hz)
+  // Frekuensi 1.000.000 Hz (1 MHz) → 1 tick = 1 µs
+  timer = timerBegin(1000000);
 
   // Attach interrupt
   timerAttachInterrupt(timer, &onTimer);
