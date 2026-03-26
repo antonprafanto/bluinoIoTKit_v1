@@ -71,7 +71,7 @@ EN, VP, VN,            IO23, IO22, TX0(IO1),
 IO34, IO35, IO32,      RX0(IO3), IO21, IO19,
 IO33, IO25, IO26,      IO18, IO5, IO17,
 IO27, IO14, IO12,      IO16, IO4, IO2,
-IO13, GND, VIN, 3V3    IO15, GND, 3V3
+IO13, GND, VIN         IO15, GND, 3V3
 ```
 
 ### Bagian 2: Header Ekspansi (di tengah)
