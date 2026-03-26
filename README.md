@@ -16,11 +16,11 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 | 2 | OLED 0.96" 128×64 | SDA=IO21, SCL=IO22 | I2C |
 | 3 | DHT11 (Suhu & Kelembaban) | IO27 + pull-up 4K7Ω | Digital |
 | 4 | DS18B20 (Suhu Presisi) | IO14 + pull-up 4K7Ω | OneWire |
-| 5 | BMP180/BME280 (Barometrik) | SDA=IO21, SCL=IO22 | I2C |
+| 5 | BMP180 (Barometrik) | SDA=IO21, SCL=IO22 | I2C |
 | 6 | MPU-6050 (Akselerometer/Giroskop) | SDA=IO21, SCL=IO22 | I2C |
 | 7 | RGB LED WS2812 (NeoPixel) | IO12 | Data (RMT) |
 | 8 | Micro SD Adapter | CS=IO5, MOSI=IO23, CLK=IO18, MISO=IO19 | SPI |
-| 9 | Touch Pad | IO27 | Capacitive |
+| 9 | Touch Pad | Custom (pin touch T0–T9) | Capacitive |
 | 10 | 4× LED (Merah, Kuning, Hijau, Biru) | Custom + resistor 330Ω | Digital |
 | 11 | 2× Push Button | Custom + pull-down 10KΩ | Digital |
 | 12 | Active Buzzer | Custom | Digital |
@@ -48,9 +48,7 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 │  IO19 (MISO) ──── MicroSD                                │
 ├─────────────────────────────────────────────────────────┤
 │                   Sensor Digital                         │
-│  IO27 ──── DHT11 (+ pull-up 4K7Ω) / Touch Pad           │
-│         ⚠️ IO27 di-share: DHT11 dan Touch TIDAK bisa      │
-│            digunakan bersamaan dalam satu program         │
+│  IO27 ──── DHT11 (+ pull-up 4K7Ω)                       │
 │  IO14 ──── DS18B20 (+ pull-up 4K7Ω)                     │
 │  IO12 ──── RGB LED WS2812                                │
 └─────────────────────────────────────────────────────────┘
