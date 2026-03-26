@@ -13,7 +13,7 @@ Setelah mempelajari bab ini, kamu akan mampu:
 
 ## 6.1 Pinout ESP32 DEVKIT V1
 
-ESP32 DEVKIT V1 memiliki **30 pin** yang tersedia melalui dua baris header. Dari total 34 GPIO pada chip ESP32-WROOM-32, hanya 30 yang di-expose pada board DevKit V1.
+ESP32 DEVKIT V1 memiliki **30 pin** yang tersedia melalui dua baris header (15 pin per sisi). Dari jumlah tersebut, **25 pin adalah GPIO** dan 5 pin sisanya untuk power/reset (EN, GND×2, VIN, 3V3).
 
 ```
                       ┌──────────────┐

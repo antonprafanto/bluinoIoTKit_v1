@@ -151,7 +151,7 @@ Board yang digunakan pada **Kit Bluino** adalah **ESP32 DEVKIT V1** — board de
 | SRAM | 520 KB |
 | WiFi | 802.11 b/g/n |
 | Bluetooth | v4.2 BR/EDR + BLE |
-| GPIO | 30 pin tersedia pada DevKit (dari 34 GPIO total pada chip) |
+| GPIO | 25 pin GPIO pada DevKit (dari 34 GPIO total pada chip) + 5 pin power/reset = 30 pin total |
 | USB | Micro-USB (via CP2102 atau CH340 USB-to-Serial) |
 | Tegangan Operasi | 3.3V (logic level) |
 | Tegangan Input (VIN) | 5V via USB atau pin VIN |
