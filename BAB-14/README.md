@@ -41,11 +41,11 @@ Disentuh:       Nilai rendah (contoh: 10-20)
 | T4 | IO13 | ✅ Tersedia (custom) |
 | T5 | IO12 | ❌ Dipakai WS2812 |
 | T6 | IO14 | ❌ Dipakai DS18B20 |
-| T7 | IO27 | ⚠️ Shared — ada pad touch di PCB, tapi juga terhubung DHT11 |
+| T7 | IO27 | ❌ Dipakai DHT11 |
 | T8 | IO33 | ✅ Tersedia (custom) |
 | T9 | IO32 | ✅ Tersedia (custom) |
 
-> **Kit Bluino** memiliki **satu pad touch** yang terhubung langsung ke **IO27 (T7)**. Pad ini sudah terintegrasi di PCB. Namun IO27 juga digunakan untuk DHT11 — keduanya **tidak bisa dipakai bersamaan**.
+> **Kit Bluino** menggunakan pin **Custom** untuk modul Touch. Kamu bisa menghubungkan kabel jumper dari pad Touch ke salah satu pin Touch yang tersedia (contoh rekomendasi: **IO33 / T8**). Pastikan *tidak* menghubungkannya ke IO27 karena pin tersebut didedikasikan untuk DHT11.
 
 ---
 
@@ -56,18 +56,17 @@ Disentuh:       Nilai rendah (contoh: 10-20)
  * BAB 14 - Program 1: Baca Touch Sensor
  * Membaca nilai raw dari touch pad IO27
  *
- * Hardware: Touch Pad di PCB kit (IO27)
- * ⚠️ Pastikan DHT11 TIDAK digunakan bersamaan
+ * Wiring: Touch Custom → IO33
  */
 
-#define TOUCH_PIN T7  // T7 = IO27 (touch pad pada kit)
+#define TOUCH_PIN T8  // T8 = IO33 (touch pad via pin custom)
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
   Serial.println("BAB 14: Capacitive Touch Sensor");
-  Serial.println("Sentuh pad touch (IO27) dan lihat nilainya...");
+  Serial.println("Sentuh pad touch (IO33) dan lihat nilainya...");
   Serial.println("Nilai TURUN saat disentuh (ESP32 classic)");
   Serial.println();
 }
@@ -108,10 +107,10 @@ Nilai touch bisa berbeda tergantung kondisi lingkungan (kelembaban, noise). Seba
  * BAB 14 - Program 2: Kalibrasi Otomatis Touch
  * Membaca baseline saat startup, lalu deteksi sentuhan
  *
- * Hardware: Touch Pad IO27
+ * Wiring: Touch Custom → IO33
  */
 
-#define TOUCH_PIN T7
+#define TOUCH_PIN T8
 #define LED_PIN   4
 
 int baseline = 0;       // Nilai dasar tanpa sentuhan
@@ -166,10 +165,10 @@ void loop() {
  * BAB 14 - Program 3: Touch Toggle
  * Sentuh sekali = LED ON, sentuh lagi = LED OFF
  *
- * Hardware: Touch Pad IO27, LED Custom → IO4
+ * Wiring: Touch Custom → IO33, LED Custom → IO4
  */
 
-#define TOUCH_PIN T7
+#define TOUCH_PIN T8
 #define LED_PIN   4
 #define THRESHOLD 30  // Sesuaikan setelah kalibrasi
 
@@ -214,10 +213,10 @@ ESP32 juga mendukung **interrupt** pada touch pin:
  * BAB 14 - Program 4: Touch Interrupt
  * Menggunakan interrupt untuk deteksi sentuhan (hemat daya)
  *
- * Hardware: Touch Pad IO27, LED Custom → IO4
+ * Wiring: Touch Custom → IO33, LED Custom → IO4
  */
 
-#define TOUCH_PIN T7
+#define TOUCH_PIN T8
 #define LED_PIN   4
 #define THRESHOLD 30
 
