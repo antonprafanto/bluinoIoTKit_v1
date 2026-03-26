@@ -204,7 +204,7 @@ struct SmartButton {
   void begin();
   void update();
 
-private:
+  // Internal state (prefixed _ by convention, not private)
   int _lastReading;
   int _state;
   unsigned long _lastDebounce;

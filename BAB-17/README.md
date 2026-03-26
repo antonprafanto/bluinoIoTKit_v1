@@ -294,10 +294,15 @@ void loop() {
       }
 
       // Tampilkan countdown setiap detik
-      if (elapsed / 1000 != (elapsed - 100) / 1000) {
-        Serial.print("Arming: ");
-        Serial.print((ARMING_TIME - elapsed) / 1000);
-        Serial.println("s");
+      {
+        static int lastPrintedSecond = -1;
+        int currentSecond = elapsed / 1000;
+        if (currentSecond != lastPrintedSecond) {
+          lastPrintedSecond = currentSecond;
+          Serial.print("Arming: ");
+          Serial.print((ARMING_TIME - elapsed) / 1000);
+          Serial.println("s");
+        }
       }
 
       if (btnPress) {
