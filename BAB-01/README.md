@@ -76,7 +76,7 @@ Bagaimana data dikirim dari perangkat ke cloud:
 |-----------|-----------|-----------|-------------------|
 | WiFi | ~30m indoor / ~100m outdoor | Tinggi (Mbps) | Smart home, dashboard web |
 | Bluetooth/BLE | ~10m | Sedang (Kbps–Mbps) | Wearable, kontrol jarak dekat |
-| ESP-NOW | ~200m+ | Tinggi (Mbps) | Komunikasi antar ESP32 |
+| ESP-NOW | ~200m+ | Sedang (Kbps) | Komunikasi antar ESP32 |
 | LoRa | ~10km | Rendah (Kbps) | Pertanian, monitoring jarak jauh |
 
 > **Catatan:** MQTT dan HTTP adalah **protokol aplikasi** (berjalan di atas WiFi/internet), bukan media transmisi. Mereka akan dibahas di BAB selanjutnya.
