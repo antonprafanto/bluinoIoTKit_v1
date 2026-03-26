@@ -112,7 +112,6 @@ MicroSD Adapter menggunakan 4 jalur SPI:
 | DHT11 | IO27 | Resistor pull-up 4.7KΩ ke VDD sudah terpasang |
 | DS18B20 | IO14 | Resistor pull-up 4.7KΩ ke VDD sudah terpasang |
 | WS2812 | IO12 | Terhubung ke pin DIN (Data In) |
-| Touch | IO27 | Shared dengan DHT11 — tidak bisa digunakan bersamaan |
 
 ### Bagian 6: Komponen "Custom" (Berlabel Custom)
 
@@ -129,6 +128,7 @@ Komponen berikut **tidak terhubung langsung** ke GPIO tertentu. Kamu harus mengh
 | Relay | Custom | Butuh pin digital output. Driver BC547 sudah terpasang |
 | HC-SR04 | Custom | Butuh 2 pin: Trig (output) + Echo (input) |
 | Servo | Custom | Butuh pin **PWM** output |
+| Touch Pad | Custom | Butuh pin **touch** (T0–T9, contoh: IO4, IO13, IO15, IO32, IO33) |
 
 ### Bagian 7: Power Regulator (Kiri Bawah)
 

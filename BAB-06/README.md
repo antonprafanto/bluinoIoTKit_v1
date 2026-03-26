@@ -70,7 +70,7 @@ Komponen-komponen ini sudah terhubung langsung ke GPIO tertentu di PCB. **Tidak 
 
 | GPIO | Perangkat | Catatan |
 |------|-----------|---------|
-| **IO27** | DHT11 + Touch Pad | Pull-up 4.7KΩ terpasang. ⚠️ DHT11 dan Touch **tidak bisa dipakai bersamaan** |
+| **IO27** | DHT11 | Pull-up 4.7KΩ terpasang |
 | **IO14** | DS18B20 | Pull-up 4.7KΩ terpasang |
 | **IO12** | WS2812 (NeoPixel) | Pin data DIN. ⚠️ IO12 juga strapping pin (MTDI) |
 
@@ -88,7 +88,7 @@ Komponen-komponen ini sudah terhubung langsung ke GPIO tertentu di PCB. **Tidak 
 │ IO21 │ I2C SDA (OLED, BMP180, MPU-6050)              │
 │ IO22 │ I2C SCL (OLED, BMP180, MPU-6050)              │
 │ IO23 │ MicroSD MOSI                                  │
-│ IO27 │ DHT11 / Touch                                 │
+│ IO27 │ DHT11                                         │
 └──────┴──────────────────────────────────────────────┘
 ```
 
@@ -244,7 +244,7 @@ Berdasarkan analisis di atas, berikut **rekomendasi** pin untuk setiap komponen:
 │  IO33 .............. Tersedia ............. IO18 [MicroSD CLK]  │
 │  IO25 .............. Tersedia (DAC1) ...... IO5  [MicroSD CS]   │
 │  IO26 .............. Tersedia (DAC2) ...... IO17 [Tersedia]     │
-│  IO27 .............. [DHT11/Touch] ........ IO16 [Tersedia]     │
+│  IO27 .............. [DHT11] .............. IO16 [Tersedia]     │
 │  IO14 .............. [DS18B20] ............ IO4  [Tersedia]     │
 │  IO12 .............. [WS2812] ⚠️ ......... IO2  [Tersedia] ⚠️  │
 │  IO13 .............. Tersedia ............. IO15 [Tersedia] ⚠️  │
