@@ -206,6 +206,8 @@ WiFi: STA disconnected, reason: 201
  * ESP32 memeriksa kesehatannya sendiri saat startup
  */
 
+#include <rom/rtc.h>  // Untuk rtc_get_reset_reason()
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
