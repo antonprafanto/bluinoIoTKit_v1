@@ -408,7 +408,7 @@ void bacaRegisterMulti(uint8_t devAddr, uint8_t regAddr,
 
 // ── Baca suhu dari MPU6050 ──────────────────────────────────
 float bacaSuhuMPU() {
-  uint8_t data[2];
+  uint8_t data[2] = {0, 0};
   bacaRegisterMulti(MPU6050_ADDR, REG_TEMP_H, data, 2);
 
   // Gabungkan High byte dan Low byte menjadi int16
@@ -510,7 +510,7 @@ void bacaRegMulti(uint8_t dev, uint8_t reg, uint8_t* buf, uint8_t len) {
 
 // ── Baca suhu MPU6050 (raw → °C) ───────────────────────────────
 float bacaSuhuMPU() {
-  uint8_t d[2];
+  uint8_t d[2] = {0, 0};
   bacaRegMulti(MPU_ADDR, MPU_TEMP_H, d, 2);
   int16_t raw = ((int16_t)d[0] << 8) | d[1];
   return (raw / 340.0f) + 36.53f;
