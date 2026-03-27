@@ -393,6 +393,12 @@ void loop() {
       if (sekarang - tBacaTerakhir >= INTERVAL_BACA_MS) {
         sensors.requestTemperatures();
         tMulaiKonversi = sekarang;
+        // 💡 Penjadwal Frekuensi Tetap (Fixed Frequency Scheduler):
+        // Kita mencatat 'waktu mulai' tepat SEBELUM konversi, BUKAN sesudahnya!
+        // Ini menjamin bahwa siklus total murni 1000ms mutlak (dari mulai ke mulai).
+        // Jika kode ini diletakkan di dalam STATE_CONVERTING setelah konversi selesai, 
+        // interval totalnya akan melar konyol menjadi 1000ms + 750ms konversi = 1750ms!
+        tBacaTerakhir = sekarang; 
         state = STATE_CONVERTING;
       }
       break;
@@ -411,7 +417,6 @@ void loop() {
                         sekarang, suhuRaw, suhuFilter, selisih);
         }
 
-        tBacaTerakhir = sekarang;
         state = STATE_IDLE;
       }
       break;
