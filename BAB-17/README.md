@@ -224,6 +224,7 @@ bool buttonPressed = false;
 // Non-blocking blink
 unsigned long prevBlink = 0;
 bool blinkState = false;
+int lastPrintedSecond = -1; // Detik terakhir yang dicetak ke Serial
 
 // Durasi
 const long ARMING_TIME    = 10000;  // 10 detik countdown
@@ -251,6 +252,9 @@ void changeState(SecurityState newState) {
   digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(LED_RED, LOW);
   digitalWrite(LED_GREEN, LOW);
+
+  // Reset state visual lainnya
+  lastPrintedSecond = -1;
 }
 
 // Debounce non-blocking — mengembalikan true sekali saat tombol ditekan
@@ -280,7 +284,7 @@ void loop() {
 
       if (btnPress) {
         changeState(ARMING);
-        Serial.println("→ ARMING: Keluar dalam 5 detik!");
+        Serial.println("→ ARMING: Keluar dalam 10 detik!");
       }
       break;
 
@@ -295,7 +299,6 @@ void loop() {
 
       // Tampilkan countdown setiap detik
       {
-        static int lastPrintedSecond = -1;
         int currentSecond = elapsed / 1000;
         if (currentSecond != lastPrintedSecond) {
           lastPrintedSecond = currentSecond;

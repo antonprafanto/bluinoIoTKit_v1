@@ -59,11 +59,9 @@ Daripada membuat banyak variabel `prevMillis` terpisah, kita bisa membungkusnya 
  *
  * Wiring:
  *   LED Merah Custom → IO4
- *   Buzzer Custom    → IO13
  */
 
 #define LED_PIN    4
-#define BUZZER_PIN 13
 #define POT_PIN    34
 
 // ============================================================
@@ -332,6 +330,7 @@ void loop() {
       if (btnState == HIGH) {
         alarmActive = !alarmActive;
         if (!alarmActive) {
+          buzzerState = false;
           digitalWrite(BUZZER_PIN, LOW);
           digitalWrite(LED_PIN, LOW);
           Serial.println("Alarm DIMATIKAN");
