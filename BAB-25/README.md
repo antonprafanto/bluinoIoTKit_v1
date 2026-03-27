@@ -403,8 +403,6 @@ Waktu Konversi Berdasarkan Resolusi:
 // ── Konfigurasi Sensor ──────────────────────────────────────────
 #define ONE_WIRE_PIN       14
 #define RESOLUSI_BIT       12               // 9, 10, 11, atau 12
-#define WAKTU_KONVERSI_MS  750UL            // Harus sesuai resolusi!
-// Referensi: 9-bit=94ms, 10-bit=188ms, 11-bit=375ms, 12-bit=750ms
 
 OneWire        oneWire(ONE_WIRE_PIN);
 DallasTemperature sensor(&oneWire);
@@ -415,9 +413,10 @@ DallasTemperature sensor(&oneWire);
 //   CONVERTING → Permintaan konversi sudah dikirim, menunggu selesai
 typedef enum { STATE_IDLE, STATE_CONVERTING } SensorState;
 
-SensorState    state        = STATE_IDLE;
-unsigned long  tMulaiKonversi = 0;
-unsigned long  tBacaTerakhir  = 0;
+SensorState    state             = STATE_IDLE;
+unsigned long  tMulaiKonversi    = 0;
+unsigned long  tBacaTerakhir     = 0;
+unsigned long  waktu_konversi_ms = 750; // Akan dioverride di setup()
 
 #define INTERVAL_BACA_MS  5000UL  // Baca suhu setiap 5 detik
 
@@ -439,6 +438,9 @@ void setup() {
 
   // Atur resolusi untuk semua sensor di bus
   sensor.setResolution(RESOLUSI_BIT);
+  
+  // 💡 Minta library menghitung otomatis waktu tunggu sesuai resolusi!
+  waktu_konversi_ms = sensor.millisToWaitForConversion(RESOLUSI_BIT);
 
   uint8_t jumlah = sensor.getDeviceCount();
   if (jumlah == 0) {
@@ -473,8 +475,8 @@ void loop() {
 
     // ── STATE 2: CONVERTING — Tunggu konversi selesai ─────────────
     case STATE_CONVERTING:
-      // Hanya baca setelah waktu konversi cukup
-      if (sekarang - tMulaiKonversi >= WAKTU_KONVERSI_MS) {
+      // Hanya baca setelah waktu konversi akurat dari library terpenuhi
+      if (sekarang - tMulaiKonversi >= waktu_konversi_ms) {
         float suhuC = sensor.getTempCByIndex(0);
 
         if (suhuC == DEVICE_DISCONNECTED_C) {
@@ -552,12 +554,12 @@ const char* NAMA_SENSOR_1 = "Suhu Ruangan";
 const char* NAMA_SENSOR_2 = "Suhu Luar";
 
 #define INTERVAL_BACA_MS   5000UL
-#define WAKTU_KONVERSI_MS  750UL
 
 typedef enum { STATE_IDLE, STATE_CONVERTING } SensorState;
-SensorState   state          = STATE_IDLE;
-unsigned long tMulaiKonversi = 0;
-unsigned long tBacaTerakhir  = 0;
+SensorState   state             = STATE_IDLE;
+unsigned long tMulaiKonversi    = 0;
+unsigned long tBacaTerakhir     = 0;
+unsigned long waktu_konversi_ms = 750;
 
 // ── Helper: Cetak ROM Code ────────────────────────────────────────
 void cetakRomCode(DeviceAddress addr) {
@@ -590,6 +592,7 @@ void setup() {
   sensors.begin();
   sensors.setWaitForConversion(false); // Non-blocking!
   sensors.setResolution(RESOLUSI_BIT);
+  waktu_konversi_ms = sensors.millisToWaitForConversion(RESOLUSI_BIT);
 
   // Verifikasi kedua ROM Code dapat ditemukan di bus
   uint8_t total = sensors.getDeviceCount();
@@ -627,7 +630,7 @@ void loop() {
       break;
 
     case STATE_CONVERTING:
-      if (sekarang - tMulaiKonversi >= WAKTU_KONVERSI_MS) {
+      if (sekarang - tMulaiKonversi >= waktu_konversi_ms) {
         Serial.printf("[%8lu ms]\n", sekarang);
         tampilSuhu(NAMA_SENSOR_1, ROM_SENSOR_1);
         tampilSuhu(NAMA_SENSOR_2, ROM_SENSOR_2);
