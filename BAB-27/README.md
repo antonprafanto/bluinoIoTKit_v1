@@ -111,6 +111,11 @@ void setup() {
 void loop() {
   // Perintah ini akan OTOMATIS memblokir eksekusi selama 750ms (untuk resolusi 12-bit)
   // sambil menahan jalur Data dalam keadaan HIGH konstan (mensuplai listrik parasit)!
+  // 💡 MENGAPA KITA PAKAI `ByIndex(0)` DAN BUKAN `requestTemperatures()` SEPERTI DI BAB 25?
+  // Jika kamu memakai requestTemperatures() standar, instruksi akan memerintahkan SEMUA sensor di
+  // jaringan kabel untuk mengukur suhu BERSAMAAN. Jika kamu pasang 2 sensor saja, keduanya akan rebutan
+  // mengambil setrum parasit di kabel yang sama secara serentak. Akibatnya? Tegangan kabel *Brownout* (anjlok)
+  // dan sensor seketika mati bertebaran! Di mode parasitik multi-sensor, pengukuran WAJIB digilir satu per satu!
   sensors.requestTemperaturesByIndex(0);
   
   // Begitu fungsi di atas kembali, kita aman membaca hasilnya:
@@ -181,7 +186,7 @@ Ini adalah arsitektur IoT baterai paling profesional: ESP32 tidur pulas, terbang
 
 // ── RTC Memory: Bertahan melewati siklus Deep Sleep! ────────────
 // Data di sini tidak terhapus saat ESP32 tidur (selama catu daya ada)
-RTC_DATA_ATTR int    silusDone   = 0;
+RTC_DATA_ATTR int    siklusDone    = 0;
 RTC_DATA_ATTR float  riwayatSuhu[MAX_RIWAYAT];
 RTC_DATA_ATTR int    indeksRiwayat = 0;
 
@@ -210,10 +215,10 @@ float bacaSuhuSekali() {
 
 void setup() {
   Serial.begin(115200);
-  silusDone++;
+  siklusDone++;
 
   Serial.println("\n══════════════════════════════════════════");
-  Serial.printf(" BAB 27: Deep Sleep Cycle #%d\n", silusDone);
+  Serial.printf(" BAB 27: Deep Sleep Cycle #%d\n", siklusDone);
   Serial.println("══════════════════════════════════════════");
 
   // Baca suhu
@@ -228,11 +233,11 @@ void setup() {
 
     Serial.printf("🌡️  Suhu sekarang : %.2f °C\n", suhuC);
     Serial.printf("📦  Data tersimpan: %d titik\n",
-                  min(silusDone, MAX_RIWAYAT));
+                  min(siklusDone, MAX_RIWAYAT));
 
     // Tampilkan riwayat ringkas
     Serial.println("\nRiwayat pembacaan:");
-    int jumlah = min(silusDone, MAX_RIWAYAT);
+    int jumlah = min(siklusDone, MAX_RIWAYAT);
     for (int i = 0; i < jumlah; i++) {
       Serial.printf("  [%2d] %.2f °C\n", i + 1, riwayatSuhu[i]);
     }
@@ -543,7 +548,7 @@ Ini normal! Ada dua penyebab sah:
 
 2. **Filter Perbandingan:** Modifikasi Program 2 untuk mencoba ukuran `FILTER_SIZE` yang berbeda: 4, 8, dan 16. Simpan ketiga nilai terfilter ke buffer terpisah dan tampilkan ketiganya dalam satu baris tabel. Analisalah: ukuran filter mana yang paling responsif vs paling stabil?
 
-3. **Data Logger Baterai + SD Card:** Gabungkan arsitektur Deep Sleep (BAB 27) dengan SD Card logger (BAB 24). Setiap kali ESP32 bangun, baca suhu lalu **append** satu baris CSV ke file `/suhu_log.csv`. Setelah 100 siklus, jangan lupa tutup file dan tidur lagi!
+3. **Data Logger Baterai + SD Card:** Gabungkan arsitektur Deep Sleep (BAB 27) dengan SD Card logger (BAB 24). Setiap kali ESP32 bangun: Mount SD Card, Buka file di mode *APPEND* (`SD.open`), tuangkan data CSV suhu, lalu **TUTUP SAAT ITU JUGA (`file.close()`)**. BUKAN ditutup setelah 100 siklus! Mengapa? Jika kamu menidurkan ESP32 secara *Deep Sleep* saat file SD Card masih menggantung terbuka di memori RAM, saat itu juga struktur file FAT32-mu akan terkorupsi permanen!
 
 4. **Alarm Suhu Dingin Gudang:** Buat sistem yang membaca suhu setiap 5 menit dengan Deep Sleep. Jika suhu di bawah 10°C atau di atas 35°C, ESP32 *tidak* tidur lagi dan mengaktifkan LED peringatan terus-menerus sampai suhu kembali normal.
 
