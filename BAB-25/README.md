@@ -492,10 +492,19 @@ void loop() {
       break;
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // Kerjaan lain bisa berjalan di sini tanpa pernah terblokir!
-  // Contoh: cek tombol, update OLED, kirim data WiFi, dll.
-  // ──────────────────────────────────────────────────────────────
+  // ── Demonstrasi Bukti Non-Blocking ────────────────────────────
+  // 1. Variabel Asinkron:
+  // Web Server / OLED Display di fungsi lain bisa kapan saja mengambil
+  // nilai dari variabel global `suhuTerakhir` (jika != NAN) tanpa 
+  // harus mengganggu dan menunggu sensor.
+  
+  // 2. Pembuktian Kecepatan Eksekusi (Iseng-iseng):
+  // Hilangkan tanda komentar pada dua baris di bawah ini untuk 
+  // melihat bahwa mikrokontroler mampu melakukan ratusan pekerjaan 
+  // (mencetak titik) SEMENTARA sensor sedang sibuk mengukur suhu!
+  
+  // Serial.print("."); 
+  // delay(10);
 }
 ```
 
