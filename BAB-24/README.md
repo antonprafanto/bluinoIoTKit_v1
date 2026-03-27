@@ -502,22 +502,17 @@ void tulisHeaderCSV() {
 
 // ── Tulis satu baris data ke log ────────────────────────────────
 bool tulisLog(unsigned long uptime, uint32_t count, float suhu) {
-  // Cek ukuran file — hindari SD penuh/file terlalu besar
-  if (SD.exists(LOG_FILE)) {
-    File fCheck = SD.open(LOG_FILE, FILE_READ);
-    if (fCheck) {
-      uint32_t ukuran = fCheck.size();
-      fCheck.close();
-      if (ukuran >= MAX_LOG_SIZE) {
-        Serial.println("⚠️  File log melebihi 10MB, logging dihentikan.");
-        return false;
-      }
-    }
-  }
-
+  // Buka file satu kali saja (Optimasi Kecepatan SD Card / FAT32)
   File f = SD.open(LOG_FILE, FILE_APPEND);
   if (!f) {
     Serial.println("❌ Gagal membuka file log untuk ditulis!");
+    return false;
+  }
+
+  // Cek ukuran file dari handle yang terbuka — hindari file terlalu raksasa
+  if (f.size() >= MAX_LOG_SIZE) {
+    Serial.println("⚠️  File log melebihi 10MB, logging dihentikan.");
+    f.close();
     return false;
   }
 
