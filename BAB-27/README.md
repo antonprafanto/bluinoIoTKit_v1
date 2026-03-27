@@ -1,4 +1,4 @@
-# BAB 27: DS18B20 Lanjutan — Deep Sleep, Parasitic Power & Web Dashboard
+# BAB 27: DS18B20 Lanjutan — Deep Sleep, Parasitic Power & Data Filter
 
 > ✅ **Prasyarat:** Pastikan kamu sudah menyelesaikan **BAB 25 (OneWire Protocol & DS18B20 Dasar)**. BAB ini membangun langsung di atas fondasi yang sudah ada, jadi kamu harus sudah paham konsep ROM Code, `requestTemperatures()`, dan pola *Non-Blocking* dengan `millis()`.
 
@@ -9,8 +9,7 @@
 Setelah mempelajari bab ini, kamu akan mampu:
 - Menjelaskan perbedaan **Parasitic Power Mode** vs External Power dan kapan masing-masing digunakan.
 - Mengintegrasikan DS18B20 dengan **ESP32 Deep Sleep** untuk sistem baterai yang awet berbulan-bulan.
-- Membangun **Web Dashboard real-time** berbasis WiFi yang menampilkan grafik suhu langsung di browser.
-- Menerapkan teknik **Moving Average Filter** untuk meredam derau (noise) pembacaan sensor di lapangan.
+- Menerapkan algoritma **Moving Average Filter** untuk menghaluskan dan meredam derau (*noise*) data sensor.
 - Memahami implikasi koneksi kabel **panjang** (hingga 100m) pada kualitas sinyal 1-Wire.
 
 ---
@@ -195,15 +194,15 @@ RTC_DATA_ATTR int    indeksRiwayat = 0;
 OneWire           oneWire(ONE_WIRE_PIN);
 DallasTemperature sensors(&oneWire);
 
-// ── Fungsi Baca Suhu Blocking (Oke di sini! Kita langsung tidur setelahnya)
+// ── Fungsi Baca Suhu ────────────────────────────────────────────
 float bacaSuhuSekali() {
   sensors.begin();
   sensors.setResolution(12);
+  sensors.setWaitForConversion(false); // Wajib false agar KITA yang mengontrol timeout!
 
-  // Blocking di sini AMAN karena setelah ini ESP32 tidur
   sensors.requestTemperatures();
 
-  // Tunggu konversi selesai dengan polling timeout
+  // Tunggu konversi selesai dengan polling timeout maksimum 800ms
   unsigned long mulai = millis();
   while (!sensors.isConversionComplete()) {
     if (millis() - mulai > 800) {
