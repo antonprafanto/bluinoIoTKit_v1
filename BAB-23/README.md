@@ -411,8 +411,9 @@ float bacaSuhuMPU() {
   uint8_t data[2] = {0, 0};
   bacaRegisterMulti(MPU6050_ADDR, REG_TEMP_H, data, 2);
 
-  // Gabungkan High byte dan Low byte menjadi int16
-  int16_t rawTemp = ((int16_t)data[0] << 8) | data[1];
+  // Gabungkan byte (Gunakan tipe UNSIGNED saat SHIFT untuk menghindari C++ Undefined Behavior!)
+  uint16_t unsignedRaw = ((uint16_t)data[0] << 8) | data[1];
+  int16_t rawTemp = (int16_t)unsignedRaw;
 
   // Konversi menggunakan formula dari datasheet MPU6050
   return (rawTemp / 340.0f) + 36.53f;
@@ -512,7 +513,8 @@ void bacaRegMulti(uint8_t dev, uint8_t reg, uint8_t* buf, uint8_t len) {
 float bacaSuhuMPU() {
   uint8_t d[2] = {0, 0};
   bacaRegMulti(MPU_ADDR, MPU_TEMP_H, d, 2);
-  int16_t raw = ((int16_t)d[0] << 8) | d[1];
+  uint16_t u_raw = ((uint16_t)d[0] << 8) | d[1];
+  int16_t raw = (int16_t)u_raw;
   return (raw / 340.0f) + 36.53f;
 }
 
