@@ -188,7 +188,10 @@ void loop() {
         break; // Berhenti sebentar agar loop() bisa memproses
       }
     } else {
-      inputBuffer += c;
+      // Proteksi RAM (Cegah kehabisan Heap jika data masuk tanpa newline)
+      if (inputBuffer.length() < 250) {
+        inputBuffer += c;
+      }
     }
   }
 
