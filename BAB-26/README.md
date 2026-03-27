@@ -344,13 +344,14 @@ Program di atas menjamin bahwa sensor akan "didatangi dan ditanyai tegangannya" 
 ## 26.7 Tips & Panduan Troubleshooting Bebas Pusing
 
 ### 1. `Serial.println` Mengeluarkan Teks `nan` Secara Acak
-```
+```text
 Kelembaban: nan %   |   Suhu: nan °C
 ```
-Ini berarti kamu **berhasil tersambung ke program**, tetapi chip A/D Converter di dalam balok biru DHT11 gagal menghasilkan resonansi.
-- **Penyebab A:** Pengkabelan pin IO27 bermasalah, cek pin atau pelat modul.
-- **Penyebab B:** Modul cacat bawaan alat pabrikan. Coba tarik napas di dekat sensor (hembuskan hangatnya uap nafasmu), terkadang sensor perlu *shock condensation*.
-- **Penyebab C:** Kamu memaksa frekuensi di bawah `2000` ms!
+Ini berarti mikrokontroler ESP32 kamu **gagal menerima balasan sinyal digital 40-bit** dari sensor. Pada modul DHT11, pembacaannya bergantung pada komponen *NTC Thermistor* (untuk suhu) dan substrat polimer resistif (untuk kelembaban) yang kemudian diubah menjadi paket digital oleh chip IC 8-bit internal di dalam cangkang biru tersebut.
+- **Penyebab A:** Pengkabelan pin IO27 bermasalah (kendur/terlepas), sehingga sinyal digital terputus di tengah jalan.
+- **Penyebab B:** Sinyal tercampur *noise* listrik statis, sehingga menembagakan *Checksum* Paritas gagal di verifikasi library.
+- **Penyebab C:** IC internal DHT11 macet (*hardware hang*). Kadang mencabut dan memasang kembali pin VCC sensor (me-reset daya) akan menormalkan kembali logika 8-bit di dalamnya.
+- **Penyebab D:** Kamu melanggar hukum termodinamika instrumen dengan memaksa frekuensi di bawah `2000` ms!
 
 ### 2. Apakah saya harus membuang nilai `NaN`?
 **HARUS!** Di bahasa standar C++, nilai apa pun jika dijumlahkan, dikalikan, apalagi dikirim ke database JSON yang bersumber dari elemen `NAN` akan menularkan virus kelumpuhan `null / nan` ke seluruh operasi matematika algoritma server. Selalu letakkan barikade gerbang awal `if (isnan(h)) return;`.
