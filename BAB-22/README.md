@@ -709,11 +709,13 @@ uint8_t idx = 0;
 
 while (Serial.available() > 0) {
   char c = Serial.read();
-  if (c == '\n') {
-    buf[idx] = '\0';
-    // proses buf
-    idx = 0;
-    break; // <--- Keluar loop agar diproses
+  if (c == '\n' || c == '\r') {
+    if (idx > 0) {
+      buf[idx] = '\0';
+      // proses buf
+      idx = 0;
+      break; // <--- Keluar loop agar diproses
+    }
   } else if (idx < MAX_BUF - 1) {  // ← Proteksi overflow
     buf[idx++] = c;
   }
