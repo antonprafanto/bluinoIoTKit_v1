@@ -197,7 +197,14 @@ DallasTemperature sensors(&oneWire);
 // ── Fungsi Baca Suhu ────────────────────────────────────────────
 float bacaSuhuSekali() {
   sensors.begin();
-  sensors.setResolution(12);
+  
+  // 💡 TIPS INDUSTRI HEMAT BATERAI (Resolusi vs Waktu Melek):
+  // Resolusi 12-bit (0.06°C) butuh 750ms untuk selesai. Resolusi 9-bit (0.5°C) 
+  // hanya butuh 94ms! Menggunakan 12-bit berarti CPU ESP32 menyala 650ms lebih 
+  // lama di SETIAP SIKLUS, menyedot kapasitas baterai Li-Ion secara masif! 
+  // Jika aplikasimu hanya butuh toleransi setengah derajat, wajib gunakan 9-bit.
+  sensors.setResolution(12); // Ganti ke 9 (9-bit) untuk Ultra-Hemat!
+  
   sensors.setWaitForConversion(false); // Wajib false agar KITA yang mengontrol timeout!
 
   sensors.requestTemperatures();
@@ -495,16 +502,19 @@ Salah satu keunggulan DS18B20 yang jarang diajarkan: kabel data bisa sangat panj
 
 ### 2. Suhu Selalu 85°C Setelah Deep Sleep?
 ```text
-❌ 85°C = Power-On Reset Value = sensor belum selesai konversi!
+❌ 85°C = Power-On Reset Value = DS18B20 baru saja menyala dan belum selesai mengukur!
 
-Penyebab khusus Deep Sleep:
-  Setelah bangun dari tidur, sensor DS18B20 butuh ~1 ms untuk
-  inisialisasi ulang. Pastikan kode setup() membaca sensor SETELAH
-  memanggil sensors.begin() — jangan baca langsung begitu bangun!
+Penyebab khusus Baterai/Deep Sleep (Arsitektur GPIO Power):
+  Resep rahasia arsitek IoT sejati: Daripada VDD sensor dipasang ke 3.3V konstan,
+  mereka memasangnya ke PIN DIGITAL ESP32 (misal IO33). Sebelum tidur, IO33 di-LOW
+  (sensor mati total 0 µA). Saat bangun, IO33 di-HIGH. 
+  TETAPI, sensor butuh ~50ms untuk "sadar" (booting) setelah strum masuk! Jika kamu
+  langsung memanggil sensors.begin(), sensor akan panik dan mengirim angka 85.0°C!
 
-Solusi: Tambahkan 50ms setelah sensors.begin() jika perlu:
-  sensors.begin();
-  delay(50); // Beri sensor waktu inisialisasi ulang setelah power reset
+✅ Solusi Wajib Sistem GPIO Power:
+  digitalWrite(33, HIGH); // Nyalakan listrik sensor
+  delay(50);              // Beri memori internal DS18B20 waktu untuk bernapas
+  sensors.begin();        // Baru mulai komunikasi 1-Wire
 ```
 
 ### 3. Nilai Suhu Berbeda dari DS18B20 Sebelum vs Sesudah Deep Sleep?
