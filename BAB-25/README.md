@@ -682,12 +682,11 @@ ROM Sensor 2 (Suhu Luar)  : 28:FF:11:22:33:44:55:66 ✅ Terhubung
 OneWire        oneWire(ONE_WIRE_PIN);
 DallasTemperature sensor(&oneWire);
 
-// Waktu konversi (ms) berdasarkan resolusi
-uint16_t waktuKonversi[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 94, 188, 375, 750 };
-// Indeks: [9]=94ms, [10]=188ms, [11]=375ms, [12]=750ms
-
 void bacaPerResolusi(uint8_t resolusi) {
   sensor.setResolution(resolusi);
+
+  // 💡 Tarik informasi waktu tunggu riil dari hardware/library
+  uint16_t waktuKonversi = sensor.millisToWaitForConversion(resolusi);
 
   // Kirim permintaan konversi (blocking untuk demo ini)
   sensor.setWaitForConversion(true);
@@ -702,7 +701,7 @@ void bacaPerResolusi(uint8_t resolusi) {
 
   Serial.printf("  Resolusi %2u-bit: %8.4f °C  (%5u ms) step=%.4f°C\n",
                 resolusi, suhuC,
-                waktuKonversi[resolusi],
+                waktuKonversi,
                 (resolusi == 9)  ? 0.5f :
                 (resolusi == 10) ? 0.25f :
                 (resolusi == 11) ? 0.125f : 0.0625f);
