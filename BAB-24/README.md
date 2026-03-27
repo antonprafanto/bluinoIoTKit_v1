@@ -215,6 +215,7 @@ void setup() {
     case CARD_MMC:  Serial.println("MMC");   break;
     case CARD_SD:   Serial.println("SDSC");  break;
     case CARD_SDHC: Serial.println("SDHC/SDXC"); break;
+    case CARD_NONE: Serial.println("Kosong/Tidak Terdeteksi"); break;
     default:        Serial.println("Tidak dikenal"); break;
   }
 
