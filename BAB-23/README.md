@@ -476,6 +476,7 @@ Inilah keistimewaan I2C: **lebih dari satu sensor bisa dibaca dari bus yang sama
 #define MPU_ADDR      0x68
 #define MPU_PWR_MGMT  0x6B
 #define MPU_TEMP_H    0x41
+#define MPU_WHO_AM_I  0x75
 
 // === BMP180 ====================================================
 #define BMP_ADDR      0x77
@@ -532,7 +533,7 @@ void setup() {
   Serial.println("══════════════════════════════════════════");
 
   // ── Verifikasi MPU6050 ────────────────────────────────────────
-  uint8_t mpuId = bacaReg(MPU_ADDR, 0x75);
+  uint8_t mpuId = bacaReg(MPU_ADDR, MPU_WHO_AM_I);
   if (mpuId == 0x68) {
     tulisReg(MPU_ADDR, MPU_PWR_MGMT, 0x00);  // Wake up
     mpuOK = true;
