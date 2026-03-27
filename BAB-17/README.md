@@ -299,8 +299,9 @@ void loop() {
         int currentSecond = elapsed / 1000;
         if (currentSecond != lastPrintedSecond) {
           lastPrintedSecond = currentSecond;
+          unsigned long sLeft = (ARMING_TIME >= elapsed) ? (ARMING_TIME - elapsed) / 1000 : 0;
           Serial.print("Arming: ");
-          Serial.print((ARMING_TIME - elapsed) / 1000);
+          Serial.print(sLeft);
           Serial.println("s");
         }
       }

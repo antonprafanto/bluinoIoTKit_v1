@@ -20,7 +20,7 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 | 6 | MPU-6050 (Akselerometer/Giroskop) | SDA=IO21, SCL=IO22 | I2C |
 | 7 | RGB LED WS2812 (NeoPixel) | IO12 | Data (RMT) |
 | 8 | Micro SD Adapter | CS=IO5, MOSI=IO23, CLK=IO18, MISO=IO19 | SPI |
-| 9 | Touch Pad | IO27 | Capacitive |
+| 9 | Touch Pad | Custom (rek: IO33) | Capacitive |
 | 10 | 4× LED (Merah, Kuning, Hijau, Biru) | Custom + resistor 330Ω | Digital |
 | 11 | 2× Push Button | Custom + pull-down 10KΩ | Digital |
 | 12 | Active Buzzer | Custom | Digital |
@@ -48,8 +48,8 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 │  IO19 (MISO) ──── MicroSD                                │
 ├─────────────────────────────────────────────────────────┤
 │                   Sensor Digital                         │
-│  IO27 ──── DHT11 (+ pull-up 4K7Ω) / Touch Pad           │
-│         ⚠️ IO27 di-share: DHT11 dan Touch TIDAK bisa      │
+│  IO27 ──── DHT11 (+ pull-up 4K7Ω)                       │
+│  Custom ── Touch Pad (Pilih pin T4-T9 yang tersedia)    │
 │            digunakan bersamaan dalam satu program         │
 │  IO14 ──── DS18B20 (+ pull-up 4K7Ω)                     │
 │  IO12 ──── RGB LED WS2812                                │
