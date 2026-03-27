@@ -189,7 +189,6 @@ void setup() {
   Serial.println("══════════════════════════════════════════════");
   
   dht.begin();
-  delay(100);
 }
 
 void loop() {
@@ -284,6 +283,11 @@ void perbaruiDataDHT() {
 
     if (isnan(hum) || isnan(suhu)) {
       cuacaTerakhir.sukses = false;
+      // 💡 Sifat Toleransi Kesalahan (Fault Tolerance):
+      // Perhatikan bahwa kita TIDAK mengubah nilai `cuacaTerakhir.suhu` menjadi NAN di sini!
+      // Nilai terakhir yang valid akan tetap dipertahankan (Latch-on-Fail) agar layar OLED
+      // atau antarmuka server klien tidak tiba-tiba kosong hanya karena sebutir paket data
+      // mengalami gangguan minor sesaat!
       Serial.printf("[%6lu ms] ❌ Kegagalan Paritas Checksum Sensor!\n", sekarang);
     } else {
       cuacaTerakhir.suhu = suhu;
