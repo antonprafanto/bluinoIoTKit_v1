@@ -280,7 +280,7 @@ void loop() {
 
       if (btnPress) {
         changeState(ARMING);
-        Serial.println("→ ARMING: Keluar dalam 10 detik!");
+        Serial.println("→ ARMING: Keluar dalam 5 detik!");
       }
       break;
 
