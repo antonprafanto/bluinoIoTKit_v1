@@ -1,7 +1,7 @@
 # 📘 ESP32 IoT Mastery — Kit Bluino
 
 <p align="center">
-  <img src="Produk.jpeg" alt="Bluino ESP32 IoT Starter Shield Top View" width="800"><br>
+  <img src="Produk1.jpeg" alt="Bluino ESP32 IoT Starter Shield Top View" width="800"><br>
   <img src="Produk2.jpeg" alt="Bluino ESP32 IoT Starter Shield Angled Left" width="395">
   <img src="Produk3.jpeg" alt="Bluino ESP32 IoT Starter Shield Angled Right" width="395">
 </p>
