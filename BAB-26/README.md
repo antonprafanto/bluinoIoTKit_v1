@@ -12,9 +12,9 @@ Setelah mempelajari bab ini, kamu akan mampu:
 
 ---
 
-## 26.1 Mengenal Keluarga Sensor DHT
+## 26.1 Mengenal Keluarga Sensor DHT (Digital Humidity and Temperature)
 
-Jika DS18B20 difokuskan murni pada presisi suhu absolut (-55°C hingga +125°C), **DHT11** (dan kakaknya, DHT22) bertugas memonitor cuaca alias suhu ruangan dan **Kelembaban Relatif (Relative Humidity - % RH)**. 
+Jika DS18B20 difokuskan murni pada presisi suhu absolut (-55°C hingga +125°C), **DHT11** (dan kakaknya, DHT22) bertugas memonitor cuaca alias suhu ruangan dan **Kelembaban Relatif (Relative Humidity - % RH)**. Sesuai dengan singkatannya penciptanya, ini adalah modul *Digital Humidity and Temperature* multifungsi.
 
 Sensor kelembaban (humidity) sangat krusial dalam IoT agrikultur (Greenhouse), inkubator penetas telur, penyimpan obat/vaksin, dan kontrol AC (Air Conditioner) gedung cerdas.
 
@@ -275,6 +275,10 @@ void perbaruiDataDHT() {
   unsigned long sekarang = millis();
 
   // Kunci batas kecepatan: Jangan mengeksekusi jika belum lewat 2 detik!
+  // 💡 Trik Matematika WARM-UP: Karena tBacaTerakhir diawali nilai 0 di baris atas,
+  // mikrokontroler akan secara alami diam (menolak masuk ke if ini) selama 2000 milidetik 
+  // pertama sejak booting. Ini secara otomatis memberikan *boot-delay* yang diwajibkan 
+  // oleh hardware fisik DHT11 tanpa kita perlu menulis perintah delay() pemblokir arus!
   if (sekarang - tBacaTerakhir >= INTERVAL_BACA_MS) {
     tBacaTerakhir = sekarang;
 
