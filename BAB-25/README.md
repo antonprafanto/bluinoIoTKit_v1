@@ -596,10 +596,20 @@ void setup() {
   Serial.printf("Sensor terdeteksi di bus : %u buah\n\n", total);
 
   Serial.printf("ROM Sensor 1 (%s): ", NAMA_SENSOR_1);
-  cetakRomCode(ROM_SENSOR_1); Serial.println();
+  cetakRomCode(ROM_SENSOR_1);
+  if (sensors.isConnected(ROM_SENSOR_1)) {
+    Serial.println(" ✅ Terhubung");
+  } else {
+    Serial.println(" ❌ TIDAK DITEMUKAN! (Lupa ganti ROM Code?)");
+  }
 
   Serial.printf("ROM Sensor 2 (%s)  : ", NAMA_SENSOR_2);
-  cetakRomCode(ROM_SENSOR_2); Serial.println();
+  cetakRomCode(ROM_SENSOR_2);
+  if (sensors.isConnected(ROM_SENSOR_2)) {
+    Serial.println(" ✅ Terhubung");
+  } else {
+    Serial.println(" ❌ TIDAK DITEMUKAN! (Lupa ganti ROM Code?)");
+  }
 
   Serial.println("\n──────────────────────────────────────────");
 }
@@ -638,8 +648,8 @@ void loop() {
 ══════════════════════════════════════════
 Sensor terdeteksi di bus : 2 buah
 
-ROM Sensor 1 (Suhu Ruangan): 28:FF:A1:B2:C3:D4:E5:F6
-ROM Sensor 2 (Suhu Luar)  : 28:FF:11:22:33:44:55:66
+ROM Sensor 1 (Suhu Ruangan): 28:FF:A1:B2:C3:D4:E5:F6 ✅ Terhubung
+ROM Sensor 2 (Suhu Luar)  : 28:FF:11:22:33:44:55:66 ✅ Terhubung
 
 ──────────────────────────────────────────
 [    5751 ms]
