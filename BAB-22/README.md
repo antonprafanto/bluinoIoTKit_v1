@@ -185,6 +185,7 @@ void loop() {
     if (c == '\n' || c == '\r') {
       if (inputBuffer.length() > 0) {
         newCommand = true;
+        break; // Berhenti sebentar agar loop() bisa memproses
       }
     } else {
       inputBuffer += c;
@@ -288,6 +289,7 @@ void bacaSerial() {
         rxBuf[rxIdx] = '\0';  // Null-terminate
         lineReady = true;
         rxIdx = 0;
+        break; // Hentikan baca jika 1 baris utuh sudah siap
       }
     } else if (rxIdx < MAX_BUF - 1) {
       rxBuf[rxIdx++] = c;
@@ -494,6 +496,7 @@ void bacaProtokol() {
       rxBuf[rxIdx] = '\0';
       msgReady = true;
       inPacket = false;
+      break; // Keluar loop agar pesan langsung diproses
     } else if (inPacket && rxIdx < MAX_BUF - 1) {
       rxBuf[rxIdx++] = c;
     }
@@ -710,6 +713,7 @@ while (Serial.available() > 0) {
     buf[idx] = '\0';
     // proses buf
     idx = 0;
+    break; // <--- Keluar loop agar diproses
   } else if (idx < MAX_BUF - 1) {  // ← Proteksi overflow
     buf[idx++] = c;
   }
