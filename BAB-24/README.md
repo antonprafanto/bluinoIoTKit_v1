@@ -518,13 +518,14 @@ bool tulisLog(unsigned long uptime, uint32_t count, float suhu) {
   // Buka file satu kali saja (Optimasi Kecepatan SD Card / FAT32)
   File f = SD.open(LOG_FILE, FILE_APPEND);
   if (!f) {
-    Serial.println("❌ Gagal membuka file log untuk ditulis!");
+    // Print newline agar tidak merusak format Serial.print dari loop() utama
+    Serial.print("\n   └─ ❌ Error Internal: Gagal membuka file log FAT32!");
     return false;
   }
 
   // Cek ukuran file dari handle yang terbuka — hindari file terlalu raksasa
   if (f.size() >= MAX_LOG_SIZE) {
-    Serial.println("⚠️  File log melebihi 10MB, logging dihentikan.");
+    Serial.print("\n   └─ ⚠️ Peringatan: File log melebihi batas 10MB!");
     f.close();
     return false;
   }
