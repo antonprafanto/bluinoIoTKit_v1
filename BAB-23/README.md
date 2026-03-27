@@ -612,8 +612,8 @@ Solusi 3: Software I2C (Second Wire instance)
 // Membuat 2 bus I2C terpisah menggunakan 2 instance Wire
 #include <Wire.h>
 
-TwoWire I2C_A = TwoWire(0);  // Bus I2C pertama (hardware UART0)
-TwoWire I2C_B = TwoWire(1);  // Bus I2C kedua  (hardware UART1)
+TwoWire I2C_A = TwoWire(0);  // Bus I2C pertama (hardware I2C0)
+TwoWire I2C_B = TwoWire(1);  // Bus I2C kedua  (hardware I2C1)
 
 void setup() {
   // Bus A: Pin default IO21/IO22
