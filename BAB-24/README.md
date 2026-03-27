@@ -8,7 +8,7 @@ Setelah mempelajari bab ini, kamu akan mampu:
 - Menggunakan library `SPI.h` dan `SD.h` pada ESP32
 - Menginisialisasi dan memverifikasi modul Micro SD yang terpasang di Kit Bluino
 - Membuat, membaca, dan menghapus file di kartu SD untuk keperluan *data logging*
-- Membangun sistem *data logger* suhu dan waktu yang robustik
+- Membangun sistem *data logger* suhu dan waktu yang tangguh (robust)
 
 ---
 
