@@ -100,27 +100,20 @@ void setup() {
   sensors.begin();
 
   // 🔴 KRITIS untuk Parasitic Power Mode:
-  // Parameter 'true' mengaktifkan Strong Pull-Up MOSFET saat konversi
-  // sehingga sensor mendapat arus cukup dari jalur data!
-  sensors.setWaitForConversion(false);
-
-  // Perintah konversi dengan Strong Pull-Up aktif:
-  // sensors.requestTemperatures() LALU ikuti segera dengan:
-  // oneWire.depower(); // matikan strong pull-up setelah konversi
+  // KITA TIDAK BOLEH MEMAKAI POLA NON-BLOCKING DI SINI!
+  // Karena jalur data pada kabel (DQ) sedang diculik / beralih fungsi
+  // sebagai penyuplai listrik utama selama 750ms. Jika kita mendesak 
+  // "bertanya" apakah sensor sudah siap (polling), ESP32 akan mencabut paksa 
+  // tegangan Strong Pull-Up tersebut dan sensor akan mati di tengah konversi!
+  sensors.setWaitForConversion(true); 
 }
 
 void loop() {
-  // Dalam parasitic mode, gunakan requestTemperaturesByIndex(0) 
-  // bukan requestTemperatures() agar strong pull-up dikelola per-sensor
+  // Perintah ini akan OTOMATIS memblokir eksekusi selama 750ms (untuk resolusi 12-bit)
+  // sambil menahan jalur Data dalam keadaan HIGH konstan (mensuplai listrik parasit)!
   sensors.requestTemperaturesByIndex(0);
   
-  // Tunggu konversi selesai (750ms untuk 12-bit)
-  unsigned long mulai = millis();
-  while (!sensors.isConversionComplete()) {
-    if (millis() - mulai > 800) break; // Timeout safeguard
-    yield(); // Beri waktu WiFi stack bernapas
-  }
-
+  // Begitu fungsi di atas kembali, kita aman membaca hasilnya:
   float suhuC = sensors.getTempCByIndex(0);
   if (suhuC != DEVICE_DISCONNECTED_C) {
     Serial.printf("Suhu (Parasitic): %.2f °C\n", suhuC);
@@ -156,6 +149,8 @@ Perhitungan kasar dengan baterai 2000mAh:
     Arus rata-rata ≈ (10s × 80mA + 890s × 0.02mA) / 900s ≈ ~0.9 mA
     Masa pakai: 2000mAh / 0.9mA ≈ 2222 JAM ≈ ~93 HARI! 🔋
 ```
+
+> ⚠️ **Mitos Baterai vs Realitas Hardware (PENTING!):** Kalkulasi arus mikro-ampere (µA) menakjubkan di atas HANYA bisa dicapai jika kamu mendesain papan sirkuit (PCB) mu sendiri bersama chip ESP32 telanjang, atau menggunakan *board* khusus Ultra-Low Power. Jika kamu menancapkan baterai Li-Ion ke ESP32 tipe *DevKit V1* pasaran (yang ada di dalam Kit-mu), jangan kaget jika daya tahannya merosot. Kenapa? Karena *board DevKit* menyimpan parasit energi seperti Regulator Tegangan murahan (AMS1117) dan chip USB-TTL (CP2102) yang terus menerus meminum 10~20 mA listrik **biarpun** otak ESP32-nya sedang koma tertidur lelap!
 
 ### Program 1: Logger Suhu Deep Sleep (Kirim via WiFi Tiap 15 Menit)
 
