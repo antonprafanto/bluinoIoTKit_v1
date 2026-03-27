@@ -224,8 +224,9 @@ void setup() {
   // Baca suhu
   float suhuC = bacaSuhuSekali();
 
-  if (suhuC == DEVICE_DISCONNECTED_C) {
-    Serial.println("❌ Sensor error! Lewati siklus ini.");
+  // Filter 85.0°C (Power-On Reset Error) dan -127°C (Terputus)
+  if (suhuC == DEVICE_DISCONNECTED_C || suhuC == 85.0) {
+    Serial.println("❌ Sensor error/belum siap (85.0)! Lewati siklus ini.");
   } else {
     // Simpan di riwayat RTC (buffer melingkar)
     riwayatSuhu[indeksRiwayat % MAX_RIWAYAT] = suhuC;
@@ -407,8 +408,10 @@ void loop() {
       if (sekarang - tMulaiKonversi >= waktu_konversi_ms) {
         float suhuRaw = sensors.getTempCByIndex(0);
 
-        if (suhuRaw == DEVICE_DISCONNECTED_C) {
-          Serial.printf(" [%8lu ms] ❌ Sensor terputus!\n", sekarang);
+        // Filter 85.0°C (Power-On Reset Error) dan -127°C (Terputus)
+        // Jika 85.0 dibiarkan lolos, ia akan meracuni data Filter Rata-Rata kita!
+        if (suhuRaw == DEVICE_DISCONNECTED_C || suhuRaw == 85.0) {
+          Serial.printf(" [%8lu ms] ❌ Sensor terputus/Reset (%.2f)!\n", sekarang, suhuRaw);
         } else {
           float suhuFilter = tambahSampelDanRataRata(suhuRaw);
           float selisih    = suhuRaw - suhuFilter;
@@ -463,7 +466,8 @@ Salah satu keunggulan DS18B20 yang jarang diajarkan: kabel data bisa sangat panj
 │ 10 – 30 m     │ Pull-up 2.2KΩ (lebih rendah untuk mengatasi  │
 │               │ kapasitansi kabel yang lebih besar)           │
 │ 30 – 100 m    │ Pull-up 1KΩ + tambahkan kapasitor 100nF       │
-│               │ antara DQ dan GND di ujung kabel              │
+│               │ antara VCC (VDD) dan GND di ujung kabel       │
+│               │ (Fungsinya: Stabilisasi tegangan lokal)       │
 │ > 100 m       │ Gunakan konverter RS-485 / HART               │
 ├────────────────┼──────────────────────────────────────────────┤
 │ Jenis Kabel   │ CAT5/CAT6 lebih baik dari kabel NYAF biasa   │
