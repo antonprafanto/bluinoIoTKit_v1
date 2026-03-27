@@ -192,6 +192,8 @@ void setup() {
   // Ini menghindari 'glitch' sinyal reset pada perangkat SPI
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
+  delay(100); // ⏳ Beri waktu modul Micro SD untuk stabilisasi tegangan ('warm-up')
+
 
   // Parameter SPI.begin(): (CLK, MISO, MOSI) -> Hindari memasukkan CS
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
@@ -326,6 +328,8 @@ bool initSD() {
   // Pre-kondisi CS HIGH demi stabilitas bus saat boot
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
+  delay(100); // ⏳ Waktu 'warm-up' agar SD Card lepas dari state floating
+
 
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
@@ -478,6 +482,8 @@ bool initSD() {
   // Pre-kondisi CS HIGH demi stabilitas bus saat boot
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
+  delay(100); // ⏳ Waktu 'warm-up' agar SD Card lepas dari state floating
+
 
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
@@ -687,6 +693,8 @@ void setup() {
   // Stabilitas Hardware: CS harus HIGH sebelum SPI.begin
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
+  delay(100); // ⏳ Stabilisasi tegangan listrik modul
+
 
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
 
