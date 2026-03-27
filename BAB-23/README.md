@@ -345,10 +345,9 @@ void setup() {
     return;
   }
 
-  // Bangunkan MPU6050 dari mode sleep
-  // Register PWR_MGMT_1 = 0x00 berarti: semua power domain aktif
-  tulisRegister(MPU6050_ADDR, REG_PWR_MGMT, 0x00);
-  Serial.println("✅ MPU6050 dibangunkan dari mode sleep.");
+  // Bangunkan MPU6050 dan atur Clock ke PLL X-Gyro untuk stabilitas (0x01 lebih baik dari 0x00)
+  tulisRegister(MPU6050_ADDR, REG_PWR_MGMT, 0x01);
+  Serial.println("✅ MPU6050 dibangunkan (Clock = PLL X-Gyro).");
   Serial.println("────────────────────────────────────────");
 }
 
@@ -425,8 +424,8 @@ void setup() {
   Serial.begin(115200);
   Wire.begin(SDA_PIN, SCL_PIN);
 
-  // Bangunkan MPU6050
-  tulisRegister(MPU6050_ADDR, REG_PWR_MGMT, 0x00);
+  // Bangunkan MPU6050 & gunakan PLL X-Gyro clock sumber (lebih stabil)
+  tulisRegister(MPU6050_ADDR, REG_PWR_MGMT, 0x01);
 
   Serial.println("══════════════════════════════════");
   Serial.println("  BAB 23: Suhu Internal MPU6050");
@@ -535,7 +534,7 @@ void setup() {
   // ── Verifikasi MPU6050 ────────────────────────────────────────
   uint8_t mpuId = bacaReg(MPU_ADDR, MPU_WHO_AM_I);
   if (mpuId == 0x68) {
-    tulisReg(MPU_ADDR, MPU_PWR_MGMT, 0x00);  // Wake up
+    tulisReg(MPU_ADDR, MPU_PWR_MGMT, 0x01);  // Wake up & PLL X-Gyro
     mpuOK = true;
     Serial.println("✅ MPU6050 terdeteksi (WHO_AM_I = 0x68)");
   } else {
