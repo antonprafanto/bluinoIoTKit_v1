@@ -803,7 +803,7 @@ Solusi untuk Blocking Mode:
   float suhu = getTempCByIndex(0);
 
 Solusi untuk Non-Blocking Mode:
-  Pastikan WAKTU_KONVERSI_MS = 750 (untuk resolusi 12-bit)
+  Gunakan sensor.millisToWaitForConversion(resolusi) pada timer millis()!
 ```
 
 ### 4. Sensor Nilai Tidak Akurat (Fluktuatif)?
@@ -850,7 +850,7 @@ Solusi untuk Non-Blocking Mode:
 │                                                          │
 │ Sequence Non-Blocking:                                   │
 │   1. sensor.requestTemperatures();                       │
-│   2. Tunggu WAKTU_KONVERSI_MS (millis)                   │
+│   2. Tunggu selama sensor.millisToWaitForConversion()    │
 │   3. sensor.getTempCByIndex(0);                          │
 │                                                          │
 │ Kode Error Suhu:                                         │
@@ -859,7 +859,7 @@ Solusi untuk Non-Blocking Mode:
 │                                                          │
 │ Pantangan:                                               │
 │   ❌ Baca suhu TANPA requestTemperatures() dulu          │
-│   ❌ Baca suhu sebelum WAKTU_KONVERSI_MS berlalu         │
+│   ❌ Baca suhu sebelum waktu konversi selesai            │
 │   ❌ Lupa periksa DEVICE_DISCONNECTED_C                  │
 │   ❌ Gunakan getTempCByIndex() untuk multi-sensor        │
 └──────────────────────────────────────────────────────────┘
