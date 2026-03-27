@@ -221,11 +221,11 @@ void setup() {
   Serial.printf("Sensor DS18B20 terdeteksi: %u buah\n", jumlahSensor);
 
   if (jumlahSensor == 0) {
-    Serial.println("❌ Tidak ada sensor! Periksa wiring dan library.");
+    Serial.println("❌ Tidak ada sensor! Periksa koneksi fisik.");
     Serial.println("   Kemungkinan penyebab:");
-    Serial.println("   1. Library OneWire atau DallasTemperature belum terinstal");
+    Serial.println("   1. Sensor DS18B20 tidak menancap sempurna di soket/header");
     Serial.println("   2. Pin ONE_WIRE_PIN tidak sesuai (seharusnya IO14)");
-    Serial.println("   3. Kartu tidak terhubung dengan benar");
+    Serial.println("   3. Sensor rusak atau terbalik memasang VCC/GND");
     return;
   }
 
