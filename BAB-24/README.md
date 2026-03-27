@@ -187,6 +187,11 @@ void setup() {
   Serial.println("   BAB 24: Verifikasi Micro SD Card");
   Serial.println("══════════════════════════════════════════");
 
+  // Pre-kondisi CS: Pastikan HIGH (tidak aktif) sebelum init SPI
+  // Ini menghindari 'glitch' sinyal reset pada perangkat SPI
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+
   // Parameter SPI.begin(): (CLK, MISO, MOSI, CS)
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
 
@@ -316,6 +321,10 @@ bool sdReady = false;
 
 // ── Inisialisasi SD ─────────────────────────────────────────────
 bool initSD() {
+  // Pre-kondisi CS HIGH demi stabilitas bus saat boot
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
     Serial.println("❌ SD Card gagal diinisialisasi!");
@@ -464,6 +473,10 @@ uint32_t loopCount    = 0;
 
 // ── Inisialisasi SD ─────────────────────────────────────────────
 bool initSD() {
+  // Pre-kondisi CS HIGH demi stabilitas bus saat boot
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
     return false;
@@ -659,6 +672,11 @@ void listDirRoot() {
 
 void setup() {
   Serial.begin(115200);
+  
+  // Stabilitas Hardware: CS harus HIGH sebelum SPI.begin
+  pinMode(SD_CS, OUTPUT);
+  digitalWrite(SD_CS, HIGH);
+
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
 
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
