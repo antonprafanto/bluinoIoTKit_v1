@@ -139,6 +139,19 @@ void loop() {
 }
 ```
 
+**Contoh output yang diharapkan:**
+```text
+══════════════════════════════════════════
+   BAB 26: DHT11 — Suhu & Kelembaban
+══════════════════════════════════════════
+✅ Sensor DHT11 siap!
+Dibutuhkan 2 detik untuk warm-up pertama...
+──────────────────────────────────────────
+💧 Kelembaban: 65.0 %  |  🌡️ Suhu: 31.0 °C
+💧 Kelembaban: 65.0 %  |  🌡️ Suhu: 31.0 °C
+💧 Kelembaban: 66.0 %  |  🌡️ Suhu: 31.1 °C
+```
+
 **Penjelasan Alur Program:**
 1. Konstruktor `DHT dht(DHTPIN, DHTTYPE)` wajib diisi tipe karena toleransi *timing* internal library DHT11 sangat berbeda dengan DHT22.
 2. Fungsi `delay(2000)` di baris awal loop bukan tanpa alasan! Di hardware internal DHT11, konverter Analog/Digital butuh waktu hampir 1,5 detik untuk bereaksi terhadap perubahan gelombang ion air absolut. 
@@ -304,6 +317,16 @@ void loop() {
   // if (clientWebMasuk) webServer.kirimJson(cuacaTerakhir);
   //
 }
+```
+
+**Contoh output yang diharapkan:**
+```text
+══════════════════════════════════════════════
+ BAB 26: Asynchronous Weather Threading
+══════════════════════════════════════════════
+[  2001 ms] 🌧️ Data Masuk: 30.5°C | RH: 70.0%
+[  4001 ms] 🌧️ Data Masuk: 30.5°C | RH: 70.0%
+[  6001 ms] 🌧️ Data Masuk: 30.6°C | RH: 71.0%
 ```
 
 Program di atas menjamin bahwa sensor akan "didatangi dan ditanyai tegangannya" secara teliti setiap tepat 2000 ms, tak selisih sesendok waktu pun! Mesin IoT mu sekarang memiliki detak jantung abadi.
