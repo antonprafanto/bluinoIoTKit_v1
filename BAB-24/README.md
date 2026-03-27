@@ -486,17 +486,30 @@ bool initSD() {
   return true;
 }
 
-// ── Tulis header CSV jika file baru ────────────────────────────
+// ── Tulis header CSV jika file kosong atau baru ─────────────────
 void tulisHeaderCSV() {
+  bool butuhHeader = false;
+
   if (!SD.exists(LOG_FILE)) {
+    butuhHeader = true;
+  } else {
+    // File terdeteksi, tetapi periksa apakah kosong (0 bytes) akibat crash sebelumnya
+    File fCek = SD.open(LOG_FILE, FILE_READ);
+    if (fCek) {
+      if (fCek.size() == 0) butuhHeader = true;
+      fCek.close();
+    }
+  }
+
+  if (butuhHeader) {
     File f = SD.open(LOG_FILE, FILE_WRITE);
     if (f) {
       f.println("uptime_ms,loop_count,suhu_C");
       f.close();
-      Serial.printf("📄 File baru dibuat: %s\n", LOG_FILE);
+      Serial.printf("📄 File/Header CSV kosong disiapkan: %s\n", LOG_FILE);
     }
   } else {
-    Serial.printf("📂 File log sudah ada, data akan ditambahkan.\n");
+    Serial.printf("📂 File log sudah ada dan berisi data yang utuh.\n");
   }
 }
 
