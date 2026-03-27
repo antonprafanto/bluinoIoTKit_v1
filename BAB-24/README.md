@@ -135,8 +135,9 @@ ESP32 secara internal memiliki 4 *controller* SPI. Dua di antaranya digunakan un
 #define SD_CLK  18
 
 void setup() {
-  // Inisialisasi SPI dengan pin eksplisit (CLK, MISO, MOSI, CS)
-  SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+  // Inisialisasi SPI (CLK, MISO, MOSI). 
+  // PENTING: Jangan masukkan pin CS di sini agar tidak konflik dengan SD library!
+  SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
 
   // Mulai SD dengan kecepatan 4 MHz (aman untuk semua kartu SD)
   if (!SD.begin(SD_CS, SPI, 4000000UL)) {
@@ -145,7 +146,7 @@ void setup() {
 }
 ```
 
-> ⚠️ **Urutan parameter `SPI.begin()`:** `SPI.begin(CLK, MISO, MOSI, CS)`. Perhatikan MISO sebelum MOSI — ini kebalikan dari urutan nama "MOSI MISO" yang biasa kita sebut!
+> ⚠️ **Urutan parameter `SPI.begin()`:** `SPI.begin(CLK, MISO, MOSI)`. Perhatikan MISO sebelum MOSI — ini kebalikan dari sebutan "MOSI MISO"! Selain itu, **jangan masukkan pin CS** pada parameter `SPI.begin()` jika kamu menggunakan `SD.begin(CS)`, karena fungsi SD akan mengatur CS-nya secara manual (Software CS).
 
 ---
 
@@ -192,8 +193,8 @@ void setup() {
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
 
-  // Parameter SPI.begin(): (CLK, MISO, MOSI, CS)
-  SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+  // Parameter SPI.begin(): (CLK, MISO, MOSI) -> Hindari memasukkan CS
+  SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
 
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
     Serial.println("❌ SD Card gagal diinisialisasi!");
@@ -325,7 +326,7 @@ bool initSD() {
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
 
-  SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+  SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
     Serial.println("❌ SD Card gagal diinisialisasi!");
     return false;
@@ -477,7 +478,7 @@ bool initSD() {
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
 
-  SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+  SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
     return false;
   }
@@ -677,7 +678,7 @@ void setup() {
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
 
-  SPI.begin(SD_CLK, SD_MISO, SD_MOSI, SD_CS);
+  SPI.begin(SD_CLK, SD_MISO, SD_MOSI);
 
   if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
     Serial.println("❌ SD Card gagal!");
@@ -766,8 +767,8 @@ if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
 │   CLK  = IO18  MISO = IO19                              │
 │                                                         │
 │ Inisialisasi:                                           │
-│   SPI.begin(CLK, MISO, MOSI, CS)  ← Urutan ini!        │
-│   SD.begin(CS, SPI, 4000000UL)                          │
+│   SPI.begin(CLK, MISO, MOSI)  ← Tanpa CS!              │
+│   SD.begin(CS, SPI, 4000000UL)  ← CS diurus ke sini     │
 │                                                         │
 │ Kunci keberhasilan:                                     │
 │   ✅ Format kartu: FAT32                                │
