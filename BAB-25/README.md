@@ -293,8 +293,7 @@ DallasTemperature sensors(&oneWire);
 // ── Cetakan ROM Code dalam format Hex ────────────────────────────
 void cetakRomCode(DeviceAddress addr) {
   for (uint8_t i = 0; i < 8; i++) {
-    if (addr[i] < 0x10) Serial.print("0"); // Padding nol di depan
-    Serial.print(addr[i], HEX);
+    Serial.printf("%02X", addr[i]); // Format Hex 2 digit dengan leading-zero
     if (i < 7) Serial.print(":");
   }
 }
@@ -564,8 +563,7 @@ unsigned long waktu_konversi_ms = 750;
 // ── Helper: Cetak ROM Code ────────────────────────────────────────
 void cetakRomCode(DeviceAddress addr) {
   for (uint8_t i = 0; i < 8; i++) {
-    if (addr[i] < 0x10) Serial.print("0");
-    Serial.print(addr[i], HEX);
+    Serial.printf("%02X", addr[i]);
     if (i < 7) Serial.print(":");
   }
 }
