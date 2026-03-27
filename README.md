@@ -8,6 +8,8 @@
 
 Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluino ESP32 IoT Starter Shield v3.2**. Materi disusun dalam format BAB (chapter) sehingga bisa digunakan secara fleksibel — baik untuk kursus terstruktur maupun belajar mandiri.
 
+> ⏳ **Status Pengembangan:** Saat ini materi kurikulum telah lulus audit teknis dan rampung 100% hingga **Bagian III (BAB 21: Debugging & Troubleshooting)**. Bagian IV dan seterusnya sedang dalam tahap penyusunan aktif.
+
 ## 🔧 Komponen Kit
 
 | # | Komponen | Koneksi | Protokol |
