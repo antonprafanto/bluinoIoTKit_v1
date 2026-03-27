@@ -165,6 +165,9 @@ Tahukah kamu bahwa tubuh manusia tidak sekadar merasakan besaran suhu konvension
 
 Akibatnya? Ruangan bersuhu $31°C$ tetapi dengan kelembaban ekstrim $90\%$, akan dijatuhkan ke otakmu sebagai peringatan bahaya: **Suhu Terasa (Heat Index) seolah mencapai $41°C$!** Ini bisa menyebabkan *Heat Stroke* fatal!
 
+**Mengapa Uap Air Membuat Udara Terasa Lebih Panas?**
+Sistem pendingin alami tubuh manusia bertumpu pada penguapan keringat di pori-pori kulit. Namun, saat kelembaban udara (% RH) di ruangan sangat tinggi, atmosfer di sekitarmu sudah terlalu "jenuh/kenyang" oleh uap air. Akibatnya keringat di tubuhmu **ditolak meresap ke udara (gagal menguap)**. Panas tubuh pun akhirnya terperangkap dan memantul ke dalam, menipu otakmu hingga merasa bahwa suhu jauh di atas termometer ruangan!
+
 Library *Adafruit DHT* telah menyertakan algoritma kompleks kalkulus *Rothfusz* peninggalan riset BMKG Amerika (*National Weather Service*) untuk menghitung ini secara presisi!
 
 ```cpp
@@ -241,6 +244,9 @@ Terasa Seperti:  40.4 °C   (SANGAT WASPADA: Kram Panas & Kelelahan Ekstrem!) �
 Meskipun sensor DHT butuh waktu 2000 milidetik *Cooldown* (jeda pendinginan), menggunakan `delay(2000)` benar-benar **terlarang** dalam arsitektur sistem tertanam (*Embedded OS*) profesional. Mesin ESP32 berlari sangat kencang, menidurkan ESP32 secara buta mematikan semua *Web Server* HTTP, pembaca UI, dan aliran LCD!
 
 Mari translasikan ke pola *Non-Blocking Polling* yang diorkestrasi oleh `millis()`.
+
+> 💡 **Apa itu `struct` (Structure) pada kode C++ di bawah?**
+> Bayangkan `struct` sebagai sebuah *kardus boks pengiriman* yang didalamnya berisi beberapa laci variabel berbeda (`suhu`, `hum`, `sukses`). Pola ini (*Data Register*) memudahkan mikrokontroler membawa seluruh kumpulan laporan iklim hanya dalam satu genggaman variabel tunggal bernama `cuacaTerakhir` untuk dikirim ke OLED atau Web Server di fungsi lain.
 
 ```cpp
 /*
