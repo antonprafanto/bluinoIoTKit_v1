@@ -380,7 +380,17 @@ void setup() {
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
-  Serial.println("✅ Filter aktif! Bandingkan dengan Program 2 saat diguncang.\n");
+  // 💡 FILTER SEEDING (Injeksi Kondisi Awal):
+  // Jika ESP32 dinyalakan di permukaan menanjak (misal miring 45°), dan filter
+  // kita berawal dari 0°, CF akan butuh 3-4 detik merayap lamban mencapai 45°!
+  // Bagi Drone, lag start-up ini berakibat fatal. Solusi instan: Kita suntik
+  // pembacaan akselerometer absolut pertama (raw) langsung ke jantung filter!
+  sensors_event_t a, g, t;
+  mpu.getEvent(&a, &g, &t);
+  rollFilter  = atan2(a.acceleration.y, a.acceleration.z) * RAD_TO_DEG;
+  pitchFilter = atan2(-a.acceleration.x, sqrt(a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z)) * RAD_TO_DEG;
+
+  Serial.println("✅ Filter aktif dan telah di-seed! Bandingkan dengan Program 2 saat diguncang.\n");
 
   tSebelumnya = millis();
 }
@@ -579,6 +589,12 @@ void setup() {
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
+  // Filter Seeding (Meniadakan lag kalkulasi awal)
+  sensors_event_t a, g, t;
+  mpu.getEvent(&a, &g, &t);
+  rollFilter  = atan2(a.acceleration.y, a.acceleration.z) * RAD_TO_DEG;
+  pitchFilter = atan2(-a.acceleration.x, sqrt(a.acceleration.y*a.acceleration.y + a.acceleration.z*a.acceleration.z)) * RAD_TO_DEG;
+
   tSebelumnya   = millis();
   tBacaTerakhir = millis();
 
@@ -674,6 +690,21 @@ Solusi untuk sistem kritis (Drone, VR): Gunakan representasi QUATERNION
 alih-alih Euler Angle. MPU-6050 memiliki DMP (Digital Motion Processor)
 internal yang dapat menghitung Quaternion langsung di chipnya. Untuk ini,
 gunakan library "MPU6050" by Electronic Cats yang mengakses DMP.
+```
+
+### 6. Diam Datar di Meja, Tapi Roll Kok Terus Menunjuk Angka 2°?
+```text
+Ini adalah musuh bebuyutan navigasi modern: Gyro Zero-Rate Offset (Static Drift).
+Chip MEMS kelas amatir (seperti di Kit ini) jarang terkalibrasi sempurna dari
+pabrik. Saat diam, Giroskop sumbu X-nya mungkin membisikkan bahwa ia sedang
+berputar 1.5°/detik! Kebisingan konstan ini merongrong filter (meski sudah ditarik
+oleh akselerometer), sehingga menghasilkan kemiringan absolut statis sebesar 2°.
+
+Solusi Masterclass (Kalibrasi Firmware):
+  Dalam firmware drone sungguhan, 2 detik pertama saat setup() adalah momen suci.
+  Drone tidak boleh disentuh. Selama 2 detik itu, ESP32 membaca 500 sampel Giroskop,
+  merata-ratakannya, lalu menjadikannya sebagai angka PENGURANG (Offset Bias) pada 
+  setiap hitungan di fungsi loop() selamanya.
 ```
 
 ---
