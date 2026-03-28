@@ -171,11 +171,11 @@ void loop() {
   // ── Ambil nilai dari sensor ────────────────────────────────────
   float suhuC     = bmp.readTemperature();       // °C
   int32_t tekPa   = bmp.readPressure();           // Pascal (bukan hPa!)
-  float   takhPa  = tekPa / 100.0f;              // Konversi ke hektoPascal
+  float   tekHPa  = tekPa / 100.0f;              // Konversi ke hektoPascal
 
   // ── Tampilkan hasil ───────────────────────────────────────────
   Serial.printf("🌡️  Suhu         : %5.1f °C\n",   suhuC);
-  Serial.printf("🌬️  Tekanan      : %7.2f hPa\n",  takhPa);
+  Serial.printf("🌬️  Tekanan      : %7.2f hPa\n",  tekHPa);
   Serial.println("──────────────────────────────────────────");
 
   delay(2000);
@@ -250,7 +250,7 @@ void setup() {
 void loop() {
   float  suhuC   = bmp.readTemperature();
   int32_t tekPa  = bmp.readPressure();
-  float  takhPa  = tekPa / 100.0f;
+  float  tekHPa  = tekPa / 100.0f;
 
   // ── Kalkulasi Altitude via Library ───────────────────────────
   // Library Adafruit sudah mengimplementasi Persamaan Barometrik Internasional!
@@ -259,7 +259,7 @@ void loop() {
 
   // ── Tampilkan Laporan Lengkap ─────────────────────────────────
   Serial.printf("Suhu Ambien   : %5.1f °C\n",       suhuC);
-  Serial.printf("Tekanan Udara : %7.2f hPa\n",       takhPa);
+  Serial.printf("Tekanan Udara : %7.2f hPa\n",       tekHPa);
   Serial.printf("Ketinggian    : %7.1f m (dpl)\n",   altitudeM);
 
   // Kategorisasi ketinggian untuk edukasi geografi
@@ -437,6 +437,14 @@ void perbaruiDataBMP() {
   if (sekarang - tBacaTerakhir < INTERVAL_BACA_MS) return;
   tBacaTerakhir = sekarang;
 
+  // ⚠️ CATATAN KEJUJURAN (Pseudo Non-Blocking):
+  // Konsep kita memang membatasi eksekusi data agar hanya berjalan tiap 3 detik.
+  // TETAPI, saat fungsi di bawah ini dijalankan, perintah `readPressure()` 
+  // rupanya menyelundupkan `delay(26)` milidetik milik hardware-nya  di dalam 
+  // library Adafruit! Artinya, loop() utamamu tetap akan "tersendat" sesaat (freese 26ms).
+  // Siklus 26ms ini belum sanggup merusak server HTTP/WiFi, tapi ini *BUKAN* 
+  // mesin mutlak True-Async seperti sensor 1-Wire DS18B20 (BAB 25) kemarin!
+
   float   suhuC  = bmp.readTemperature();
   int32_t tekPa  = bmp.readPressure();
 
@@ -453,7 +461,7 @@ void perbaruiDataBMP() {
   
   // 💡 OPTIMASI KELAS DEWA (Menghindari Jebakan Pemblokiran Library):
   // Fungsi bmp.readSealevelPressure() dan bmp.readAltitude() secara internal 
-  // akan MEMAKSA sensor melakukan konversi hardware ULANG (menambah delay 8ms+ per fungsi)!
+  // akan MEMAKSA sensor melakukan konversi hardware ULANG (menambah delay 26ms per fungsi)!
   // Sebagai arsitek sistem Asinkron sejati, kita larang keras pemanggilan membabi buta itu.
   // Kita olah datanya murni secara matematis menggunakan CPU (FPU) ESP32 yang super cepat!
   
@@ -582,6 +590,29 @@ Solusi:
      berbeda di bus I2C yang sama.
   2. Atau gunakan pola non-blocking (Program 4) di mana setiap sensor
      memiliki timer interval sendiri-sendiri.
+```
+
+### 5. Ingin Menghemat Baterai atau Sensor Terasa "Memblokir"?
+```text
+Rahasia terbesar Library Adafruit: Jika kamu hanya menulis `bmp.begin()`,
+secara internal library akan memaksa sensor masuk ke mode `ULTRAHIGHRES` 
+(Resolusi super akurat). Tetapi hukum kekekalan usahanya adalah: 
+Mikrokontrolermu akan "diblokir" menggunakan delay() selama 26 milidetik
+setiap kali sebaris `bmp.readPressure()` dipanggil!
+
+Untuk IoT berbaterai murni atau Quadcopter (Drone) yang mengatur respon motor
+mili-detikan, angka 26ms itu sama dengan kiamat latensi. 
+
+Solusi Kecepatan Cahaya:
+Turunkan mode *Oversampling* sensor saat setup!
+  
+  // Mode 0: Ultra Low Power (super kencang, hanya diblokir 5ms!)
+  bmp.begin(BMP085_ULTRALOWPOWER); 
+  
+  // Mode 1: Standard (keseimbangan lumayan, diblokir 8ms)
+  bmp.begin(BMP085_STANDARD);
+
+Hanya gunakan fungsi dewa rahasia ini saat merangkai sistem kritis (Real-Time)!
 ```
 
 ---
