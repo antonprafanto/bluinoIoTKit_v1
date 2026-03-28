@@ -296,7 +296,11 @@ void loop() {
   float roll  = atan2(ay, az) * RAD_TO_DEG;
 
   // Pitch: rotasi di sekitar sumbu Y (mengangguk depan/belakang)
-  // Formula ini menggunakan sqrt untuk mempertahankan akurasi ±90°
+  // 💡 KEUNGGULAN MATEMATIKA (Kekebalan Lintas-Sumbu / Cross-Axis Immunity):
+  // Banyak tutorial bodong di internet hanya memakai rumus `atan2(-ax, az)`. 
+  // Jika kamu memakai rumus tutorial itu, saat sensor terguling (Roll), nilai Pitch-nya 
+  // akan hancur dan ikut terpelanting! Dengan menggunakan Phytagoras `sqrt(ay² + az²)`, 
+  // kita menjamin kalkulasi Pitch tetap absolut akurat biarpun sensor sambil salto/berguling!
   float pitch = atan2(-ax, sqrt(ay * ay + az * az)) * RAD_TO_DEG;
 
   // ── Tampilkan hasil ────────────────────────────────────────────
@@ -507,7 +511,13 @@ void perbaruiIMU() {
   float dt = (sekarang - tSebelumnya) / 1000.0f;
   tSebelumnya = sekarang;
 
-  if (dt <= 0.0f || dt > 0.5f) return; // Abaikan nilai dt abnormal
+  // 💡 SELF-HEALING FILTER (Anti-Ledakan dt):
+  // Jika ESP32 nge-lag parah (misal butuh 1 detik untuk konek WiFi), nilai dt 
+  // akan jadi raksasa (1.0s). Jika dt raksasa ini dikalikan giroskop, filter akan
+  // "meledak" karena terlempar ke sudut konyol. Jika dt > 0.5s, kita SKIP perhitungan!
+  // Filter akan membeku sesaat, namun di detik berikutnya ia akan "menyembuhkan 
+  // dirinya sendiri" ditarik kembali oleh gravitasi Akselerometer!
+  if (dt <= 0.0f || dt > 0.5f) return; 
 
   sensors_event_t accel, gyro, temp;
   mpu.getEvent(&accel, &gyro, &temp);
@@ -516,12 +526,16 @@ void perbaruiIMU() {
   float ay = accel.acceleration.y;
   float az = accel.acceleration.z;
 
-  // Validasi akselerasi: nilai total harus mendekati gravitasi (5–15 m/s²)
-  // Nilai di luar batas ini menandakan sensor malfungsi atau terkena benturan keras
+  // 💡 G-SHOCK REJECTION (Rahasia Stabilitas Drone / Anti-Banting):
+  // Nilai tarikan gravitasi bumi murni selalu berkisar dekat ~9.81 m/s².
+  // Jika total vektor > 15 m/s², artinya sensor sedang DIPUKUL, DILEMPAR, atau JATUH!
+  // Akselerometer bodoh tidak bisa membedakan tarikan bumi vs pukulan fisik.
+  // Daripada filter kita "keracunan" oleh arah pukulan yang acak, kita BEKUKAN
+  // pembaruan sudut ini (return) hingga guncangan fisik usai!
   float totalG = sqrt(ax*ax + ay*ay + az*az);
   if (totalG < 5.0f || totalG > 15.0f) {
     imuTerakhir.sukses = false;
-    Serial.printf("[%6lu ms] ⚠️  Data akselerasi anomali (|g|=%.2f m/s²)\n",
+    Serial.printf("[%6lu ms] ⚠️  Guncangan ekstrem terdeteksi (|g|=%.2f m/s²) -> Bekukan IMU!\n",
                   sekarang, totalG);
     return;
   }
