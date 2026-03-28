@@ -113,9 +113,8 @@ BMP180 menggunakan library Adafruit yang juga mendukung kakak lamanya BMP085:
 Library Manager (Ctrl+Shift+I) → Ketik "BMP085"
 
 1. Instal: "Adafruit BMP085 Library" by Adafruit
-           (Library ini mendukung KEDUA BMP085 dan BMP180!)
-2. Jika ditanya dependensi, pilih "Install All"
-3. Pastikan "Adafruit Unified Sensor" ikut terinstal.
+           (Library standar ini luar biasa tangguh dan mendukung KEDUA BMP085 dan BMP180!)
+2. Selesai! Tidak butuh dependensi tambahan karena ini *Native Driver* murni.
 ```
 
 > 💡 Meskipun sensor kamu adalah BMP180, library yang digunakan tetap bernama **BMP085**. Ini karena BMP180 adalah penerus langsung BMP085 dengan protokol komunikasi yang secara internal identik — Bosch tidak mengubah set perintah I2Cnya.
@@ -445,6 +444,18 @@ void perbaruiDataBMP() {
   // Siklus 26ms ini belum sanggup merusak server HTTP/WiFi, tapi ini *BUKAN* 
   // mesin mutlak True-Async seperti sensor 1-Wire DS18B20 (BAB 25) kemarin!
 
+  // 💡 PROTEKSI HARDWARE KELAS INDUSTRI (I2C Ping):
+  // Library tidak peduli jika kabel tiba-tiba copot, ia akan tetap memaksakan
+  // perhitungan matematika bodoh (*garbage math*) dari sinyal kosong.
+  // Sebagai arsitek unggul, kita menyapa alamat sensor secara fisik sebelum membaca!
+  Wire.beginTransmission(0x77);
+  if (Wire.endTransmission() != 0) { // 0 Berarti sensor menanggapi (ACK)
+    atmosferTerakhir.sukses = false;
+    Serial.printf("[%6lu ms] ❌ KABEL I2C PUTUS! Sensor BMP180 lenyap dari bus.\n", sekarang);
+    return; // Keluar sebelum library error!
+  }
+
+  // Jika aman, lanjut bongkar mesin library:
   float   suhuC  = bmp.readTemperature();
   int32_t tekPa  = bmp.readPressure();
 
