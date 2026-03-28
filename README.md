@@ -123,7 +123,7 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 | [BAB 27](BAB-27/) | DS18B20 Lanjutan — Deep Sleep, Parasitic Power & Data Filter |
 | [BAB 28](BAB-28/) | BMP180 — Tekanan Udara & Altitude |
 | [BAB 29](BAB-29/) | MPU-6050 — Akselerometer, Giroskop & Filter Orientasi |
-| [BAB 30](BAB-30/) | HC-SR04 — Jarak Ultrasonik |
+| [BAB 30](BAB-30/) | HC-SR04 — Sensor Jarak Ultrasonik & Deteksi Objek |
 | [BAB 31](BAB-31/) | PIR AM312 — Deteksi Gerakan |
 | [BAB 32](BAB-32/) | LDR — Sensor Cahaya |
 | [BAB 33](BAB-33/) | Sensor Internal ESP32 |
