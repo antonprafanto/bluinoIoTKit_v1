@@ -405,8 +405,11 @@ void loop() {
   mpu.getEvent(&accel, &gyro, &temp);
 
   // ── Hitung Delta Waktu (dt) ────────────────────────────────────
-  // PALING KRITIS: dt harus dihitung secara aktual per iterasi loop
-  // agar integrasi giroskop akurat! Jangan pakai angka hardcode!
+  // 💡 MISTERI WAKTU EKSEKUSI (Serial I/O Overhead):
+  // Di bawah nanti kita memakai `delay(20)`. Berarti dt = 0.02 detik kan? SALAH BESAR!
+  // Perintah I2C read dan `Serial.printf` membutuhkan waktu nyata ~13 mili-detik.
+  // Jika kamu hardcode dt = 0.02, Giroskop akan salah kalibrasi setiap detiknya!
+  // Itulah kenapa dt (Delta Time) HARUS DIHITUNG DINAMIS menggunakan millis() aktual!
   unsigned long sekarang = millis();
   float dt = (sekarang - tSebelumnya) / 1000.0f; // Konversi ms → detik
   tSebelumnya = sekarang;
@@ -607,6 +610,13 @@ void setup() {
 
   mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  
+  // 💡 ANTI-ALIASING & NYQUIST THEOREM (Signal Processing Masterclass):
+  // Putaran motor Drone (misal 6000 RPM) menghasilkan getaran ekstrim di atas 100Hz!
+  // Jika getaran ini menembus perhitungan kita (50Hz Sampling), ia akan menjadi "Aliasing Noise".
+  // Solusinya: Kita perintahkan otak fisik MPU-6050 (DLPF) untuk MENEBAS semua sinyal 
+  // frekuensi tinggi di atas 21Hz SEBELUM data itu dikirim ke ESP32! Kombinasi
+  // Filter Hardware 21Hz + Sampling Software 50Hz adalah rasio matematika absolut!
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
   // Filter Seeding (Meniadakan lag kalkulasi awal)
