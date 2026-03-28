@@ -450,8 +450,15 @@ void perbaruiDataBMP() {
   }
 
   float tekHPa = tekPa / 100.0f;
-  float mslHPa = bmp.readSealevelPressure(KETINGGIAN_LOKAL_M) / 100.0f;
-  float altM   = bmp.readAltitude(1013.25f * 100.0f);
+  
+  // 💡 OPTIMASI KELAS DEWA (Menghindari Jebakan Pemblokiran Library):
+  // Fungsi bmp.readSealevelPressure() dan bmp.readAltitude() secara internal 
+  // akan MEMAKSA sensor melakukan konversi hardware ULANG (menambah delay 8ms+ per fungsi)!
+  // Sebagai arsitek sistem Asinkron sejati, kita larang keras pemanggilan membabi buta itu.
+  // Kita olah datanya murni secara matematis menggunakan CPU (FPU) ESP32 yang super cepat!
+  
+  float mslHPa = tekHPa / pow(1.0 - (KETINGGIAN_LOKAL_M / 44330.0), 5.255);
+  float altM   = 44330.0 * (1.0 - pow(tekHPa / 1013.25, 0.1903));
 
   // Simpan ke register global (Latch-on-Fail: nilai lama dipertahankan jika error)
   atmosferTerakhir.suhu           = suhuC;
