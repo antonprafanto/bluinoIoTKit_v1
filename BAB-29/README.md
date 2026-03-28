@@ -536,18 +536,21 @@ void perbaruiIMU() {
   float ay = accel.acceleration.y;
   float az = accel.acceleration.z;
 
-  // 💡 G-SHOCK REJECTION (Rahasia Stabilitas Drone / Anti-Banting):
-  // Nilai tarikan gravitasi bumi murni selalu berkisar dekat ~9.81 m/s².
-  // Jika total vektor > 15 m/s², artinya sensor sedang DIPUKUL, DILEMPAR, atau JATUH!
-  // Akselerometer bodoh tidak bisa membedakan tarikan bumi vs pukulan fisik.
-  // Daripada filter kita "keracunan" oleh arah pukulan yang acak, kita BEKUKAN
-  // pembaruan sudut ini (return) hingga guncangan fisik usai!
+  // 💡 G-SHOCK ADAPTIVE FILTER (Rahasia Navigasi Rudal / Drone):
+  // Nilai gravitasi murni akan membuat panjang vektor ini mendekati ~9.81 m/s².
+  // Jika totalG > 15 m/s², artinya sensor sedang DIPUKUL/TERHEMPAS! Akselerometer
+  // bodoh akan menyangka "pukulan" itu sebagai lantai/gravitasi baru. Terkutuklah!
+  // Bagaimana mengatasinya? JANGAN menghentikan siklus perhitungan! 
+  // Ingat sifat fisika: Giroskop (Gyro) murni KEBAL terhadap pukulan/shock linier!
+  // Jadi, saat sensor dipukul, kita bungkam akselerometer secara ekstrem (Alpha = 1.0)
+  // dan 100% MURNI percaya pada tracking Giroskop hingga guncangan mereda!
   float totalG = sqrt(ax*ax + ay*ay + az*az);
+  float alphaDinamis = ALPHA;
+  
   if (totalG < 5.0f || totalG > 15.0f) {
-    imuTerakhir.sukses = false;
-    Serial.printf("[%6lu ms] ⚠️  Guncangan ekstrem terdeteksi (|g|=%.2f m/s²) -> Bekukan IMU!\n",
+    alphaDinamis = 1.0f; // Mode "Blind terhadap Akselerometer"
+    Serial.printf("[%6lu ms] ⚠️  Shock! (|g|=%.2f m/s²) -> Pindah ke Gyro Murni!\n",
                   sekarang, totalG);
-    return;
   }
 
   float rollAcc  = atan2(ay, az) * RAD_TO_DEG;
@@ -556,9 +559,9 @@ void perbaruiIMU() {
   float gx_dps = gyro.gyro.x * RAD_TO_DEG;
   float gy_dps = gyro.gyro.y * RAD_TO_DEG;
 
-  // Terapkan Complementary Filter
-  rollFilter  = ALPHA * (rollFilter  + gx_dps * dt) + (1.0f - ALPHA) * rollAcc;
-  pitchFilter = ALPHA * (pitchFilter + gy_dps * dt) + (1.0f - ALPHA) * pitchAcc;
+  // Terapkan Adaptive Complementary Filter (Sistem Anti-Banting Sesungguhnya)
+  rollFilter  = alphaDinamis * (rollFilter  + gx_dps * dt) + (1.0f - alphaDinamis) * rollAcc;
+  pitchFilter = alphaDinamis * (pitchFilter + gy_dps * dt) + (1.0f - alphaDinamis) * pitchAcc;
 
   // Simpan ke Data Register Global
   imuTerakhir.rollDeg       = rollFilter;
@@ -567,7 +570,7 @@ void perbaruiIMU() {
   imuTerakhir.gyroDpsY      = gy_dps;
   imuTerakhir.gyroDpsZ      = gyro.gyro.z * RAD_TO_DEG;
   imuTerakhir.suhuInternal  = temp.temperature;
-  imuTerakhir.sukses        = true;
+  imuTerakhir.sukses        = true; // Selalu sukses mencatat rotasi, bahkan pas diguncang!
 
   Serial.printf("[%6lu ms] Roll:%7.2f° | Pitch:%7.2f° | Suhu:%.1f°C\n",
                 sekarang, rollFilter, pitchFilter, temp.temperature);
