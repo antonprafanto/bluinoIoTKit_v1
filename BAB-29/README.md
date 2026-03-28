@@ -157,6 +157,8 @@ Program dasar untuk membuktikan sensor bekerja. Kamu akan melihat langsung bagai
 
 Adafruit_MPU6050 mpu;
 
+const uint8_t MPU_ADDRESS = 0x68; // Alamat I2C default Kit Bluino
+
 void setup() {
   Serial.begin(115200);
 
@@ -164,8 +166,8 @@ void setup() {
   Serial.println("   BAB 29: MPU-6050 — 6-DOF Raw Data");
   Serial.println("══════════════════════════════════════════════");
 
-  if (!mpu.begin()) {
-    Serial.println("❌ GAGAL: MPU-6050 tidak ditemukan di 0x68!");
+  if (!mpu.begin(MPU_ADDRESS)) {
+    Serial.printf("❌ GAGAL: MPU-6050 tidak ditemukan di 0x%02X!\n", MPU_ADDRESS);
     Serial.println("   Kemungkinan penyebab:");
     Serial.println("   → Kabel SDA/SCL solder buruk di PCB kit");
     Serial.println("   → Konflik bus I2C (cek BMP180 0x77 & OLED 0x3C)");
@@ -259,8 +261,11 @@ Mengubah data akselerasi mentah menjadi angka sudut Roll dan Pitch yang bisa dip
 
 Adafruit_MPU6050 mpu;
 
-// Konversi radian ke derajat
-const float RAD_TO_DEG = 180.0f / M_PI;
+const uint8_t MPU_ADDRESS = 0x68;
+
+// 💡 INFOGRAFIS SATUAN:
+// Arduino menyimpan define rahasia bawaan bernama `RAD_TO_DEG` (bernilai 57.2958).
+// Kita akan panggil angka sakti tersebut untuk mengubah radian kembali ke derajat!
 
 void setup() {
   Serial.begin(115200);
@@ -269,7 +274,7 @@ void setup() {
   Serial.println(" BAB 29: Kalkulator Sudut Akselerometer");
   Serial.println("══════════════════════════════════════════");
 
-  if (!mpu.begin()) {
+  if (!mpu.begin(MPU_ADDRESS)) {
     Serial.println("❌ MPU-6050 tidak ditemukan!");
     while (true) delay(10);
   }
@@ -347,6 +352,8 @@ Menggabungkan kecepatan dan stabilitas kedua sensor (akselerometer + giroskop) m
 
 Adafruit_MPU6050 mpu;
 
+const uint8_t MPU_ADDRESS = 0x68;
+
 // ── Koefisien Complementary Filter ───────────────────────────────
 // α mendekati 1.0 = lebih percaya giroskop (responsif, rentan drift)
 // α mendekati 0.0 = lebih percaya akselerometer (stabil, rentan guncangan)
@@ -360,8 +367,6 @@ float pitchFilter = 0.0f;
 // ── Timer untuk kalkulasi dt (delta waktu) ────────────────────────
 unsigned long tSebelumnya = 0;
 
-const float RAD_TO_DEG = 180.0f / M_PI;
-
 void setup() {
   Serial.begin(115200);
 
@@ -371,7 +376,7 @@ void setup() {
   Serial.printf( " Koefisien Filter (α): %.2f\n", ALPHA);
   Serial.println("══════════════════════════════════════════════════");
 
-  if (!mpu.begin()) {
+  if (!mpu.begin(MPU_ADDRESS)) {
     Serial.println("❌ MPU-6050 tidak ditemukan!");
     while (true) delay(10);
   }
@@ -483,7 +488,6 @@ Adafruit_MPU6050 mpu;
 const uint8_t       MPU_ADDRESS     = 0x68;   // Alamat I2C default (Pin AD0 = GND)
 const unsigned long INTERVAL_IMU_MS = 20UL;   // 50 Hz sampling rate
 const float         ALPHA           = 0.98f;
-const float         RAD_TO_DEG      = 180.0f / M_PI;
 
 // ── Data Register IMU (Global — Bisa diakses dari mana saja) ─────
 struct DataIMU {
