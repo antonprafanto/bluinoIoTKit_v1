@@ -416,6 +416,9 @@ const float         KETINGGIAN_LOKAL_M  = 740.0f; // Sesuaikan!
 // ── Timer State Machine ──────────────────────────────────────────
 unsigned long tBacaTerakhir = 0;
 
+// ── Konstanta Pra-Kalkulasi (Optimasi Beban CPU) ─────────────────
+float RATIO_MSL_TETAP = 1.0f;
+
 // ── Data Register — Global untuk Web Server / OLED ──────────────
 struct DataAtmosfer {
   float   suhu;
@@ -470,13 +473,14 @@ void perbaruiDataBMP() {
 
   float tekHPa = tekPa / 100.0f;
   
-  // 💡 OPTIMASI KELAS DEWA (Menghindari Jebakan Pemblokiran Library):
-  // Fungsi bmp.readSealevelPressure() dan bmp.readAltitude() secara internal 
-  // akan MEMAKSA sensor melakukan konversi hardware ULANG (menambah delay 26ms per fungsi)!
-  // Sebagai arsitek sistem Asinkron sejati, kita larang keras pemanggilan membabi buta itu.
-  // Kita olah datanya murni secara matematis menggunakan CPU (FPU) ESP32 yang super cepat!
+  // 💡 OPTIMASI KELAS DEWA 2.0 (Pre-computed Loop Invariants):
+  // Kita mengeleminasi instruksi berat `pow()` (perpangkatan pecahan) 
+  // dari proses yang berjalan berulang-ulang! Konstanta pembaginya telah
+  // dihitung SATU KALI secara permanen di dalam setup().
+  // Hasilnya: Pemrosesan loop murni matematika aritmetika dasar super-ringan!
+  float mslHPa = tekHPa / RATIO_MSL_TETAP;
   
-  float mslHPa = tekHPa / pow(1.0 - (KETINGGIAN_LOKAL_M / 44330.0), 5.255);
+  // (Note: altM tetap butuh pow() karena nilai tekHPa berubah-ubah di dalam pangkat!)
   float altM   = 44330.0 * (1.0 - pow(tekHPa / 1013.25, 0.1903));
 
   // Simpan ke register global (Latch-on-Fail: nilai lama dipertahankan jika error)
@@ -493,8 +497,13 @@ void perbaruiDataBMP() {
 void setup() {
   Serial.begin(115200);
 
+  // Kalkulasi beban berat SATU KALI seumur hidup (Loop Invariant)
+  // Ini adalah rumus pembagi absolut dari Persamaan Barometrik Internasional!
+  RATIO_MSL_TETAP = pow(1.0 - (KETINGGIAN_LOKAL_M / 44330.0), 5.255);
+
   Serial.println("══════════════════════════════════════════════════");
   Serial.println(" BAB 28: BMP180 Async State Machine");
+  Serial.printf( " -> Konstanta Rasio MSL Lokal : %.5f\n", RATIO_MSL_TETAP);
   Serial.println("══════════════════════════════════════════════════");
 
   if (!bmp.begin()) {
