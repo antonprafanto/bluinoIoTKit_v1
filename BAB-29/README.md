@@ -489,6 +489,7 @@ const float         RAD_TO_DEG      = 180.0f / M_PI;
 struct DataIMU {
   float rollDeg;
   float pitchDeg;
+  float yawRelDeg; // Yaw Relatif (Tanpa Kompas, bisa terkena Drift)
   float gyroDpsX;
   float gyroDpsY;
   float gyroDpsZ;
@@ -501,6 +502,7 @@ DataIMU imuTerakhir;
 // ── State Filter (Global) ─────────────────────────────────────────
 float         rollFilter      = 0.0f;
 float         pitchFilter     = 0.0f;
+float         yawRelative     = 0.0f; // Integrasi Gyro Murni Z-Axis
 unsigned long tBacaTerakhir   = 0;
 unsigned long tSebelumnya     = 0;
 
@@ -560,22 +562,31 @@ void perbaruiIMU() {
 
   float gx_dps = gyro.gyro.x * RAD_TO_DEG;
   float gy_dps = gyro.gyro.y * RAD_TO_DEG;
+  float gz_dps = gyro.gyro.z * RAD_TO_DEG;
 
   // Terapkan Adaptive Complementary Filter (Sistem Anti-Banting Sesungguhnya)
   rollFilter  = alphaDinamis * (rollFilter  + gx_dps * dt) + (1.0f - alphaDinamis) * rollAcc;
   pitchFilter = alphaDinamis * (pitchFilter + gy_dps * dt) + (1.0f - alphaDinamis) * pitchAcc;
 
+  // 💡 MENGHITUNG YAW (Rotasi Horizontal):
+  // Akselerometer mendeteksi gravitasi vertikal. Saat berputar bak menari gasing (Pitch/Roll tetap),
+  // tarikan gravitasi tak pernah berubah bentuk! Artinya, Akselerometer BUTA terhadap YAW.
+  // Konsekuensinya: Kita pakai Dead-Reckoning (integrasi murni Giroskop-Z) TANPA filter koreksi!
+  // Nilai ini akurat mendeteksi rotasi cepat, tapi pelan-pelan akan 'hanyut' (Drift) seiring menit berganti.
+  yawRelative = yawRelative + (gz_dps * dt);
+
   // Simpan ke Data Register Global
   imuTerakhir.rollDeg       = rollFilter;
   imuTerakhir.pitchDeg      = pitchFilter;
+  imuTerakhir.yawRelDeg     = yawRelative;
   imuTerakhir.gyroDpsX      = gx_dps;
   imuTerakhir.gyroDpsY      = gy_dps;
-  imuTerakhir.gyroDpsZ      = gyro.gyro.z * RAD_TO_DEG;
+  imuTerakhir.gyroDpsZ      = gz_dps;
   imuTerakhir.suhuInternal  = temp.temperature;
   imuTerakhir.sukses        = true; // Selalu sukses mencatat rotasi, bahkan pas diguncang!
 
-  Serial.printf("[%6lu ms] Roll:%7.2f° | Pitch:%7.2f° | Suhu:%.1f°C\n",
-                sekarang, rollFilter, pitchFilter, temp.temperature);
+  Serial.printf("[%6lu ms] Roll:%7.2f° | Pitch:%7.2f° | Yaw:%7.2f°\n",
+                sekarang, rollFilter, pitchFilter, yawRelative);
 }
 
 void setup() {
@@ -772,6 +783,8 @@ Solusi Masterclass (Kalibrasi Firmware):
    - Roll = 0°: titik di tengah `────────────•────────────`
    - Roll = 30°: titik bergeser `───────────────────•─────`
    - Roll = -30°: titik bergeser `─────•───────────────────`
+
+5. **Kalkulator Putaran (Odometry Fiktif):** Gunakan integrasi murni `yawRelative` untuk mendeteksi apabila perangkat sudah berputar penuh 360°. Cetak teks `"1 Putaran Penuh Selesai!"` setiap kali nilai kumulatif Yaw kelipatan melewati angka absolut 360° (Lalu 720°, 1080°, dst.). Ini mensimulasikan mekanisme perhitungan roda lengan robot tanpa menggunakan encoder optik!
 
 ---
 
