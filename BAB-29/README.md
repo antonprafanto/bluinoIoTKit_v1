@@ -480,6 +480,7 @@ Arsitektur terbaik untuk integrasi MPU-6050 ke dalam sistem IoT yang kompleks (b
 Adafruit_MPU6050 mpu;
 
 // ── Konfigurasi ──────────────────────────────────────────────────
+const uint8_t       MPU_ADDRESS     = 0x68;   // Alamat I2C default (Pin AD0 = GND)
 const unsigned long INTERVAL_IMU_MS = 20UL;   // 50 Hz sampling rate
 const float         ALPHA           = 0.98f;
 const float         RAD_TO_DEG      = 180.0f / M_PI;
@@ -510,7 +511,7 @@ void perbaruiIMU() {
   tBacaTerakhir = sekarang;
 
   // I2C Ping: Pastikan sensor ada sebelum memaksa library bekerja
-  Wire.beginTransmission(0x68);
+  Wire.beginTransmission(MPU_ADDRESS);
   if (Wire.endTransmission() != 0) {
     imuTerakhir.sukses = false;
     Serial.printf("[%6lu ms] ❌ MPU-6050 putus dari bus I2C!\n", sekarang);
@@ -536,20 +537,21 @@ void perbaruiIMU() {
   float ay = accel.acceleration.y;
   float az = accel.acceleration.z;
 
-  // 💡 G-SHOCK ADAPTIVE FILTER (Rahasia Navigasi Rudal / Drone):
-  // Nilai gravitasi murni akan membuat panjang vektor ini mendekati ~9.81 m/s².
-  // Jika totalG > 15 m/s², artinya sensor sedang DIPUKUL/TERHEMPAS! Akselerometer
-  // bodoh akan menyangka "pukulan" itu sebagai lantai/gravitasi baru. Terkutuklah!
-  // Bagaimana mengatasinya? JANGAN menghentikan siklus perhitungan! 
-  // Ingat sifat fisika: Giroskop (Gyro) murni KEBAL terhadap pukulan/shock linier!
-  // Jadi, saat sensor dipukul, kita bungkam akselerometer secara ekstrem (Alpha = 1.0)
-  // dan 100% MURNI percaya pada tracking Giroskop hingga guncangan mereda!
+  // 💡 G-SHOCK & CENTRIFUGAL ADAPTIVE FILTER (Aero-Dynamics Masterclass):
+  // Gravitasi murni akan membuat panjang vektor ini mendekati ~9.81 m/s².
+  // Menembus batas 15 m/s² berarti terjadi DUA KEMUNGKINAN: 
+  // 1. Sensor TERBENTUR keras (G-Shock).
+  // 2. Drone sedang MENIKUNG TAJAM (High-G Bank Turn), memicu gaya Sentrifugal!
+  // Pada kasus #2, Akselerometer mengira arah sentrifugal keluar tingkungan adalah "bawah".
+  // Jika dibiarkan, Drone akan terpelanting mengkoreksi horizon fiktif itu!
+  // Aturan Emas Navigasi Terbangkan: Jika |g| kacau, matikan akselerometer (Alpha = 1.0)
+  // dan beralih penuh 100% ke Giroskop (Blind Dead-Reckoning) sampai |g| normal (1G)!
   float totalG = sqrt(ax*ax + ay*ay + az*az);
   float alphaDinamis = ALPHA;
   
   if (totalG < 5.0f || totalG > 15.0f) {
     alphaDinamis = 1.0f; // Mode "Blind terhadap Akselerometer"
-    Serial.printf("[%6lu ms] ⚠️  Shock! (|g|=%.2f m/s²) -> Pindah ke Gyro Murni!\n",
+    Serial.printf("[%6lu ms] ⚠️  Benturan/Sentrifugal! (|g|=%.2f m/s²) -> Gyro Balistik Murni!\n",
                   sekarang, totalG);
   }
 
@@ -583,8 +585,8 @@ void setup() {
   Serial.println(" BAB 29: MPU-6050 Non-Blocking IMU State Machine");
   Serial.println("══════════════════════════════════════════════════");
 
-  if (!mpu.begin()) {
-    Serial.println("❌ MPU-6050 tidak ditemukan di 0x68!");
+  if (!mpu.begin(MPU_ADDRESS)) {
+    Serial.printf("❌ MPU-6050 tidak ditemukan di 0x%02X!\n", MPU_ADDRESS);
     while (true) delay(10);
   }
 
