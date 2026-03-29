@@ -526,9 +526,14 @@ void IRAM_ATTR isrEcho() {
     // Ping berangkat! Rekam stopwatch
     tEchoNaik = micros();
   } else {
-    // Ping pulang! Matikan stopwatch, hitung durasi, angkat bendera slesai.
-    durasiEcho = micros() - tEchoNaik;
-    dataBaruSiap = true;
+    // Ping pulang! 
+    // 💡 PROTEKSI GHOST ECHO: Jika CPU sedang sibuk berat dan tak sengaja
+    // 'tuli' melewatkan interupsi Naik, ia dilarang keras memakai tEchoNaik basi!
+    if (tEchoNaik != 0) {
+      durasiEcho = micros() - tEchoNaik;
+      tEchoNaik = 0; // Reset stopwatch agar tak terpakai dua kali
+      dataBaruSiap = true;
+    }
   }
 }
 
@@ -679,6 +684,23 @@ Solusi: Aktifkan secara BERGANTIAN (Multiplexed Trigger):
 JANGAN pernah memicu kedua sensor pada saat bersamaan!
 ```
 
+### 6. Jarak Tiba-Tiba Melompat Ngawur Saat Digabung FastLED / OLED?
+```text
+Symptom: Di Program 4 (Interupsi), jarak berkedip liar menjadi ratusan meter
+padahal halangan ada di depan mata.
+
+Penyebab "Missed Interrupt": Library berat (seperti FastLED.show atau layar OLED besar)
+seringkali 'menggembok' pendengaran CPU (Global Interrupt Masking) selama bertugas.
+Jika pin ECHO **naik** persis saat CPU digembok, interupsi Naiknya akan TERLEWAT!
+
+Dampak: Saat ECHO **turun**, CPU baru sadar dan mengurangi waktu saat ini dengan 
+waktu `tEchoNaik` dari tembakan KEMARIN (yang mana nilainya sangat lawas)!
+
+Solusi Masterpiece: Program 4 kita sudah kebal terhadap ini! Terdapat "Ghost Echo Guard" 
+yakni kode `if (tEchoNaik != 0)` yang akan mendelete paksa segala rekam jejak
+ECHO turun apabila ECHO naiknya absen. Pengukuran liar pun hangus seketika!
+```
+
 ---
 
 ## 30.9 Ringkasan
@@ -703,7 +725,7 @@ JANGAN pernah memicu kedua sensor pada saat bersamaan!
 │                                                                     │
 │ PERINGATAN KRITIS:                                                  │
 │   pulseIn() = MEMBLOKIR hingga 30ms!                                │
-│   Gunakan Hardware Interrupts (Program 4) untuk sistem multi-tasking│
+│   Gunakan Hardware Interrupts (Prog. 4) untuk sistem multi-tasking! │
 │                                                                     │
 │ Intervalsan Aman Minimal = 60ms antar pengukuran (16Hz max)         │
 │ Jangkauan Valid = 2cm – 400cm, Sudut Kerucut < 15°                 │
