@@ -339,10 +339,15 @@ void loop() {
 
 ## 30.6 Program 3: Sistem Deteksi Zona Multi-Level
 
-Membangun sistem deteksi jarak bergaya kendali industri: **Aman → Waspada → Bahaya** dengan umpan balik buzzer dan Serial berbeda per zona.
+Membangun modul sensor parkir bergaya industri: **Aman → Waspada → Bahaya**.
+Di bab ini, kita akan MENGHAPUS perintah `delay()` secara total di dalam `loop()` dan beralih menggunakan pola **"Cooperative Multitasking"** berbasis `millis()`.
+
+Kita akan memecah kerja ESP32 menjadi 3 "Task" (Tugas) paralel:
+1. **Task Sensor:** Membaca HC-SR04 setiap 60ms (batas minimum fisik sensor).
+2. **Task Layar (Print):** Mencetak jarak ke serial hanya setiap 500ms agar mata kita bisa membacanya tanpa pusing.
+3. **Task Buzzer:** Terus-menerus memantau zona bahaya dan mengatur irama kedipan suara dengan kecepatan maksimal.
 
 ```cpp
-/*
  * BAB 30 - Program 3: Sistem Deteksi Zona (Parking Sensor)
  *
  * Meniru sistem peringatan parkir kendaraan modern!
@@ -403,12 +408,19 @@ void updateBuzzer(float jarak) {
 
   unsigned long intervalBeep;
 
+  // Jika jarak tidak valid (misal -1 saat tak ada halangan), anggap ia AMAN ekstrem
+  if (jarak < 0) {
+    digitalWrite(PIN_BUZZER, LOW);
+    statusBuzzer = false;
+    return;
+  }
+
   if (jarak < ZONA_BAHAYA) {
     intervalBeep = 100UL;  // Beep sangat cepat: 10 kali/detik!
   } else if (jarak < ZONA_WASPADA) {
     intervalBeep = 500UL;  // Beep lambat: 2 kali/detik
   } else {
-    // Zona aman: matikan buzzer
+    // Zona aman: buzzer diam 100%
     digitalWrite(PIN_BUZZER, LOW);
     statusBuzzer = false;
     return;
@@ -441,36 +453,43 @@ void setup() {
   Serial.println("═══════════════════════════════════════════════\n");
 }
 
+// Variabel jembatan komunikasi antar-Task
+float jarakParkir = -1.0f; 
+
 void loop() {
-  DataJarak ukuran = ukurJarak();
+  unsigned long sekarang = millis();
 
-  if (!ukuran.valid) {
-    Serial.println("⚠️  Di luar jangkauan!");
-    digitalWrite(PIN_BUZZER, LOW);
-    delay(200);
-    return;
+  // ── TASK 1: Membaca Sensor Secara Berkala (60ms) ────────────────
+  // Hukum Fisika HC-SR04 mutlak: Jangan tembak lebih cepat dari 60ms!
+  static unsigned long tSensorTerakhir = 0;
+  if (sekarang - tSensorTerakhir >= 60UL) {
+    tSensorTerakhir = sekarang;
+    
+    DataJarak ukuran = ukurJarak();
+    jarakParkir = ukuran.valid ? ukuran.jarakCm : -1.0f;
   }
 
-  float jarak = ukuran.jarakCm;
-  const char* zona;
-  const char* ikon;
+  // ── TASK 2: Cetak Layar Serial (500ms) ──────────────────────────
+  static unsigned long tPrintTerakhir = 0;
+  if (sekarang - tPrintTerakhir >= 500UL) {
+    tPrintTerakhir = sekarang;
 
-  if (jarak < ZONA_BAHAYA) {
-    zona = "BAHAYA ";
-    ikon = "🔴";
-  } else if (jarak < ZONA_WASPADA) {
-    zona = "WASPADA";
-    ikon = "🟡";
-  } else {
-    zona = "AMAN   ";
-    ikon = "🟢";
+    if (jarakParkir < 0) {
+      Serial.println("⚠️  Tidak ada halangan di depan.");
+    } else {
+      const char* zona = (jarakParkir < ZONA_BAHAYA) ? "BAHAYA " : 
+                         (jarakParkir < ZONA_WASPADA) ? "WASPADA" : "AMAN   ";
+      const char* ikon = (jarakParkir < ZONA_BAHAYA) ? "🔴" : 
+                         (jarakParkir < ZONA_WASPADA) ? "🟡" : "🟢";
+
+      Serial.printf("%s %s %5.1f cm\n", ikon, zona, jarakParkir);
+    }
   }
 
-  Serial.printf("%s %s %5.1f cm\n", ikon, zona, jarak);
-
-  updateBuzzer(jarak);
-
-  delay(100); // Loop 10Hz
+  // ── TASK 3: Alarm Buzzer (Non-Stop Execution) ───────────────────
+  // Ribuan kali per detik, fungsi ini terus-menerus mengecek apakah
+  // ia harus membalik (toggle) status on/off buzzer. Sangat responsif!
+  updateBuzzer(jarakParkir);
 }
 ```
 
@@ -488,13 +507,18 @@ void loop() {
 
 ## 30.7 Program 4: Arsitektur Hardware Interrupt (Non-Blocking Mutlak)
 
-> ⚠️ **Kelemahan Fatal `pulseIn()`:** Perintah `pulseIn()` yang kita gunakan di Program 1–3 secara diam-diam **memblokir** seluruh `loop()` selama menunggu sinyal ECHO — bisa sampai 30.000 µs (30ms)! Untuk sistem yang menjalankan WiFi, OLED, atau sensor MPU-6050 secara bersamaan, ini adalah **racun laten** yang berakibat fatal.
+**Batas Kebuntuan Multitasking `millis()`:**
+Di Program 3 kita sudah menghancurkan cengkeraman setan `delay()`! Namun, jika kamu perhatikan seksama, irama beep buzze saat berada di Zona Bahaya kadang-kadang terdengar "terpincang" atau tersendat *(Jitter)*.
 
-*(Mungkin kamu berpikir: "Gunakan State Machine dengan millis()/micros() saja di dalam loop()!").*
-**SALAH BESAR!** Gelombang suara HC-SR04 kembali dalam hitungan **mikrodetik** (1/1.000.000 detik). Putaran `loop()` biasa membutuhkan waktu ber-mili-mili-detik. Saat CPU lengah mengurus layar OLED, sinyal Echo akan terlewatkan dan jarak yang dihitung memanjang ngawur!
+Mengapa? Karena fungsi `pulseIn()` di dalam `ukurJarak()`! Perintah `pulseIn` akan **memblokir penuh CPU hingga 30ms** jika tak ada halangan. Selama 30ms itu... Task 3 (Buzzer) tidak dapat berdetak, layar tertahan, dan WiFi ESP32 bisa saja *timeout* koneksi!
 
-**Solusi Industri:** Gunakan **Interupsi Perangkat Keras (Hardware Interrupt)**!
-Interupsi memastikan CPU akan **menghentikan apapun yang sedang dikerjakannya (secara instan dalam hitungan nanodetik)** saat sinyal Echo memantul kembali, menghitung waktunya, lalu melanjutkan pekerjaannya!
+Untuk sistem satelit, drone, atau WiFi IoT kaliber tinggi, ini adalah **racun laten** mematikan. Kita butuh solusi agung: **Interupsi Perangkat Keras**.
+
+*(Mungkin kamu berpikir: "Kalau begitu matikan pulseIn dan kerjakan deteksi waktu Echo menggunakan batas micros() saja sendiri di dalam loop()!").*
+**SALAH BESAR!** Gelombang suara HC-SR04 membalas panggilan dalam level **mikrodetik** (1/1.000.000 detik). Putaran `loop()` biasa membutuhkan waktu ber-mili-mili-detik. Apabila CPU lengah sejentik saja mengurus layar LCD, sinyal Echo akan terlewatkan dan jarak yang dihitung melambung tembus tembok luar angkasa!
+
+**Solusi Industri:** Gunakan **Layanan Interupsi Perangkat Keras (Interrupt Service Routine / ISR)**.
+Interupsi membuat ESP32 berjanji: *"Segera setelah pin ECHO tiba-tiba naik/turun di belakang layar, saya akan **MENGGUNTING (MENJEDA INSTAN)** program apapun yang sedang dikerjakan detik itu juga, bergegas merekam mikrodetiknya di sela-sela memori tanpa antre selagi ping berlangsung, lalu melanjutkan program persis di titik tergunting sebelumnya!"*
 
 ```cpp
 /*
