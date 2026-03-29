@@ -353,6 +353,7 @@ Kita akan memecah kerja ESP32 menjadi 3 "Task" (Tugas) paralel:
 3. **Task Buzzer:** Terus-menerus memantau zona bahaya dan mengatur irama kedipan suara dengan kecepatan maksimal.
 
 ```cpp
+/*
  * BAB 30 - Program 3: Sistem Deteksi Zona (Parking Sensor)
  *
  * Meniru sistem peringatan parkir kendaraan modern!
@@ -513,7 +514,7 @@ void loop() {
 ## 30.7 Program 4: Arsitektur Hardware Interrupt (Non-Blocking Mutlak)
 
 **Batas Kebuntuan Multitasking `millis()`:**
-Di Program 3 kita sudah menghancurkan cengkeraman setan `delay()`! Namun, jika kamu perhatikan seksama, irama beep buzze saat berada di Zona Bahaya kadang-kadang terdengar "terpincang" atau tersendat *(Jitter)*.
+Di Program 3 kita sudah menghancurkan cengkeraman setan `delay()`! Namun, jika kamu perhatikan seksama, irama beep buzzer saat berada di Zona Bahaya kadang-kadang terdengar "terpincang" atau tersendat *(Jitter)*.
 
 Mengapa? Karena fungsi `pulseIn()` di dalam `ukurJarak()`! Perintah `pulseIn` akan **memblokir penuh CPU hingga 30ms** jika tak ada halangan. Selama 30ms itu... Task 3 (Buzzer) tidak dapat berdetak, layar tertahan, dan WiFi ESP32 bisa saja *timeout* koneksi!
 
@@ -774,7 +775,7 @@ Solusi Industri Robotik:
 │   pulseIn() = MEMBLOKIR hingga 30ms!                                │
 │   Gunakan Hardware Interrupts (Prog. 4) untuk sistem multi-tasking! │
 │                                                                     │
-│ Intervalsan Aman Minimal = 60ms antar pengukuran (16Hz max)         │
+│ Interval Aman Minimal = 60ms antar pengukuran (16Hz max)            │
 │ Jangkauan Valid = 2cm – 400cm, Sudut Kerucut < 15°                 │
 │ Blind Zone = < 2 cm (keterbatasan fisik sensor)                    │
 └─────────────────────────────────────────────────────────────────────┘
