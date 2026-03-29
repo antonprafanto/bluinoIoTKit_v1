@@ -18,6 +18,11 @@ Penyusunan kurikulum *engineering-grade* ini memakan waktu, tenaga, dan riset pe
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
+**💬 Kontak Penulis:**
+Bagi instansi atau individu yang membutuhkan pendampingan teknis, kerja sama riset, maupun pelatihan khusus seputar IoT & ESP32, silakan hubungi:
+- ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
+- 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)
+
 ## 🔧 Komponen Kit
 
 | # | Komponen | Koneksi | Protokol |
