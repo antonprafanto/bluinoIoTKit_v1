@@ -12,6 +12,12 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 
 > ⏳ **Status Pengembangan:** Saat ini materi kurikulum telah lulus **audit teknis tingkat rekayasa industri (Gold Standard)** dan rampung 100% hingga **BAB 32: LDR — Sensor Cahaya**. Sisa materi (BAB 33 dan seterusnya) sedang dalam tahap pengembangan dan antrean audit mendalam.
 
+## ☕ Dukung Proyek Ini
+
+Penyusunan kurikulum *engineering-grade* ini memakan waktu, tenaga, dan riset perangkat keras yang tidak sedikit. Jika materi ini membantu progres belajar atau mempercepat proyek Anda, Anda bisa mendukung pengembangan bab-bab selanjutnya dengan mentraktir kopi penulis:
+
+[![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
+
 ## 🔧 Komponen Kit
 
 | # | Komponen | Koneksi | Protokol |
