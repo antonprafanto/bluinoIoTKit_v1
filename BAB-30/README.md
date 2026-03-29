@@ -486,130 +486,69 @@ void loop() {
 
 ---
 
-## 30.7 Program 4: Non-Blocking State Machine (Tanpa `pulseIn` Memblokir!)
+## 30.7 Program 4: Arsitektur Hardware Interrupt (Non-Blocking Mutlak)
 
-> ⚠️ **Kelemahan Fatal `pulseIn()`:** Perintah `pulseIn()` yang kita gunakan di Program 1–3 secara diam-diam **memblokir** seluruh `loop()` selama menunggu sinyal ECHO — bisa sampai 30.000 µs (30ms)! Untuk sistem yang menjalankan WiFi, OLED, atau sensor lain secara bersamaan, ini adalah **racun laten** yang sama berbahayanya dengan `delay()`.
+> ⚠️ **Kelemahan Fatal `pulseIn()`:** Perintah `pulseIn()` yang kita gunakan di Program 1–3 secara diam-diam **memblokir** seluruh `loop()` selama menunggu sinyal ECHO — bisa sampai 30.000 µs (30ms)! Untuk sistem yang menjalankan WiFi, OLED, atau sensor MPU-6050 secara bersamaan, ini adalah **racun laten** yang berakibat fatal.
 
-Solusinya menggunakan **mesin keadaan (State Machine)** berbasis interupsi waktu yang membagi proses pengukuran menjadi beberapa fase tidak-memblokir.
+*(Mungkin kamu berpikir: "Gunakan State Machine dengan millis()/micros() saja di dalam loop()!").*
+**SALAH BESAR!** Gelombang suara HC-SR04 kembali dalam hitungan **mikrodetik** (1/1.000.000 detik). Putaran `loop()` biasa membutuhkan waktu ber-mili-mili-detik. Saat CPU lengah mengurus layar OLED, sinyal Echo akan terlewatkan dan jarak yang dihitung memanjang ngawur!
+
+**Solusi Industri:** Gunakan **Interupsi Perangkat Keras (Hardware Interrupt)**!
+Interupsi memastikan CPU akan **menghentikan apapun yang sedang dikerjakannya (secara instan dalam hitungan nanodetik)** saat sinyal Echo memantul kembali, menghitung waktunya, lalu melanjutkan pekerjaannya!
 
 ```cpp
 /*
- * BAB 30 - Program 4: HC-SR04 Non-Blocking State Machine
+ * BAB 30 - Program 4: Keajaiban Interupsi (Non-Blocking HC-SR04)
  *
- * Menggantikan pulseIn() yang memblokir dengan arsitektur State Machine
- * berbasis timer. Loop utama tidak pernah berhenti lebih dari ~12µs!
- *
- * State Machine:
- *   STATE_IDLE      → Menunggu interval pengukuran berikutnya
- *   STATE_TRIG_HIGH → Mengirim pulsa TRIG HIGH (10µs)
- *   STATE_TRIG_LOW  → Menurunkan TRIG ke LOW, tunggu ECHO naik
- *   STATE_WAIT_ECHO → Menunggu ECHO naik
- *   STATE_MEASURING → Menghitung durasi ECHO sampai turun
- *   STATE_DONE      → Proses selesai, simpan ke register
+ * Menggantikan pulseIn() yang memblokir dengan Hardware Interrupts!
+ * Ini adalah arsitektur paling presisi dan efisien CPU di dunia industri
+ * untuk mengukur kejadian yang sangat singkat (mikrodetik).
  */
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const int           PIN_TRIG        = 25;
-const int           PIN_ECHO        = 26;
-const unsigned long INTERVAL_UKUR   = 60UL;   // 60ms antar pengukuran (~16Hz)
-const unsigned long TIMEOUT_ECHO_US = 30000UL; // 30ms = ~5 meter
+// ── Konfigurasi Pin ───────────────────────────────────────────────
+const int PIN_TRIG = 25;
+const int PIN_ECHO = 26;
 
-// ── Definisi State Machine ────────────────────────────────────────
-enum StateUltrasonik {
-  STATE_IDLE,
-  STATE_TRIG_HIGH,
-  STATE_TRIG_LOW,
-  STATE_WAIT_ECHO,
-  STATE_MEASURING,
-  STATE_DONE
-};
+// ── Variabel Volatile untuk Interupsi (SANGAT PENTING!) ───────────
+// Kata kunci `volatile` memaksa RAM agar variabel ini selalu dibaca 
+// dari memori asli dan tidak di-cache oleh CPU, karena nilainya bisa 
+// berubah-ubah tiba-tiba di "belakang layar" oleh fungsi Interupsi.
+volatile unsigned long tEchoNaik   = 0;
+volatile unsigned long durasiEcho  = 0;
+volatile bool          dataBaruSiap = false;
 
-StateUltrasonik stateSekarang = STATE_IDLE;
+// ── Rutinitas Layanan Interupsi (ISR) ─────────────────────────────
+// Fungsi ini dipanggil OTOMATIS oleh otak silikon ESP32 ketika 
+// pin ECHO berubah status (Naik menjadi HIGH, atau Turun menjadi LOW)!
+// IRAM_ATTR menempatkan fungsi ini di RAM tercepat ESP32 (mengurangi lag).
+void IRAM_ATTR isrEcho() {
+  if (digitalRead(PIN_ECHO) == HIGH) {
+    // Ping berangkat! Rekam stopwatch
+    tEchoNaik = micros();
+  } else {
+    // Ping pulang! Matikan stopwatch, hitung durasi, angkat bendera slesai.
+    durasiEcho = micros() - tEchoNaik;
+    dataBaruSiap = true;
+  }
+}
 
-// ── Variabel State Internal ───────────────────────────────────────
-unsigned long tStateStart   = 0; // Kapan state ini dimulai
-unsigned long tEchoStart    = 0; // Kapan ECHO mulai HIGH
+// ── Fungsi Pemicu Non-Blocking ────────────────────────────────────
+unsigned long tPemicuTerakhir = 0;
 
-// ── Data Register Global ──────────────────────────────────────────
-struct DataUltrasonik {
-  float         jarakCm;
-  unsigned long durasiUs;
-  bool          valid;
-  unsigned long tPengukuran; // Timestamp pengukuran terakhir
-};
-
-DataUltrasonik jarakTerakhir = {0.0f, 0UL, false, 0UL};
-
-// ── Fungsi State Machine ──────────────────────────────────────────
-void updateUltrasonik() {
-  unsigned long sekarang = micros(); // Gunakan micros() untuk presisi µs!
-
-  switch (stateSekarang) {
+void triggerSensor() {
+  unsigned long sekarang = millis();
+  
+  // Tembak sinyal maksimum setiap 60ms (Batas pantulan berganda)
+  if (sekarang - tPemicuTerakhir >= 60UL) {
+    tPemicuTerakhir = sekarang;
     
-    case STATE_IDLE:
-      // Tunggu hingga interval berikutnya (menggunakan millis untuk interval besar)
-      if ((millis() - jarakTerakhir.tPengukuran) >= INTERVAL_UKUR) {
-        digitalWrite(PIN_TRIG, LOW);
-        delayMicroseconds(2); // Bersihkan TRIG — ini blocking 2µs, dapat diabaikan!
-        stateSekarang = STATE_TRIG_HIGH;
-        tStateStart   = micros();
-      }
-      break;
-
-    case STATE_TRIG_HIGH:
-      // Tembakkan TRIG HIGH
-      digitalWrite(PIN_TRIG, HIGH);
-      stateSekarang = STATE_TRIG_LOW;
-      tStateStart   = micros();
-      break;
-
-    case STATE_TRIG_LOW:
-      // Tunggu 10µs lalu turunkan TRIG
-      if (micros() - tStateStart >= 10UL) {
-        digitalWrite(PIN_TRIG, LOW);
-        stateSekarang = STATE_WAIT_ECHO;
-        tStateStart   = micros();
-      }
-      break;
-
-    case STATE_WAIT_ECHO:
-      // Tunggu pin ECHO naik ke HIGH (sensor sedang bersiap)
-      if (digitalRead(PIN_ECHO) == HIGH) {
-        tEchoStart    = micros();
-        stateSekarang = STATE_MEASURING;
-      }
-      // Timeout: jika ECHO tak naik dalam 5ms, sensor macet!
-      if (micros() - tStateStart > 5000UL) {
-        jarakTerakhir.valid        = false;
-        jarakTerakhir.tPengukuran  = millis();
-        stateSekarang              = STATE_IDLE;
-      }
-      break;
-
-    case STATE_MEASURING:
-      // Ukur durasi sampai ECHO turun ke LOW
-      if (digitalRead(PIN_ECHO) == LOW) {
-        unsigned long durasi = micros() - tEchoStart;
-        float jarak          = (durasi * 0.0343f) / 2.0f;
-
-        jarakTerakhir.durasiUs    = durasi;
-        jarakTerakhir.jarakCm     = jarak;
-        jarakTerakhir.valid       = (jarak >= 2.0f && jarak <= 400.0f);
-        jarakTerakhir.tPengukuran = millis();
-
-        stateSekarang = STATE_IDLE;
-      }
-      // Timeout: jika ECHO tidak turun dalam 30ms, objek terlalu jauh
-      if (micros() - tEchoStart > TIMEOUT_ECHO_US) {
-        jarakTerakhir.valid       = false;
-        jarakTerakhir.tPengukuran = millis();
-        stateSekarang             = STATE_IDLE;
-      }
-      break;
-
-    default:
-      stateSekarang = STATE_IDLE;
-      break;
+    // Tembakan sensor berlangsung sangat cepat (12µs) sehingga tidak perlu
+    // interupsi. Ini adalah satu-satunya "blokade" tapi sangat-sangat remeh!
+    digitalWrite(PIN_TRIG, LOW);
+    delayMicroseconds(2);
+    digitalWrite(PIN_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(PIN_TRIG, LOW);
   }
 }
 
@@ -617,53 +556,55 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(PIN_TRIG, OUTPUT);
-  pinMode(PIN_ECHO, INPUT);
+  pinMode(PIN_ECHO, INPUT);  // PIN_ECHO adalah pin penerima Interupsi
   digitalWrite(PIN_TRIG, LOW);
 
+  // 💡 Mendaftarkan Interupsi!
+  // Menyuruh ESP32: "Hei, tolong awasi pin ECHO. Kalau sinyalnya BERUBAH (CHANGE), 
+  // langsung hentikan kerjaanmu dan jalankan fungsi isrEcho!"
+  attachInterrupt(digitalPinToInterrupt(PIN_ECHO), isrEcho, CHANGE);
+
   Serial.println("══════════════════════════════════════════════════");
-  Serial.println(" BAB 30: HC-SR04 Non-Blocking State Machine");
+  Serial.println(" BAB 30: HC-SR04 Hardware Interrupts (Non-Blocking)");
   Serial.println("══════════════════════════════════════════════════");
-  Serial.println(" loop() TIDAK PERNAH diblokir > 12µs oleh sensor!");
+  Serial.println(" Menunggu objek di depan sensor...");
   Serial.println("══════════════════════════════════════════════════\n");
 }
 
 void loop() {
-  // State Machine HC-SR04 — berjalan di latar belakang
-  updateUltrasonik();
+  // 1. Secara berkala menembak pelatuk sensor (tembak dan lupakan)
+  triggerSensor();
 
-  // Tampilkan hasil saat data baru tersedia
-  static unsigned long tTampilTerakhir = 0;
-  if (millis() - tTampilTerakhir >= 500UL) {
-    tTampilTerakhir = millis();
+  // 2. Apabila fungsi Interupsi di belakang layar sudah selesai mengukur...
+  if (dataBaruSiap) {
+    
+    // 💡 CRITICAL SECTION (Daerah Aman):
+    // Matikan interupsi sesaat! Jangan sampai sensor menembak dan menimpa  
+    // variabel durasiEcho selagi kita sedang menyalin isinya!
+    noInterrupts();
+    unsigned long durasiAman = durasiEcho;
+    dataBaruSiap = false;
+    interrupts(); // Nyalakan interupsi kembali
 
-    if (jarakTerakhir.valid) {
+    // 3. Kalkulasi Jarak Penuh Damai
+    float jarakCm = (durasiAman * 0.0343f) / 2.0f;
+
+    // Filter jarak liar/timeout
+    if (jarakCm >= 2.0f && jarakCm <= 400.0f) {
       Serial.printf("[%6lu ms] 📏 Jarak: %5.1f cm  (%4lu µs)\n",
-                    jarakTerakhir.tPengukuran,
-                    jarakTerakhir.jarakCm,
-                    jarakTerakhir.durasiUs);
+                    millis(), jarakCm, durasiAman);
     } else {
       Serial.printf("[%6lu ms] ⚠️  Di luar jangkauan\n", millis());
     }
   }
 
-  // Logika lain bebas berjalan di sini!
-  // Contoh: update OLED, kirim MQTT, baca sensor lain...
+  // BUKTIKAN KEKUATAN INTERUPSI:
+  // Kamu bisa menaruh delay(200) di sini, dan pengukuran JARAK TETAP AKURAT!
+  // Karena penghitungan durasi dilakukan oleh Interupsi yang bisa memotong delay!
 }
 ```
 
-**Contoh output:**
-```text
-══════════════════════════════════════════════════
- BAB 30: HC-SR04 Non-Blocking State Machine
-══════════════════════════════════════════════════
- loop() TIDAK PERNAH diblokir > 12µs oleh sensor!
-══════════════════════════════════════════════════
-
-[   521 ms] 📏 Jarak:  28.4 cm  (1658 µs)
-[  1021 ms] 📏 Jarak:  28.3 cm  (1651 µs)
-[  1521 ms] 📏 Jarak:  65.2 cm  (3802 µs)
-[  2021 ms] ⚠️  Di luar jangkauan
-```
+**Kekuatan Ajaib Interupsi:** Coba tambahkan perintah yang berat di dalam `loop()` seperti koneksi HTTP atau kalkulasi Math rumit. Pembacaan Sensor HC-SR04 akan tetap **absolut akurat** karena interupsi tidak mengantre!
 
 ---
 
@@ -762,7 +703,7 @@ JANGAN pernah memicu kedua sensor pada saat bersamaan!
 │                                                                     │
 │ PERINGATAN KRITIS:                                                  │
 │   pulseIn() = MEMBLOKIR hingga 30ms!                                │
-│   Gunakan State Machine (Program 4) untuk sistem IoT kompleks!      │
+│   Gunakan Hardware Interrupts (Program 4) untuk sistem multi-tasking│
 │                                                                     │
 │ Intervalsan Aman Minimal = 60ms antar pengukuran (16Hz max)         │
 │ Jangkauan Valid = 2cm – 400cm, Sudut Kerucut < 15°                 │
@@ -782,7 +723,7 @@ JANGAN pernah memicu kedua sensor pada saat bersamaan!
 
 4. **Level Air / Kedalaman Benda:** Tempatkan sensor HC-SR04 menghadap ke bawah di atas wadah container dengan ketinggian tetap (misal 30cm dari dasar). Saat benda/air ditambahkan ke wadah, level naik dan jarak yang terbaca akan berkurang. Hitung tinggi benda/air melalui rumus: `tinggi = jarak_kosong - jarak_terukur`. Tampilkan dalam bentuk persentase level penuh!
 
-5. **Pengukuran Non-Blocking Tertanam:** Integrasikan Program 4 (State Machine HC-SR04) dengan BAB 29 (Non-Blocking MPU-6050). Jalankan kedua sensor secara **bersamaan** dalam satu `loop()` tanpa saling memblokir. Tampilkan `[Jarak: xx.x cm | Roll: xx.x° | Pitch: xx.x°]` setiap 500ms menggunakan data register global dari masing-masing sensor!
+5. **Pengukuran Non-Blocking Tertanam:** Integrasikan Program 4 (Interupsi HC-SR04) dengan Program 4 BAB 29 (State Machine MPU-6050). Jalankan kedua sensor secara **bersamaan** dalam satu `loop()` tanpa saling memblokir. Tampilkan `[Jarak: xx.x cm | Roll: xx.x° | Pitch: xx.x°]` setiap 500ms menggunakan data register global dari masing-masing!
 
 ---
 
