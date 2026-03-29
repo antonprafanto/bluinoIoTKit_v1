@@ -273,7 +273,12 @@ void setup() {
   pinMode(PIN_ECHO, INPUT);
   digitalWrite(PIN_TRIG, LOW);
 
-  // Baca suhu awal saat boot
+  // 💡 KRITIS: DHT11 butuh waktu pemanasan absolut 2 detik sejak diberi daya!
+  // Jika dibaca instan saat boot, ia PASTI mereturn NaN (Not a Number).
+  Serial.println(" Menunggu pemanasan sensor DHT11 (2 detik)...");
+  delay(2000);
+
+  // Baca suhu riil pertama untuk titik tolak
   float t = dht.readTemperature();
   if (!isnan(t)) suhuAmbien = t;
 
@@ -723,6 +728,24 @@ waktu `tEchoNaik` dari tembakan KEMARIN (yang mana nilainya sangat lawas)!
 Solusi Masterpiece: Program 4 kita sudah kebal terhadap ini! Terdapat "Ghost Echo Guard" 
 yakni kode `if (tEchoNaik != 0)` yang akan mendelete paksa segala rekam jejak
 ECHO turun apabila ECHO naiknya absen. Pengukuran liar pun hangus seketika!
+```
+
+### 7. Jarak Menjadi Kacau/Pendek Saat Dinamo Berputar? (Voltage Sag)
+```text
+Symptom: Saat robot diam, sensor akurat. Begitu roda (Motor DC L298N) atau Relay aktif,
+jarak ultrasonik mendadak menjadi 0 cm atau bergemuruh ngawur.
+
+Penyebab Fisika (Brownout): HC-SR04 SANGAT sensitif terhadap kestabilan "Rel Darah" (Tegangan 5V). 
+Saat dinamo ditarik gas mendadak, ia menyedot arus ekstrem (Inrush Current) yang menyebabkan 
+pasokan tegangan 5V terjun bebas (Voltage Sag) sesaat hingga 4.2V! 
+Turunnya tegangan sesaat ini membuat Penguat Operasional (Op-Amp) di dalam otak sensor HC-SR04
+kelaparan listrik dan mengeluarkan "Noise Hantu".
+
+Solusi Industri Robotik:
+1. Pasang Kapasitor Elektrolit (misal 470µF) melintang tepat menempel di kaki VCC dan GND sensor.
+2. PISAHKAN Rel Power: Jangan pernah merantai VCC sensor di satu titik kabel paralel
+   dengan VCC milik Dinamo DC.
+3. Gunakan baterai Li-Ion bertenaga tinggi untuk sistem mekanik!
 ```
 
 ---
