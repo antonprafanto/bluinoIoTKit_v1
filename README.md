@@ -10,7 +10,7 @@
 
 Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluino ESP32 IoT Starter Shield v3.2**. Materi disusun dalam format BAB (chapter) sehingga bisa digunakan secara fleksibel — baik untuk kursus terstruktur maupun belajar mandiri.
 
-> ⏳ **Status Pengembangan:** Saat ini materi kurikulum telah lulus **audit teknis tingkat rekayasa industri (Gold Standard)** dan rampung 100% hingga **BAB 32: LDR — Sensor Cahaya**. Sisa materi (BAB 33 dan seterusnya) sedang dalam tahap pengembangan dan antrean audit mendalam.
+> ⏳ **Status Pengembangan:** Saat ini materi kurikulum telah lulus **audit teknis tingkat rekayasa industri (Gold Standard)** dan rampung 100% hingga **BAB 33: Sensor Internal ESP32**. Sisa materi (BAB 34 dan seterusnya) sedang dalam tahap pengembangan dan antrean audit mendalam.
 
 ## ☕ Dukung Proyek Ini
 
@@ -18,10 +18,12 @@ Penyusunan kurikulum *engineering-grade* ini memakan waktu, tenaga, dan riset pe
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
-**💬 Kontak Penulis:**
-Bagi instansi atau individu yang membutuhkan pendampingan teknis, kerja sama riset, maupun pelatihan khusus seputar IoT & ESP32, silakan hubungi:
+**💬 Kontak Penulis (Kritik & Saran):**
+Bagi instansi atau individu yang membutuhkan pendampingan teknis, kerja sama riset, pelatihan khusus seputar IoT & ESP32, maupun ingin memberikan **kritik, saran, dan masukan** untuk perbaikan kurikulum ini, silakan hubungi:
 - ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
 - 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)
+
+Anda juga dapat berkontribusi secara langsung dengan membuka **Issue** atau **Pull Request** di repository ini jika menemukan *bug* pada kode atau kesalahan penulisan (*typo*).
 
 ## 🔧 Komponen Kit
 
