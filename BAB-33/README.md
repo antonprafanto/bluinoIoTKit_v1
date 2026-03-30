@@ -25,18 +25,18 @@ Kebanyakan tutorial ESP32 hanya mengajarkan cara membaca sensor *eksternal* (DHT
 KOMPONEN INTERNAL ESP32 (Yang Jarang Dibahas):
 
 ┌─────────────────────────────────────────────────────────┐
-│                  CHIP ESP32 (Xtensa LX6)                 │
-│                                                          │
-│  ┌──────────────┐   ┌──────────────┐   ┌─────────────┐  │
-│  │   CPU Core 0  │   │  Temperature  │   │  Hall Effect │  │
-│  │   CPU Core 1  │   │   Sensor     │   │   Sensor    │  │
-│  │               │   │  (on-die)    │   │  (DEPRECATED)│  │
-│  │  Running your │   │              │   │             │  │
-│  │     code!     │   │ Baca suhu    │   │ Baca medan  │  │
-│  │               │   │ chip itu     │   │ magnet di   │  │
-│  │               │   │ sendiri      │   │ sekitar chip│  │
-│  └──────────────┘   └──────────────┘   └─────────────┘  │
-│                                                          │
+│                  CHIP ESP32 (Xtensa LX6)                │
+│                                                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │  CPU Core 0  │  │ Temperature  │  │  Hall Effect  │  │
+│  │  CPU Core 1  │  │   Sensor     │  │    Sensor     │  │
+│  │              │  │  (on-die)    │  │ (DEPRECATED)  │  │
+│  │ Running your │  │              │  │               │  │
+│  │    code!     │  │ Baca suhu    │  │ Baca medan    │  │
+│  │              │  │ chip itu     │  │ magnet di     │  │
+│  │              │  │ sendiri      │  │ sekitar chip  │  │
+│  └──────────────┘  └──────────────┘  └───────────────┘  │
+│                                                         │
 │  ADC12 | DAC | RTC | WiFi/BT Radio | Hall | Temp | ...  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -153,11 +153,11 @@ Program pertama yang sangat sederhana ini membuktikan bahwa sensor benar-benar b
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("═══════════════════════════════════════════════");
+  Serial.println("══════════════════════════════════════════════════════");
   Serial.println("  BAB 33: ESP32 Internal Temperature Sensor");
-  Serial.println("═══════════════════════════════════════════════");
-  Serial.println("  Waktu (ms)  │  Suhu (°C)  │  Suhu (°F)  │ Status");
-  Serial.println("──────────────┼─────────────┼─────────────┼───────");
+  Serial.println("══════════════════════════════════════════════════════");
+  Serial.println("  Waktu (ms)   │  Suhu (°C)  │  Suhu (°F)  │ Status   ");
+  Serial.println("───────────────┼─────────────┼─────────────┼──────────");
 }
 
 void loop() {
@@ -166,12 +166,12 @@ void loop() {
 
   // Klasifikasi status thermal
   const char* status;
-  if      (suhuC < 40.0f) status = "DINGIN ";
-  else if (suhuC < 55.0f) status = "NORMAL ";
+  if      (suhuC < 40.0f) status = "DINGIN   ";
+  else if (suhuC < 55.0f) status = "NORMAL   ";
   else if (suhuC < 70.0f) status = "HANGAT ⚠️";
   else                     status = "PANAS! 🔥";
 
-  Serial.printf("  [%8lu ms] │  %6.1f °C  │  %6.1f °F  │ %s\n",
+  Serial.printf("  [%8lu ms] │  %5.1f °C   │  %5.1f °F   │ %s\n",
                 millis(), suhuC, suhuF, status);
 
   delay(1000); // Program 1 boleh pakai delay — ini hanya alat observasi
@@ -180,19 +180,19 @@ void loop() {
 
 **Contoh output yang diharapkan:**
 ```text
-═══════════════════════════════════════════════
+══════════════════════════════════════════════════════
   BAB 33: ESP32 Internal Temperature Sensor
-═══════════════════════════════════════════════
-  Waktu (ms)  │  Suhu (°C)  │  Suhu (°F)  │ Status
-──────────────┼─────────────┼─────────────┼───────
-  [    1001 ms] │    42.8 °C  │   109.0 °F  │ NORMAL
-  [    2001 ms] │    43.1 °C  │   109.6 °F  │ NORMAL
-  [    3001 ms] │    42.8 °C  │   109.0 °F  │ NORMAL
+══════════════════════════════════════════════════════
+  Waktu (ms)   │  Suhu (°C)  │  Suhu (°F)  │ Status   
+───────────────┼─────────────┼─────────────┼──────────
+  [    1001 ms] │   42.8 °C   │  109.0 °F   │ NORMAL   
+  [    2001 ms] │   43.1 °C   │  109.6 °F   │ NORMAL   
+  [    3001 ms] │   42.8 °C   │  109.0 °F   │ NORMAL   
 
   ← (WiFi diaktifkan di kode lain yang berjalan paralel)
 
-  [    4001 ms] │    51.3 °C  │   124.3 °F  │ NORMAL
-  [    5001 ms] │    56.7 °C  │   134.1 °F  │ HANGAT ⚠️
+  [    4001 ms] │   51.3 °C   │  124.3 °F   │ NORMAL   
+  [    5001 ms] │   56.7 °C   │  134.1 °F   │ HANGAT ⚠️
 ```
 
 > 💡 **Pengamatan Penting:** Catat suhu saat idle, lalu tambahkan `for(int i=0; i<1000000; i++);` sebelum `delay()` untuk membuat CPU sibuk. Lihat bagaimana suhu naik! Ini adalah **demonstrasi langsung pengaruh beban komputasi terhadap thermal chip**.
@@ -314,7 +314,7 @@ void loop() {
   if (sekarang - tLogTerakhir >= INTERVAL_LOG_MS) {
     tLogTerakhir = sekarang;
     unsigned long uptime = sekarang / 1000;
-    Serial.printf("  [%5lu s] │ Suhu=%.1f°C │ Max=%.1f°C │ Status:%s\n",
+    Serial.printf("  [%5lu s] │ Suhu=%5.1f°C │ Max=%5.1f°C │ Status:%s\n",
                   uptime, suhuSmooth, suhuMax, namaStatus[statusSekarang]);
   }
 }
@@ -329,13 +329,13 @@ void loop() {
   Batas Alarm   : 75.0 °C
   Suhu Awal     : 43.2 °C
 ──────────────────────────────────────────────────────
-  [    5 s] │ Suhu=43.6°C │ Max=43.8°C │ Status:NORMAL
-  [   10 s] │ Suhu=44.1°C │ Max=44.1°C │ Status:NORMAL
+  [    5 s] │ Suhu= 43.6°C │ Max= 43.8°C │ Status:NORMAL
+  [   10 s] │ Suhu= 44.1°C │ Max= 44.1°C │ Status:NORMAL
 
   ← (WiFi scan diaktifkan oleh bagian kode lain)
 
 [   12450 ms] ⚡ STATUS: NORMAL → WARNING ⚠️ │ Suhu=61.4°C
-  [   15 s] │ Suhu=63.2°C │ Max=63.2°C │ Status:WARNING ⚠️
+  [   15 s] │ Suhu= 63.2°C │ Max= 63.2°C │ Status:WARNING ⚠️
 ```
 
 ---
