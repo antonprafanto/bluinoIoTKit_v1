@@ -629,14 +629,14 @@ void loop() {
     Serial.println("┌────────────────────────────────────────────────────┐");
     Serial.print  ("│ Uptime    : ");
     printUptime(sekarang);
-    Serial.println("                              │");
-    Serial.printf ("│ Suhu      : %5.1f °C  [Min:%-4.1f Max:%-4.1f]         │\n",
+    Serial.println("                               │");
+    Serial.printf ("│ Suhu      : %5.1f °C  [Min:%-4.1f Max:%-4.1f]          │\n",
                    suhuSmooth, suhuMin, suhuMax);
-    Serial.printf ("│ Status    : %s                           │\n",
+    Serial.printf ("│ Status    : %s                            │\n",
                    statusThermal);
-    Serial.printf ("│ Free Heap : %-6u bytes  (dari %-6u total)     │\n",
+    Serial.printf ("│ Free Heap : %-6u bytes  (dari %-6u total)      │\n",
                    ESP.getFreeHeap(), ESP.getHeapSize());
-    Serial.printf ("│ CPU Freq  : %-3u MHz                               │\n",
+    Serial.printf ("│ CPU Freq  : %-3u MHz                                │\n",
                    getCpuFrequencyMhz());
     Serial.println("└────────────────────────────────────────────────────┘");
   }
@@ -655,18 +655,18 @@ void loop() {
 ╚════════════════════════════════════════════════════╝
 
 ┌────────────────────────────────────────────────────┐
-│ Uptime    : 00:00:05                              │
-│ Suhu      :  43.6 °C  [Min:43.2 Max:43.8]         │
-│ Status    : ✅ NORMAL                             │
-│ Free Heap : 320456 bytes  (dari 327680 total)     │
-│ CPU Freq  : 240 MHz                               │
+│ Uptime    : 00:00:05                               │
+│ Suhu      :  43.6 °C  [Min:43.2 Max:43.8]          │
+│ Status    : ✅ NORMAL                              │
+│ Free Heap : 320456 bytes  (dari 327680 total)      │
+│ CPU Freq  : 240 MHz                                │
 └────────────────────────────────────────────────────┘
 ┌────────────────────────────────────────────────────┐
-│ Uptime    : 00:00:10                              │
-│ Suhu      :  44.1 °C  [Min:43.2 Max:44.3]         │
-│ Status    : ✅ NORMAL                             │
-│ Free Heap : 320456 bytes  (dari 327680 total)     │
-│ CPU Freq  : 240 MHz                               │
+│ Uptime    : 00:00:10                               │
+│ Suhu      :  44.1 °C  [Min:43.2 Max:44.3]          │
+│ Status    : ✅ NORMAL                              │
+│ Free Heap : 320456 bytes  (dari 327680 total)      │
+│ CPU Freq  : 240 MHz                                │
 └────────────────────────────────────────────────────┘
 ```
 
