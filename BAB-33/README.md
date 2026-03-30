@@ -459,6 +459,7 @@ void setup() {
   for (int i = 0; i < N_SAMPLES; i++) bufferHall[i] = baselineHall;
   sumBuf      = (long)baselineHall * N_SAMPLES;
   hallSmooth  = baselineHall;
+  hallRaw     = baselineHall;
 
   Serial.println("═══════════════════════════════════════════════════════");
   Serial.println("  BAB 33: Hall Effect Sensor Demo (Core v2.x only!)");
@@ -591,13 +592,13 @@ void setup() {
   Serial.println("╔════════════════════════════════════════════════════╗");
   Serial.println("║    BAB 33: ESP32 System Health Monitor v1.0        ║");
   Serial.println("╠════════════════════════════════════════════════════╣");
-  Serial.printf ("║  CPU Freq   : %-6u MHz                            ║\n",
+  Serial.printf ("║  CPU Freq   : %-6u MHz                           ║\n",
                   getCpuFrequencyMhz());
-  Serial.printf ("║  Flash Size : %-6u KB                             ║\n",
+  Serial.printf ("║  Flash Size : %-6u KB                            ║\n",
                   ESP.getFlashChipSize() / 1024);
   Serial.printf ("║  Heap Total : %-8u bytes                       ║\n",
                   ESP.getHeapSize());
-  Serial.printf ("║  Suhu Awal  : %-6.1f °C                           ║\n",
+  Serial.printf ("║  Suhu Awal  : %-6.1f °C                          ║\n",
                   suhuAwal);
   Serial.println("╚════════════════════════════════════════════════════╝");
   Serial.println();
@@ -621,21 +622,21 @@ void loop() {
 
     const char* statusThermal;
     if      (suhuSmooth >= SUHU_ALARM)   statusThermal = "🔥 ALARM!  ";
-    else if (suhuSmooth >= SUHU_WARNING) statusThermal = "⚠️  WARNING";
-    else if (suhuSmooth >= 40.0f)        statusThermal = "✅ NORMAL  ";
-    else                                  statusThermal = "❄️  DINGIN  ";
+    else if (suhuSmooth >= SUHU_WARNING) statusThermal = "⚠️ WARNING  ";
+    else if (suhuSmooth >= 40.0f)        statusThermal = "✅ NORMAL   ";
+    else                                  statusThermal = "❄️ DINGIN   ";
 
     Serial.println("┌────────────────────────────────────────────────────┐");
     Serial.print  ("│ Uptime    : ");
     printUptime(sekarang);
-    Serial.println("                                    │");
-    Serial.printf ("│ Suhu      : %5.1f °C  [Min:%.1f  Max:%.1f]       │\n",
+    Serial.println("                              │");
+    Serial.printf ("│ Suhu      : %5.1f °C  [Min:%-4.1f Max:%-4.1f]         │\n",
                    suhuSmooth, suhuMin, suhuMax);
-    Serial.printf ("│ Status    : %s                                │\n",
+    Serial.printf ("│ Status    : %s                           │\n",
                    statusThermal);
-    Serial.printf ("│ Free Heap : %6u bytes  (dari %u total)       │\n",
+    Serial.printf ("│ Free Heap : %-6u bytes  (dari %-6u total)     │\n",
                    ESP.getFreeHeap(), ESP.getHeapSize());
-    Serial.printf ("│ CPU Freq  : %3u MHz                                │\n",
+    Serial.printf ("│ CPU Freq  : %-3u MHz                               │\n",
                    getCpuFrequencyMhz());
     Serial.println("└────────────────────────────────────────────────────┘");
   }
@@ -647,25 +648,25 @@ void loop() {
 ╔════════════════════════════════════════════════════╗
 ║    BAB 33: ESP32 System Health Monitor v1.0        ║
 ╠════════════════════════════════════════════════════╣
-║  CPU Freq   : 240 MHz                              ║
-║  Flash Size : 4096 KB                              ║
+║  CPU Freq   : 240    MHz                           ║
+║  Flash Size : 4096   KB                            ║
 ║  Heap Total : 327680 bytes                         ║
-║  Suhu Awal  : 43.2 °C                              ║
+║  Suhu Awal  : 43.2   °C                          ║
 ╚════════════════════════════════════════════════════╝
 
 ┌────────────────────────────────────────────────────┐
-│ Uptime    : 00:00:05                               │
-│ Suhu      :  43.6 °C  [Min:43.2  Max:43.8]        │
-│ Status    : ✅ NORMAL                              │
-│ Free Heap : 320456 bytes  (dari 327680 total)      │
-│ CPU Freq  : 240 MHz                                │
+│ Uptime    : 00:00:05                              │
+│ Suhu      :  43.6 °C  [Min:43.2 Max:43.8]         │
+│ Status    : ✅ NORMAL                             │
+│ Free Heap : 320456 bytes  (dari 327680 total)     │
+│ CPU Freq  : 240 MHz                               │
 └────────────────────────────────────────────────────┘
 ┌────────────────────────────────────────────────────┐
-│ Uptime    : 00:00:10                               │
-│ Suhu      :  44.1 °C  [Min:43.2  Max:44.3]        │
-│ Status    : ✅ NORMAL                              │
-│ Free Heap : 320456 bytes  (dari 327680 total)      │
-│ CPU Freq  : 240 MHz                                │
+│ Uptime    : 00:00:10                              │
+│ Suhu      :  44.1 °C  [Min:43.2 Max:44.3]         │
+│ Status    : ✅ NORMAL                             │
+│ Free Heap : 320456 bytes  (dari 327680 total)     │
+│ CPU Freq  : 240 MHz                               │
 └────────────────────────────────────────────────────┘
 ```
 
