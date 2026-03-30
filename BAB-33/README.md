@@ -350,10 +350,10 @@ PRINSIP HALL EFFECT:
   Magnet (kutub utara)         Sensor Hall Effect
        │                             │
        ▼                             ▼
-  Medan магнит tegak lurus ─→ Arus listrik berbelok ─→ Tegangan terukur!
+  Medan magnet tegak lurus ──→ Arus listrik berbelok ──→ Tegangan terukur!
 
-  TERANG: Tanpa magnet → Tegangan Vhall ≈ 0
-  GELAP:  Ada magnet   → Tegangan Vhall ≠ 0 (proporsional kekuatan magnet)
+  TANPA MEDAN: Tidak ada magnet → Tegangan Vhall ≈ 0
+  ADA MEDAN:   Ada magnet dekat → Tegangan Vhall ≠ 0 (proporsional kekuatan magnet)
 
 Satuan: Gauss (G) atau Tesla (T)
 1 Tesla = 10,000 Gauss
@@ -424,9 +424,10 @@ const int THRESHOLD_DETEKSI = 20; // Perubahan minimal untuk dianggap "ada magne
 // ── Moving Average ─────────────────────────────────────────────────
 const int N_SAMPLES = 16;
 int   bufferHall[N_SAMPLES];
-int   idxBuf  = 0;
-long  sumBuf  = 0;
+int   idxBuf     = 0;
+long  sumBuf     = 0;
 int   hallSmooth = 0;
+int   hallRaw    = 0; // Simpan nilai raw terakhir agar tidak double-call hallRead()
 
 void tambahSampelHall(int s) {
   sumBuf       -= bufferHall[idxBuf];
@@ -474,7 +475,8 @@ void loop() {
   // ── Sampling Hall setiap 50ms ─────────────────────────────────
   if (sekarang - tBacaTerakhir >= INTERVAL_BACA_MS) {
     tBacaTerakhir = sekarang;
-    tambahSampelHall(hallRead());
+    hallRaw = hallRead();         // Simpan satu kali, pakai dua tempat
+    tambahSampelHall(hallRaw);
   }
 
   // ── Print setiap 500ms ────────────────────────────────────────
@@ -488,7 +490,7 @@ void loop() {
     else                                  deteksi = "⬜ Tidak ada magnet";
 
     Serial.printf("  [%8lu ms] Raw=%4d │ Smooth=%4d │ Delta=%+4d │ %s\n",
-                  sekarang, hallRead(), hallSmooth, delta, deteksi);
+                  sekarang, hallRaw, hallSmooth, delta, deteksi);
   }
 }
 ```
@@ -589,13 +591,13 @@ void setup() {
   Serial.println("╔════════════════════════════════════════════════════╗");
   Serial.println("║    BAB 33: ESP32 System Health Monitor v1.0        ║");
   Serial.println("╠════════════════════════════════════════════════════╣");
-  Serial.printf ("║  CPU Freq   : %3u MHz                              ║\n",
+  Serial.printf ("║  CPU Freq   : %-6u MHz                            ║\n",
                   getCpuFrequencyMhz());
-  Serial.printf ("║  Flash Size : %4u KB                              ║\n",
+  Serial.printf ("║  Flash Size : %-6u KB                             ║\n",
                   ESP.getFlashChipSize() / 1024);
-  Serial.printf ("║  Heap Total : %6u bytes                         ║\n",
+  Serial.printf ("║  Heap Total : %-8u bytes                       ║\n",
                   ESP.getHeapSize());
-  Serial.printf ("║  Suhu Awal  : %.1f °C                             ║\n",
+  Serial.printf ("║  Suhu Awal  : %-6.1f °C                           ║\n",
                   suhuAwal);
   Serial.println("╚════════════════════════════════════════════════════╝");
   Serial.println();
