@@ -307,10 +307,10 @@ void updateWMA(float v) {
   wmaIdx = (wmaIdx + 1) % WMA_N;
   float weightedSum = 0.0f;
   for (int i = 0; i < WMA_N; i++) {
-    // Hitung posisi relatif (0 = paling lama, WMA_N-1 = paling baru)
-    int age     = (wmaIdx - 1 - i + WMA_N) % WMA_N;
-    int weight  = WMA_N - age;          // Makin baru, bobot makin besar
-    weightedSum += wmaBuf[(wmaIdx - 1 - i + WMA_N) % WMA_N] * weight;
+    // i=0 adalah iterasi untuk sampel paling baru (bobot N)
+    int readIdx = (wmaIdx - 1 - i + WMA_N) % WMA_N;
+    int weight  = WMA_N - i;
+    weightedSum += wmaBuf[readIdx] * weight;
   }
   wmaVal = weightedSum / WMA_WEIGHT_SUM;
 }
@@ -398,7 +398,7 @@ KALIBRASI GAIN (Scale Factor):
            → nilai_terkoreksi = 2.0 × 1.25 = 2.5 ✅
 
 KALIBRASI DUA TITIK (Paling Akurat):
-  Titik 1: Input=0   → Sensor=47   (nilai offest)
+  Titik 1: Input=0   → Sensor=47   (nilai offset)
   Titik 2: Input=100 → Sensor=212  (nilai skala penuh)
 
   Slope (gain) = (100 - 0) / (212 - 47) = 100 / 165 = 0.606
@@ -634,14 +634,14 @@ void loop() {
     float pctOK = (totalSampel > 0) ? (100.0f * diterima / totalSampel) : 0.0f;
 
     Serial.println();
-    Serial.println("  ┌── LAPORAN FILTER (5s) ─────────────────────────┐");
-    Serial.printf ("  │ Total sampel : %-6lu                           │\n", totalSampel);
-    Serial.printf ("  │ Diterima     : %-6lu (%.1f%%)                  │\n", diterima, pctOK);
-    Serial.printf ("  │ Tolak RANGE  : %-6lu                           │\n", tolakRange);
-    Serial.printf ("  │ Tolak RATE   : %-6lu                           │\n", tolakRate);
-    Serial.printf ("  │ Spike terdet : %-6lu                           │\n", tolakMedian);
-    Serial.printf ("  │ EMA sekarang : %-6.1f ADC                      │\n", emaVal);
-    Serial.println("  └────────────────────────────────────────────────┘");
+    Serial.println("  ┌── LAPORAN FILTER (5s) ───────────────────────────┐");
+    Serial.printf ("  │ Total sampel : %-6lu                            │\n", totalSampel);
+    Serial.printf ("  │ Diterima     : %-6lu (%5.1f%%)                  │\n", diterima, pctOK);
+    Serial.printf ("  │ Tolak RANGE  : %-6lu                            │\n", tolakRange);
+    Serial.printf ("  │ Tolak RATE   : %-6lu                            │\n", tolakRate);
+    Serial.printf ("  │ Spike terdet : %-6lu                            │\n", tolakMedian);
+    Serial.printf ("  │ EMA sekarang : %-6.1f ADC                       │\n", emaVal);
+    Serial.println("  └──────────────────────────────────────────────────┘");
     Serial.println();
   }
 }
@@ -663,14 +663,14 @@ void loop() {
   [SPIKE] raw=3105 → filtered=1853 (spike terdeteksi!)
   [OK   ] raw=1850 → med=1852 → ema=  1849.6
 
-  ┌── LAPORAN FILTER (5s) ─────────────────────────┐
+  ┌── LAPORAN FILTER (5s) ───────────────────────────┐
   │ Total sampel : 100                              │
-  │ Diterima     : 96     (96.0%)                   │
+  │ Diterima     : 96     ( 96.0%)                  │
   │ Tolak RANGE  : 0                                │
   │ Tolak RATE   : 3                                │
   │ Spike terdet : 1                                │
   │ EMA sekarang : 1849.6 ADC                       │
-  └────────────────────────────────────────────────┘
+  └──────────────────────────────────────────────────┘
 ```
 
 > ⚠️ **Catatan Penting — Rate Filter:** Jika sumber cahaya *memang* berubah cepat (lampu dinyalakan tiba-tiba), rate filter akan *salah* menolak data yang valid. Sesuaikan `MAX_DELTA_PER_TICK` dengan *kecepatan perubahan fisik maksimum* yang masuk akal untuk aplikasi kamu.
@@ -866,6 +866,7 @@ bool  emaDHTInit  = false;
 float emaBMP      = 0.0f;
 bool  emaBMPInit  = false;
 float emaInternal = 0.0f;
+bool  emaIntInit  = false;
 
 void updateEMA(float &ema, bool &init, float val) {
   if (!init) { ema = val; init = true; return; }
@@ -944,9 +945,7 @@ void loop() {
     // Internal ESP32
     float suhuInt = temperatureRead();
     if (isSuhuValid(suhuInt)) {
-      updateEMA(emaInternal, emaDHTInit, suhuInt);
-      // Catatan: emaDHTInit dipakai disini supaya internal selalu aktif
-      // karena sensor ini selalu valid sejak power-on
+      updateEMA(emaInternal, emaIntInit, suhuInt);
     }
   }
 
@@ -975,7 +974,7 @@ void loop() {
     unsigned long dtk   = detik % 60;
 
     Serial.println("┌────────────────────────────────────────────────────┐");
-    Serial.printf ("│  Uptime : %02lu:%02lu:%02lu                                  │\n",
+    Serial.printf ("│  Uptime : %02lu:%02lu:%02lu                                │\n",
                    jam, menit, dtk);
     Serial.println("├────────────────────────────────────────────────────┤");
     Serial.printf ("│  DHT11 (lingkungan) : %5.1f°C  %s              │\n",
@@ -1066,7 +1065,7 @@ Cara kalibrasi MAX_DELTA_PER_TICK yang benar:
   4. Set MAX_DELTA_PER_TICK = delta_maksimum × 1.5 (beri margin 50%)
 
 Contoh:
-  Magkan LDR cepat → delta ADC maks = 400 per 50ms
+  Tutup LDR cepat → delta ADC maks = 400 per 50ms
   → MAX_DELTA_PER_TICK = 400 × 1.5 = 600
 ```
 
@@ -1125,7 +1124,7 @@ Untuk kalibrasi ulang:
 │                                                                       │
 │ KALIBRASI:                                                            │
 │   Offset   = nilai_terkoreksi = raw - offset                          │
-│   Gain     = nilai_terkoreksi = raw × gain                            │
+│   Gain     = raw × gain  (menjadi nilai_terkoreksi)                   │
 │   2-titik  = (raw - ref_low) × ((out_hi - out_lo)/(ref_hi - ref_lo)) │
 │   Lookup Table + Interpolasi = untuk sensor non-linear (LDR, NTC)    │
 │                                                                       │
