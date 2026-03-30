@@ -134,7 +134,7 @@ float suhu = temperatureRead(); // Mengembalikan suhu dalam °C
 
 ## 33.3 Program 1: Baca Temperatur Internal — Dasar
 
-Program pertama yang sangat sederhana ini membuktikan bahwa sensor benar-benar bekerja dan membantu kamu memahami hubungan antara beban CPU dan suhu chip.
+Program pertama yang sangat sederhana ini membuktikan bahwa sensor suhu benar-benar bekerja dan membantu kamu memahami hubungan antara beban CPU dan suhu chip.
 
 ```cpp
 /*
@@ -490,7 +490,7 @@ void loop() {
     else if (delta < -THRESHOLD_DETEKSI) deteksi = "🔴 KUTUB SELATAN";
     else                                  deteksi = "⬜ Tidak ada magnet";
 
-    Serial.printf("  [%8lu ms] Raw=%4d │ Smooth=%4d │ Delta=%+4d │ %s\n",
+    Serial.printf("  [%8lu ms] │ Raw=%4d │ Smooth=%4d │ Delta=%+4d │ %s\n",
                   sekarang, hallRaw, hallSmooth, delta, deteksi);
   }
 }
@@ -506,17 +506,17 @@ Kalibrasi baseline... (jangan dekatkan magnet!)
   Threshold deteksi    : ±20
   Dekatkan magnet ke bagian bawah chip ESP32!
 ───────────────────────────────────────────────────────
-  [     501 ms] Raw=  50 │ Smooth=  49 │ Delta=  +1 │ ⬜ Tidak ada magnet
-  [    1001 ms] Raw=  47 │ Smooth=  48 │ Delta=   0 │ ⬜ Tidak ada magnet
+  [     501 ms] │ Raw=  50 │ Smooth=  49 │ Delta=  +1 │ ⬜ Tidak ada magnet
+  [    1001 ms] │ Raw=  47 │ Smooth=  48 │ Delta=   0 │ ⬜ Tidak ada magnet
 
   ← (Magnet kulkas didekatkan dari bawah PCB)
 
-  [    1501 ms] Raw=  82 │ Smooth=  68 │ Delta= +20 │ 🔵 KUTUB UTARA
-  [    2001 ms] Raw=  98 │ Smooth=  91 │ Delta= +43 │ 🔵 KUTUB UTARA
+  [    1501 ms] │ Raw=  82 │ Smooth=  68 │ Delta= +20 │ 🔵 KUTUB UTARA
+  [    2001 ms] │ Raw=  98 │ Smooth=  91 │ Delta= +43 │ 🔵 KUTUB UTARA
 
   ← (Magnet dibalik, kutub selatan didekatkan)
 
-  [    3001 ms] Raw=  15 │ Smooth=  22 │ Delta= -26 │ 🔴 KUTUB SELATAN
+  [    3001 ms] │ Raw=  15 │ Smooth=  22 │ Delta= -26 │ 🔴 KUTUB SELATAN
 ```
 
 ---
@@ -735,20 +735,20 @@ Ini adalah karakteristik bawaan. Solusi:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│              RINGKASAN BAB 33 — ESP32 INTERNAL SENSORS               │
+│               RINGKASAN BAB 33 — ESP32 INTERNAL SENSORS             │
 ├─────────────────────────────────────────────────────────────────────┤
 │ TEMPERATURE SENSOR INTERNAL:                                        │
-│   API         = temperatureRead()  (Core v2.x)                     │
+│   API         = temperatureRead()  (Core v2.x)                      │
 │   Output      = float (°C), suhu die chip                           │
-│   Akurasi     = ±5°C (bukan untuk ukur suhu lingkungan!)           │
-│   Dipengaruhi = Beban CPU, WiFi/BT aktif, clock speed              │
+│   Akurasi     = ±5°C (bukan untuk ukur suhu lingkungan!)            │
+│   Dipengaruhi = Beban CPU, WiFi/BT aktif, clock speed               │
 │   Gunakan untuk: Thermal protection, health monitoring              │
 │                                                                     │
-│ HALL EFFECT SENSOR:                                                  │
-│   API         = hallRead()  (Core v1.x / v2.x SAJA!)              │
-│   Status      = ⚠️ DEPRECATED — Dihapus di Core v3.x!             │
-│   Output      = int (tidak bersatuan — relatif terhadap baseline)  │
-│   Gunakan ADC1 Ch0/3 (IO36, IO39) secara internal                  │
+│ HALL EFFECT SENSOR:                                                 │
+│   API         = hallRead()  (Core v1.x / v2.x SAJA!)                │
+│   Status      = ⚠️ DEPRECATED — Dihapus di Core v3.x!              │
+│   Output      = int (tidak bersatuan — relatif terhadap baseline)   │
+│   Gunakan ADC1 Ch0/3 (IO36, IO39) secara internal                   │
 │   Gangguan     = Sangat tinggi — butuh moving average besar         │
 │                                                                     │
 │ BEST PRACTICES:                                                     │
