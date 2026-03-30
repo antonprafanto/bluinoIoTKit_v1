@@ -594,38 +594,39 @@ void loop() {
     if (rawInt < ADC_MIN || rawInt > ADC_MAX) {
       tolakRange++;
       Serial.printf("  [RANGE] raw=%4d → DITOLAK! Di luar batas ADC\n", rawInt);
-      return; // Buang, jangan proses lebih lanjut
+    } 
+    else {
+      // ── Layer 2: Rate-of-Change Filter ───────────────────────────────
+      float delta = fabsf(raw - prevRaw);
+      if (delta > MAX_DELTA_PER_TICK) {
+        tolakRate++;
+        Serial.printf("  [RATE ] raw=%4d → DITOLAK! Δ=%.0f (maks:%.0f)\n",
+                      rawInt, delta, MAX_DELTA_PER_TICK);
+      } 
+      else {
+        // Penting: update prevRaw hanya jika lolos rate check!
+        prevRaw = raw; 
+
+        // ── Layer 3: Median Filter (Spike Rejection) ─────────────────────
+        medBuf[medIdx] = raw;
+        medIdx = (medIdx + 1) % 3;
+        float filtered = median3(medBuf[0], medBuf[1], medBuf[2]);
+
+        // Deteksi jika median membuang spike besar (hanya untuk log)
+        if (fabsf(filtered - raw) > 50.0f) {
+          tolakMedian++;
+          Serial.printf("  [SPIKE] raw=%4d → filtered=%4.0f (spike terdeteksi!)\n",
+                        rawInt, filtered);
+        }
+
+        // ── Layer 4: EMA pada data bersih ────────────────────────────────
+        emaVal = EMA_ALPHA * filtered + (1.0f - EMA_ALPHA) * emaVal;
+        diterima++;
+
+        Serial.printf("  [OK   ] raw=%4d → med=%4.0f → ema=%6.1f\n",
+                      rawInt, filtered, emaVal);
+      }
     }
-
-    // ── Layer 2: Rate-of-Change Filter ───────────────────────────────
-    float delta = fabsf(raw - prevRaw);
-    if (delta > MAX_DELTA_PER_TICK) {
-      tolakRate++;
-      Serial.printf("  [RATE ] raw=%4d → DITOLAK! Δ=%.0f (maks:%.0f)\n",
-                    rawInt, delta, MAX_DELTA_PER_TICK);
-      // Penting: jangan update prevRaw dengan nilai yang ditolak!
-      return;
-    }
-    prevRaw = raw; // Update hanya jika lolos rate check
-
-    // ── Layer 3: Median Filter (Spike Rejection) ─────────────────────
-    medBuf[medIdx] = raw;
-    medIdx = (medIdx + 1) % 3;
-    float filtered = median3(medBuf[0], medBuf[1], medBuf[2]);
-
-    // Deteksi jika median berbeda jauh dari raw (ada spike)
-    if (fabsf(filtered - raw) > 50.0f) {
-      tolakMedian++;
-      Serial.printf("  [SPIKE] raw=%4d → filtered=%4.0f (spike terdeteksi!)\n",
-                    rawInt, filtered);
-    }
-
-    // ── Layer 4: EMA pada data bersih ────────────────────────────────
-    emaVal = EMA_ALPHA * filtered + (1.0f - EMA_ALPHA) * emaVal;
-    diterima++;
-
-    Serial.printf("  [OK   ] raw=%4d → med=%4.0f → ema=%6.1f\n",
-                  rawInt, filtered, emaVal);
   }
 
   // ── Laporan Statistik Setiap 5 Detik ──────────────────────────────
@@ -909,6 +910,7 @@ void setup() {
     emaDHT = suhuDHTAwal; emaDHTInit = true;
   }
   emaInternal = temperatureRead();
+  emaIntInit  = true;
 
   Serial.println("╔════════════════════════════════════════════════════╗");
   Serial.println("║   BAB 34: Multi-Sensor Data Aggregator v1.0        ║");
