@@ -14,7 +14,9 @@ Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluin
 
 ## ☕ Dukung Proyek Ini
 
-Penyusunan kurikulum *engineering-grade* ini memakan waktu, tenaga, dan riset perangkat keras yang tidak sedikit. Jika materi ini membantu progres belajar atau mempercepat proyek Anda, Anda bisa mendukung pengembangan bab-bab selanjutnya dengan mentraktir kopi penulis:
+Kurikulum *engineering-grade* ini dikembangkan dengan dedikasi penuh untuk mendukung kemajuan talenta IoT di Indonesia. Jika repositori ini memberikan manfaat bagi proses belajar, menjadi referensi riset, atau sekadar membantu kelancaran proyek Anda, dukungan Anda akan sangat berarti untuk keberlanjutan pengembangan bab-bab selanjutnya. 
+
+Anda dapat memberikan apresiasi dan semangat dengan mentraktir penulis secangkir kopi melalui tautan berikut:
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
