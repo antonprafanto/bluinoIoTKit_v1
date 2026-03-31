@@ -252,3 +252,17 @@ Berikut link datasheet untuk setiap komponen utama pada kit:
 ---
 
 [⬅️ BAB 3: Dasar Elektronika](../BAB-03/README.md) | [Kembali ke Daftar Isi](../README.md) | [Selanjutnya: BAB 5 — Setup Lingkungan ➡️](../BAB-05/README.md)
+
+---
+
+## ☕ Dukung Proyek Ini
+
+Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Jika materi *engineering-grade* ini bermanfaat bagi riset atau proses belajarmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah secangkir kopi untuk penulis:
+
+[![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
+
+**💬 Konsultasi & Kolaborasi:**
+Punya kritik, saran, atau butuh mentoring khusus ESP32 & IoT industri? Silakan sapa saya di:
+- ✉️ **Email:** antonprafanto@unmul.ac.id
+- 📞 **WhatsApp:** 0811-553-393 / 0852-5069-0673
+
