@@ -310,141 +310,144 @@ Beralih ke Fase 2: Rainbow HSV (spektrum penuh)
 
 ---
 
-## 36.5 Program 2: Efek Animasi — Breathing & Knight Rider
+## 36.5 Program 2: Efek Animasi — Breathing & Police Strobe
 
-Program ini memperkenalkan dua teknik animasi fundamental: **Breathing** (napas — memudar masuk-keluar secara sinusoidal) dan **Knight Rider** (efek scanning-light dari serial LED). Keduanya menggunakan `millis()` tanpa `delay()` sama sekali.
+Karena Bluino Kit memiliki **1 buah WS2812 bawaan (Single Pixel)**, program animasi spasial (seperti lampu berjalan) tidak akan relevan. Oleh karena itu, kita akan menggunakan dua teknik animasi temporal fundamental: **Breathing** (napas memudar sinus) dan **Police Strobe** (kedip kilat peringatan bergantian Merah-Biru layaknya sirine). Keduanya dirancang non-blocking.
 
 ```cpp
 /*
- * BAB 36 - Program 2: Efek Animasi LED (Breathing + Knight Rider)
+ * BAB 36 - Program 2: Efek Animasi LED (Breathing + Police Strobe)
  *
- * Fitur:
- *   ▶ Efek Breathing: Kecerahan naik-turun seperti napas (sin wave)
- *   ▶ Efek Knight Rider: Titik cahaya bergerak bolak-balik (scanning)
+ * Fitur (Dioptimasi untuk Single LED):
+ *   ▶ Efek Breathing: Kecerahan naik-turun halus (sin wave)
+ *   ▶ Efek Strobe: Kilatan kilas ganda merah/biru ala polisi
  *   ▶ Toggle efek setiap 8 detik secara otomatis
- *   ▶ Sepenuhnya non-blocking (tanpa delay())
+ *   ▶ Sepenuhnya non-blocking berbasis millis()
  *
  * Hardware:
- *   WS2812B → IO12 (built-in Bluino Kit)
- *   Jumlah LED bisa dikonfigurasi (ganti NUM_LEDS)
+ *   WS2812B → IO12 (built-in Bluino Kit Single Pixel)
  */
 
 #include <FastLED.h>
 
 // ── Konfigurasi ─────────────────────────────────────────────────────────
 #define LED_PIN     12
-#define NUM_LEDS    8      // Ubah sesuai jumlah LED di strip kamu
+#define NUM_LEDS    1      // Kit Bluino hanya 1 LED bawaan
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB
-#define MAX_BRIGHT  100    // Kecerahan maksimum (jaga dibawah 150 untuk USB)
+#define MAX_BRIGHT  100    // Limit arus USB
 
 CRGB leds[NUM_LEDS];
 
 // ── State Efek ───────────────────────────────────────────────────────────
-enum EffectState { FX_BREATHING, FX_KNIGHT_RIDER };
+enum EffectState { FX_BREATHING, FX_STROBE };
 EffectState fxState = FX_BREATHING;
 
 // ── Timing ───────────────────────────────────────────────────────────────
 const unsigned long INTERVAL_FX_SWITCH = 8000UL; // Ganti efek tiap 8 detik
-const unsigned long INTERVAL_BREATH_MS = 20UL;   // Update breathing (50Hz)
-const unsigned long INTERVAL_KR_MS     = 60UL;   // Update knight rider (16fps)
+const unsigned long INTERVAL_BREATH_MS = 20UL;   // Fading halus (50Hz)
 unsigned long tFxSwitch = 0;
 unsigned long tBreath   = 0;
-unsigned long tKR       = 0;
+unsigned long tStrobe   = 0;
 
 // ── Breathing State ──────────────────────────────────────────────────────
-uint16_t breathAngle = 0;   // "Sudut" dalam lingkaran 0-1535 (360 langkah fine)
-uint8_t  breathHue   = 160; // Biru tua (bisa diubah warna yang lain)
+uint16_t breathAngle = 0;   // "Sudut" 0-1535
+uint8_t  breathHue   = 160; // Biru
 
-// Fungsi aproksimasi sin8 FastLED → menghasilkan 0-255
-// sin8(angle): angle 0-255 mewakili 0°-360°
+// Aproksimasi kurva sinus natural untuk fading
 uint8_t hitungKecerahan(uint16_t fineAngle) {
-  // fineAngle 0-1535, scale ke 0-255
   uint8_t angle8 = (uint8_t)(fineAngle * 255UL / 1535UL);
-  // sin8 menghasilkan offset 0-255 (bukan -128 s/d 127)
-  // Nilai terkecil ~0, tertinggi ~255
   uint8_t s = sin8(angle8);
-  // Skala ke 20-MAX_BRIGHT (jangan sampai mati total di titik terbawah)
-  return map(s, 0, 255, 20, MAX_BRIGHT);
+  return map(s, 0, 255, 10, MAX_BRIGHT);
 }
 
-// ── Knight Rider State ───────────────────────────────────────────────────
-int     krPos  = 0;   // Posisi titik cahaya
-int     krDir  = 1;   // Arah: +1 = kanan, -1 = kiri
-uint8_t krHue  = 0;   // Hue merah (Knight Rider klasik!)
-
-// ── Fungsi Efek: Breathing ───────────────────────────────────────────────
 void updateBreathing(unsigned long now) {
   if (now - tBreath < INTERVAL_BREATH_MS) return;
   tBreath = now;
 
   uint8_t bright = hitungKecerahan(breathAngle);
-  // Warnai semua LED dengan warna dan kecerahan yang sama
   fill_solid(leds, NUM_LEDS, CHSV(breathHue, 230, bright));
   FastLED.show();
 
-  breathAngle = (breathAngle + 8) % 1536; // Maju 8 langkah per frame
+  breathAngle = (breathAngle + 8) % 1536; // Laju pernapasan
 }
 
-// ── Fungsi Efek: Knight Rider ────────────────────────────────────────────
-void updateKnightRider(unsigned long now) {
-  if (now - tKR < INTERVAL_KR_MS) return;
-  tKR = now;
+// ── Police Strobe State ──────────────────────────────────────────────────
+// Urutan pola strobe: Nyala(Merah) → Mati → Nyala(Merah) → Jeda 
+//                   → Nyala(Biru) → Mati → Nyala(Biru) → Jeda
+uint8_t strobeStep = 0;
+uint8_t strobeHue  = 0; // 0=Merah, 160=Biru
 
-  // Redup semua LED (fade out) — membuat ekor cahaya berpendar
-  for (int i = 0; i < NUM_LEDS; i++) {
-    leds[i].fadeToBlackBy(80); // Kurangi kecerahan 80/256 per frame
+void updatePoliceStrobe(unsigned long now) {
+  // Atur interval dinamis: nyala sangat cepat, mati jeda sejenak
+  unsigned long interval = 0;
+  
+  if (strobeStep % 2 == 1) {
+    interval = 60; // Durasi "Mati" kilat
+  } else if (strobeStep == 4 || strobeStep >= 8) {
+    interval = 250; // Jeda antara ganti warna
+  } else {
+    interval = 50;  // Durasi "Nyala" kilat
   }
 
-  // Tentukan posisi kepala cahaya
-  leds[krPos] = CHSV(krHue, 255, MAX_BRIGHT);
+  if (now - tStrobe < interval) return;
+  tStrobe = now;
 
-  // Refleksi di tepi (bounce back)
-  krPos += krDir;
-  if (krPos >= NUM_LEDS - 1) { krPos = NUM_LEDS - 1; krDir = -1; }
-  if (krPos <= 0)             { krPos = 0;             krDir =  1; }
+  if (strobeStep == 0) strobeHue = 0;      // Mulai Merah
+  if (strobeStep == 5) strobeHue = 160;    // Mulai Biru (jangan pakai CHSV BIRU karena R=0, ganti Hue)
 
-  FastLED.show();
+  if (strobeStep < 4 || (strobeStep > 4 && strobeStep < 9)) {
+    if (strobeStep % 2 == 0) {
+      // Nyala terang penuh
+      fill_solid(leds, NUM_LEDS, CHSV(strobeHue, 255, MAX_BRIGHT));
+    } else {
+      fill_solid(leds, NUM_LEDS, CRGB::Black);
+    }
+    FastLED.show();
+  }
+
+  strobeStep++;
+  if (strobeStep >= 10) strobeStep = 0; // Reset siklus
 }
 
 void setup() {
   Serial.begin(115200);
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(MAX_BRIGHT);
   FastLED.clear();
   FastLED.show();
 
-  Serial.println("=== BAB 36 Program 2: Efek Animasi ===");
+  Serial.println("=== BAB 36 Program 2: Animasi Single LED ===");
   Serial.println("Mulai: Breathing Effect (biru)");
 }
 
 void loop() {
   unsigned long now = millis();
 
-  // ── Toggle efek otomatis setiap 8 detik ──────────────────────────────
+  // ── Toggle otomatis setiap 8 detik ──────────────────────────────
   if (now - tFxSwitch >= INTERVAL_FX_SWITCH) {
     tFxSwitch = now;
     if (fxState == FX_BREATHING) {
-      fxState = FX_KNIGHT_RIDER;
+      fxState = FX_STROBE;
       FastLED.clear();
-      Serial.println("Berganti ke: Knight Rider Effect (merah)");
+      strobeStep = 0;
+      Serial.println("Berganti ke: Police Strobe (Sirine Merah/Biru)");
     } else {
       fxState = FX_BREATHING;
       breathAngle = 0;
-      Serial.println("Berganti ke: Breathing Effect (biru)");
+      Serial.println("Berganti ke: Breathing Effect (Biru Lambat)");
     }
   }
 
-  // ── Eksekusi efek aktif ───────────────────────────────────────────────
+  // ── Eksekusi state aktif ───────────────────────────────────────────────
   if (fxState == FX_BREATHING) {
     updateBreathing(now);
   } else {
-    updateKnightRider(now);
+    updatePoliceStrobe(now);
   }
 }
 ```
 
-> 💡 **Teknik `fadeToBlackBy()`:** Ini adalah teknik "ekor cahaya" (light trail) paling umum di animasi LED strip. Setiap frame, semua piksel dikurangi kecerahannya dengan nilai konstan. Hasilnya: piksel lama "memudar" secara alami sementara titik baru tetap terang penuh. Semakin besar angkanya (0-255), semakin cepat ekornya menghilang!
+> 💡 **Teknik Timer Dinamis (`interval` variabel):** Menarik untuk diamati pada `updatePoliceStrobe()`! Jika fungsi biasanya menggunakan jeda tetap seperti `INTERVAL_BREATH_MS = 20UL`, sirine *Strobe* terasa menyentak karena waktu *Tunda Nyala* dibedakan dengan *Tunda Mati*. Perilaku asimetris (interval tidak konstan) ini menciptakan ilusi optik mirip lampu kilat asli pada mobil polisi.
 
 ---
 
@@ -619,58 +622,58 @@ Suhu DHT11 → Warna LED | LDR → Kecerahan LED
 
 ---
 
-## 36.7 Program 4: Efek Rainbow & Running Fire (FSM Multi-Efek)
+## 36.7 Program 4: FSM Multi-Efek LED Interaktif
 
-Program tercanggih di BAB 36 ini membangun **sistem manajemen efek LED berbasis Finite State Machine (FSM)** lengkap dengan 4 efek visual yang dapat dipilih secara otomatis maupun via tombol.
+Program puncak di BAB 36 ini membangun **Finite State Machine (FSM) yang aman memori** untuk menavigasi empat jenis *mood* LED Single Pixel via kontrol otomatis (Timer) & manual (Tombol).
 
 ```cpp
 /*
- * BAB 36 - Program 4: Multi-Efek LED (FSM)
+ * BAB 36 - Program 4: Multi-Efek LED Interaktif (FSM)
  *
- * Empat efek dalam satu program:
- *   STATE_RAINBOW     → Pelangi berputar (mode default)
- *   STATE_BREATHING   → Napas warna merah (slow pulse)
- *   STATE_FIRE        → Api bergerak dari bawah ke atas (untuk strip ≥8 LED)
- *   STATE_SOLID       → Warna solid tunggal (biru pudar — idle/standby)
+ * Empat efek Single Pixel 100% Memori-Safe:
+ *   STATE_RAINBOW     → Siklus rona pelangi memutar (default)
+ *   STATE_BREATHING   → Napas merah darah tanda waspada (pulse)
+ *   STATE_POLICE      → Sirine peringatan berkedip asimetris 
+ *   STATE_SOLID       → Hijau siaga redup statis (idle)
  *
  * Navigasi efek:
  *   ▶ Otomatis ganti efek setiap 10 detik
- *   ▶ Tombol BTN (IO32, pull-down) → ganti efek manual
+ *   ▶ Tombol BTN (IO32, pull-down) → Ganti paksa (Manual Override)
  *
  * Hardware:
- *   WS2812B → IO12 (built-in)
+ *   WS2812B → IO12 (built-in 1 Pixel aman)
  *   Push Button → IO32 (via jumper header Custom, aktif HIGH)
  */
 
 #include <FastLED.h>
 
-// ── Konfigurasi ─────────────────────────────────────────────────────────
+// ── Konfigurasi Utama ────────────────────────────────────────────────────
 #define LED_PIN        12
-#define NUM_LEDS        8      // Sesuaikan dengan strip LED-mu
+#define NUM_LEDS        1      // Kit = 1. (Jangan naikkan jika fisik tak ada)
 #define LED_TYPE   WS2812B
 #define COLOR_ORDER    GRB
 #define MAX_BRIGHT      90
 
-#define BTN_PIN        32      // Tombol scroll (pull-down, aktif HIGH)
+#define BTN_PIN        32      // Tombol navigasi efek
 #define DEBOUNCE_MS    50UL
 
 CRGB leds[NUM_LEDS];
 
-// ── FSM ─────────────────────────────────────────────────────────────────
+// ── Definisi FSM State ───────────────────────────────────────────────────
 enum LedState {
   STATE_RAINBOW,
   STATE_BREATHING,
-  STATE_FIRE,
+  STATE_POLICE,
   STATE_SOLID,
-  STATE_COUNT    // Penanda jumlah state (untuk modulo wrap-around)
+  STATE_COUNT    // Total efek = 4
 };
 LedState currentState = STATE_RAINBOW;
 
 const char* namaState[] = {
-  "RAINBOW   ", "BREATHING ", "FIRE      ", "SOLID BLUE"
+  "RAINBOW PIXEL", "RED BREATHE  ", "POLICE STROBE", "GREEN SOLID  "
 };
 
-// ── Tombol Debounce ──────────────────────────────────────────────────────
+// ── Variabel Tombol (Non-Blocking) ───────────────────────────────────────
 bool    btnLastReading = false;
 bool    btnState       = false;
 bool    btnPressed     = false;
@@ -689,91 +692,72 @@ void updateButton(unsigned long now) {
   btnLastReading = reading;
 }
 
-// ── Timing Global ────────────────────────────────────────────────────────
+// ── Timer Global ─────────────────────────────────────────────────────────
 unsigned long tAutoSwitch      = 0;
-const unsigned long AUTO_MS    = 10000UL; // Ganti efek otomatis tiap 10 detik
+const unsigned long AUTO_MS    = 10000UL; // Timer 10 detik
 
-// ── State Rainbow ────────────────────────────────────────────────────────
+// ── Modul Efek: Rainbow ──────────────────────────────────────────────────
 uint8_t rainbowHue = 0;
 unsigned long tRainbow = 0;
-
 void updateRainbow(unsigned long now) {
-  if (now - tRainbow < 20UL) return; // 50Hz
+  if (now - tRainbow < 30UL) return; // Kecepatan putar lambat
   tRainbow = now;
-  // Isi semua LED dengan hue berbeda-beda, bergeser tiap frame
-  fill_rainbow(leds, NUM_LEDS, rainbowHue, 256 / NUM_LEDS);
+  // Karena Single Pixel, cukup set warna tunggal memutar
+  fill_solid(leds, NUM_LEDS, CHSV(rainbowHue, 255, MAX_BRIGHT));
   FastLED.show();
-  rainbowHue++; // overflow uint8_t → 0-255 cyclic
+  rainbowHue += 2; // Makin besar jedanya, makin drastis pergerakannya
 }
 
-// ── State Breathing ──────────────────────────────────────────────────────
+// ── Modul Efek: Breathing Merah ──────────────────────────────────────────
 uint16_t breathAngle = 0;
 unsigned long tBreath = 0;
-
 void updateBreathing(unsigned long now) {
-  if (now - tBreath < 18UL) return; // ~55Hz
+  if (now - tBreath < 15UL) return; 
   tBreath = now;
+  // Skala ke-255
   uint8_t angle8 = (uint8_t)(breathAngle * 255UL / 1535UL);
-  uint8_t bright = map(sin8(angle8), 0, 255, 10, MAX_BRIGHT);
-  fill_solid(leds, NUM_LEDS, CHSV(0, 255, bright)); // Merah
+  uint8_t bright = map(sin8(angle8), 0, 255, 5, MAX_BRIGHT);
+  fill_solid(leds, NUM_LEDS, CHSV(0, 255, bright)); // Hue 0 = Merah
   FastLED.show();
-  breathAngle = (breathAngle + 10) % 1536;
+  breathAngle = (breathAngle + 12) % 1536;
 }
 
-// ── State Fire (Simulasi Api) ─────────────────────────────────────────────
-// Algoritma: setiap sel memiliki "suhu" acak, meredam ke atas
-// Referensi: Mark Kriegsman "Fire2012" (disesuaikan untuk ESP32)
-byte heat[NUM_LEDS]; // Buffer "suhu" setiap LED
-unsigned long tFire = 0;
+// ── Modul Efek: Police Strobe (Sirine) ───────────────────────────────────
+uint8_t pStep = 0;
+unsigned long tStrobe = 0;
+void updatePolice(unsigned long now) {
+  unsigned long jeda = (pStep % 2 == 1) ? 60 : (pStep >= 4 && pStep <= 5) ? 200 : 40;
+  if (now - tStrobe < jeda) return;
+  tStrobe = now;
 
-void updateFire(unsigned long now) {
-  if (now - tFire < 25UL) return; // 40Hz
-  tFire = now;
-
-  // Step 1: Redam panas setiap sel sedikit
-  for (int i = 0; i < NUM_LEDS; i++) {
-    heat[i] = qsub8(heat[i], random8(0, 55));
-  }
-
-  // Step 2: Panaskan "naik" (dari bawah ke atas — difusi)
-  for (int k = NUM_LEDS - 1; k >= 2; k--) {
-    heat[k] = (heat[k - 1] + heat[k - 2] + heat[k - 2]) / 3;
-  }
-
-  // Step 3: Percikan api baru secara acak di pangkal bawah
-  if (random8() < 120) {
-    int y = random8(3);
-    heat[y] = qadd8(heat[y], random8(160, 255));
-  }
-
-  // Step 4: Peta "panas" ke warna HeatColor
-  for (int j = 0; j < NUM_LEDS; j++) {
-    leds[j] = HeatColor(heat[j]);
+  if (pStep < 4) { // Siklus kilat merah ganda
+    fill_solid(leds, NUM_LEDS, (pStep % 2 == 0) ? CHSV(0, 255, MAX_BRIGHT) : CRGB::Black);
+  } else if (pStep > 5 && pStep < 10) { // Siklus kilat biru cerah ganda
+    fill_solid(leds, NUM_LEDS, (pStep % 2 == 0) ? CHSV(160, 255, MAX_BRIGHT) : CRGB::Black);
+  } else {
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
   }
   FastLED.show();
+
+  pStep++;
+  if (pStep >= 11) pStep = 0;
 }
 
-// ── State Solid (Idle) ────────────────────────────────────────────────────
+// ── Modul Efek: Solid Standby ────────────────────────────────────────────
 void drawSolid() {
-  fill_solid(leds, NUM_LEDS, CHSV(160, 180, 40)); // Biru redup
+  fill_solid(leds, NUM_LEDS, CHSV(96, 255, 30)); // Hijau gelap penanda idle
   FastLED.show();
 }
 
-// ── Fungsi Transisi State ─────────────────────────────────────────────────
+// ── Sistem Transisi ──────────────────────────────────────────────────────
 void switchToState(LedState newState) {
   currentState = newState;
-  FastLED.clear(); // Bersihkan layar sebelum efek baru
+  FastLED.clear(); // Black-out sepersekian detik antar scene
   FastLED.show();
 
-  // Inisialisasi ulang buffer efek baru
-  if (newState == STATE_FIRE) {
-    memset(heat, 0, sizeof(heat));
-  }
-  if (newState == STATE_SOLID) {
-    drawSolid(); // Gambar langsung — solid tidak butuh animasi loop
-  }
+  if (newState == STATE_SOLID) drawSolid(); 
 
-  Serial.printf("[FSM] Efek aktif: %s\n", namaState[newState]);
+  Serial.printf("[FSM] Mengalihkan Mood ke: %s\n", namaState[newState]);
 }
 
 void setup() {
@@ -782,43 +766,40 @@ void setup() {
 
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(MAX_BRIGHT);
-  FastLED.clear();
-  FastLED.show();
+  FastLED.clear(); FastLED.show();
 
-  Serial.println("=== BAB 36 Program 4: Multi-Efek LED (FSM) ===");
-  Serial.printf("[FSM] Efek awal: %s\n", namaState[currentState]);
-  Serial.println("Tekan tombol BTN (IO32) untuk ganti efek manual.");
+  Serial.println("=== BAB 36 Program 4: FSM LED ===");
+  Serial.println("Tekan IO32 untuk melompat navigasi secara manual!");
 }
 
 void loop() {
   unsigned long now = millis();
 
-  // ── Baca tombol ─────────────────────────────────────────────────────────
   updateButton(now);
+
+  // Memicu paksa transisi ketika tombol diklik penuh (Override Mode)
   if (btnPressed) {
-    LedState next = (LedState)((currentState + 1) % STATE_COUNT);
-    switchToState(next);
-    tAutoSwitch = now; // Reset timer auto-switch juga
+    switchToState((LedState)((currentState + 1) % STATE_COUNT));
+    tAutoSwitch = now; // Cegah lompatan dobel jika timer baru saja mau habis
   }
 
-  // ── Auto-switch efek setiap 10 detik ────────────────────────────────────
+  // Auto-cruise mode
   if (now - tAutoSwitch >= AUTO_MS) {
     tAutoSwitch = now;
-    LedState next = (LedState)((currentState + 1) % STATE_COUNT);
-    switchToState(next);
+    switchToState((LedState)((currentState + 1) % STATE_COUNT));
   }
 
-  // ── Jalankan efek aktif ──────────────────────────────────────────────────
+  // Merender mesin status yg berkuasa (State Director)
   switch (currentState) {
-    case STATE_RAINBOW:  updateRainbow(now);  break;
+    case STATE_RAINBOW:   updateRainbow(now); break;
     case STATE_BREATHING: updateBreathing(now); break;
-    case STATE_FIRE:     updateFire(now);     break;
-    case STATE_SOLID:    /* Statis, tidak perlu update loop */ break;
+    case STATE_POLICE:    updatePolice(now); break;
+    case STATE_SOLID:     /* Idle mode */ break;
   }
 }
 ```
 
-> 💡 **Algoritma Fire2012:** Teknik simulasi api ini menggunakan array suhu (`heat[]`) yang setiap frame: (1) didinginkan secara acak, (2) disebar ke atas seperti konduksi panas, lalu (3) dipercik dari bawah. Nilai suhu dipetakan ke warna via `HeatColor()` — fungsi bawaan FastLED yang menghasilkan palet hitam → merah → kuning → putih yang identik dengan api nyata!
+> 💡 **Bug Memori Pada String Cahaya Besar (Peringatan Khusus):** Banyak tutorial online menggunakan efek memori berat seperti *Fire2012 Array*. Ingat, kode buffer array statis seperti `byte heat[NUM_LEDS]` **pasti menabrak luar batas** (`OutOfBound memory fault`) dan me-restart *panic* ESP32 Anda jika Anda mencoba membajalannya dengan `NUM_LEDS` bernilai `1`! FSM Single-Pixel di atas adalah model yang 100% aman untuk hardware Bluino Anda.
 
 ---
 
@@ -927,21 +908,18 @@ Jika api terlihat ungu/biru, pastikan:
 │   FastLED.show()           → Kirim buffer ke LED (WAJIB dipanggil!)  │
 │   FastLED.clear()          → Set semua LED ke hitam (off)            │
 │   fill_solid(leds, N, warna)  → Warnai N LED dengan warna sama       │
-│   fill_rainbow(leds, N, h, d) → Isi rantai dengan pelangi           │
-│   fadeToBlackBy(N)            → Redup per piksel (efek ekor cahaya)  │
-│   HeatColor(panas)            → Palet api (untuk efek fire)          │
+│   fadeToBlackBy(N)            → Redup per piksel (efek ekor lembut)  │
 │                                                                       │
 │ BATASAN DAYA (KRITIS!):                                               │
 │   1 LED putih penuh = ±60mA                                           │
 │   Untuk USB: FastLED.setBrightness(80) → JANGAN lebih dari 100!     │
 │   Instalasi banyak LED → Wajib power supply 5V 2A+ terpisah         │
 │                                                                       │
-│ POLA DESAIN:                                                          │
-│   ✅ FSM untuk manajemen multi-efek (enum + switch)                  │
+│ POLA DESAIN (SINGLE LED):                                             │
+│   ✅ FSM untuk manajemen multi-efek LED (enum + switch)              │
 │   ✅ EMA filter untuk transisi warna sensor yang mulus               │
-│   ✅ Timer millis() — JANGAN delay() di dalam loop animasi!          │
-│   ✅ fadeToBlackBy() untuk efek ekor cahaya alami                    │
-│   ✅ sin8() / HeatColor() untuk kurva kecerahan yang natural         │
+│   ✅ Timer asimetris — Durasi jeda nyala & mati tidak konstan!       │
+│   ✅ Amankan index memori array jika mem-port kode LED-Strip panjang │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -951,13 +929,13 @@ Jika api terlihat ungu/biru, pastikan:
 
 1. **Indicator Kipas Angin:** Modifikasi Program 3 agar warna LED merepresentasikan kecepatan kipas virtual: baca ADC potensiometer (0-4095) dan petakan ke: Biru (berhenti) → Cyan (pelan) → Hijau (sedang) → Kuning (cepat) → Merah (turbo). Tambahkan Breathing speed yang juga berubah sesuai "kecepatan" — makin cepat, makin cepat napasnya!
 
-2. **Countdown Timer Visual:** Buat program timer 60 detik dimana semua LED (strip ≥8) mati satu per satu setiap 7.5 detik dari kiri ke kanan. LED yang masih menyala berwarna hijau, LED yang sudah mati berwarna merah redup. Saat hitungan selesai, semua LED berkedip merah 5x lalu mati.
+2. **Morse Code Beeper:** Buat program translasi SOS dimana Single LED WS2812 memancarkan sinyal S-O-S dengan warna solid oranye yang tajam. `Dit` = 200ms, `Dah` = 600ms, dan jeda karakter = 200ms, tanpa menggunakan fungsi `delay()`.
 
-3. **Sensor Alarm Bertingkat:** Kembangkan Program 3 untuk mendeteksi 3 level suhu dengan respons LED yang berbeda: <25°C = biru bernapas lambat, 25-32°C = hijau solid, >32°C = merah berkedip cepat setiap 200ms (alarm). Saat alarm aktif, cetak pesan darurat ke Serial Monitor setiap kedip.
+3. **Sensor Alarm Bertingkat (Police Trigger):** Kembangkan Program 3 untuk mendeteksi 3 level suhu dengan respons LED yang berbeda: <25°C = biru pernapasan lambat, 25-32°C = hijau solid, >32°C = FSM pindah ke mode `updatePoliceStrobe(now)` seketika sebagai alarm tanda bahaya kebakaran.
 
-4. **Rainbow dengan Kecepatan Variabel:** Modifikasi efek Rainbow di Program 4 agar kecepatan putarannya dikontrol oleh potensiometer (ADC IO34). Saat potensiometer di MIN → pelangi hampir berhenti. Saat di MAX → pelangi berputar sangat cepat. Hitung dan tampilkan "RPM virtual" pelangi ke Serial Monitor setiap detik.
+4. **Rainbow dengan Kecepatan Variabel:** Modifikasi efek Rainbow di Program 4 agar kecepatan putaran warnanya (*Hue cycle*) dikontrol oleh potensiometer (ADC IO34). Saat potensiometer di MIN → pelangi hampir berhenti berpendar. Saat di MAX → pelangi memutar siklusnya sangat cepat.
 
-5. **Dancing Fire:** Modifikasi efek Fire di Program 4 dengan tambahan fitur: nyalakan musik/beat detector virtual via threshold ADC — setiap kali nilai ADC potensiometer melewati 2048 ke atas, perkuat percikan api (naikkan probabilitas `random8()` dan intensitas `heat[y]`) selama 200ms. Efeknya: api "berdenyut" seolah bereaksi terhadap ritme musik!
+5. **RGB Dimmer Mixer:** Jika kamu memiliki 3 komponen Potensiometer, bacalah masing-masing ADC-nya dan jadikan sebagai input manual `CHSV(pot1, pot2, pot3)` atau `CRGB(pot1, pot2, pot3)`. Petakan nilai 0-4095 ke kisaran 0-255 sehingga Bluino berubah fungsi menjadi konsol *Color Tuner*!
 
 ---
 
