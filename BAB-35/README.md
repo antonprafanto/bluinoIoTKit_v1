@@ -355,15 +355,15 @@ void loop() {
 
 **Contoh output OLED (setelah splash):**
 ```text
-┌─────────────────────────────────────┐
-│ BAB35: Teks & Counter               │
-│─────────────────────────────────────│
-│ ┌───────────────────────────────┐   │
-│ │           42                  │   │  ← angka besar, size=3
-│ └───────────────────────────────┘   │
-│           detik berjalan            │
-│ Mode: NORMAL                        │
-└─────────────────────────────────────┘
+┌─────────────────────┐
+│BAB35: Teks & Counter│
+├─────────────────────┤
+│      ┌───────┐      │
+│      │  42   │      │ <- size=3
+│      └───────┘      │
+│   detik berjalan    │
+│Mode: NORMAL         │
+└─────────────────────┘
 ```
 
 > 💡 **Mengapa `delay()` boleh di splash screen?** Dalam program yang menggunakan `delay()` pada `setup()` (bukan `loop()`), ini masih diterima karena terjadi sebelum perangkat siap beroperasi — tidak ada event yang bisa terlewat. Namun **JANGAN PERNAH** taruh `delay()` di dalam `loop()`!
@@ -454,14 +454,14 @@ void drawSensorRow(int y, const char* label, float val,
     display.print(" ");
     display.print(satuan);
 
-    // Centang sukses di ujung kanan
-    display.setCursor(116, y);
-    display.print("\x13"); // simbol centang (karakter ASCII 19)
+    // Status sukses di ujung kanan
+    display.setCursor(114, y);
+    display.print("OK"); 
   } else {
     display.setCursor(30, y);
     display.print("-- N/A");
-    display.setCursor(116, y);
-    display.print("x");
+    display.setCursor(114, y);
+    display.print("X ");
   }
 }
 
@@ -560,18 +560,18 @@ void loop() {
 }
 ```
 
-**Tampilan layar OLED yang diharapkan:**
+**Tampilan layar OLED (Realistik 21 Kolom):**
 ```text
-┌────────────────────────────────┐
-│    SENSOR DASHBOARD            │
-│────────────────────────────────│
-│ Tmp: 27.5 °C               ✓  │
-│ Hmd: 64.8 %                ✓  │
-│ BMP: 10.1 hPa              ✓  │
-│ Int: 44.2 °C               ✓  │
-│────────────────────────────────│
-│ Up: 00:02:34      BMP:Ok       │
-└────────────────────────────────┘
+┌───────────────────┐
+│ SENSOR  DASHBOARD │
+├───────────────────┤
+│Tmp: 27.5 °C     OK│
+│Hmd: 64.8 %      OK│
+│BMP: 1013.2 hPa  OK│
+│Int: 44.2 °C     OK│
+├───────────────────┤
+│Up:00:02:34  BMP:Ok│
+└───────────────────┘
 ```
 
 ---
@@ -721,6 +721,9 @@ void setup() {
     histBuf[i] = firstRead;
   }
   histSum = (long)firstRead * BAR_COUNT;
+  histFull = true;         // PENTING: Buffer sudah penuh!
+  histCount = BAR_COUNT;   // PENTING: Cegah math error pembagi 0
+
 
   display.clearDisplay();
   display.display();
@@ -808,13 +811,15 @@ int miniIdx = 0;
 // ── Tombol: state machine anti-bounce ─────────────────────────────────
 struct Button {
   int  pin;
-  bool lastState;
+  bool lastReading;
+  bool buttonState; // State stabil (debounced)
   unsigned long lastChange;
   bool pressed; // True selama satu frame ketika tombol baru ditekan
 
   void init(int p) {
     pin = p;
-    lastState = false;
+    lastReading = false;
+    buttonState = false;
     lastChange = 0;
     pressed = false;
     pinMode(pin, INPUT);
@@ -823,11 +828,22 @@ struct Button {
   void update(unsigned long now) {
     pressed = false;
     bool reading = (digitalRead(pin) == HIGH);
-    if (reading != lastState) lastChange = now;
-    if (now - lastChange >= DEBOUNCE_MS) {
-      if (reading && !lastState) pressed = true; // Rising edge
+    
+    // Reset timer jika ada perubahan sinyal kotor (bouncing)
+    if (reading != lastReading) {
+      lastChange = now;
     }
-    lastState = reading;
+    
+    // Jika sinyal stabil lebih lama dari DEBOUNCE_MS
+    if ((now - lastChange) >= DEBOUNCE_MS) {
+      if (reading != buttonState) {
+        buttonState = reading;
+        if (buttonState == true) { // Rising edge (ditekan)
+          pressed = true;
+        }
+      }
+    }
+    lastReading = reading;
   }
 };
 
@@ -1131,7 +1147,7 @@ Tips penghematan RAM:
 Font bawaan Adafruit GFX menggunakan ASCII 0-127 + subset Latin-1.
 
 Untuk simbol derajat (°): gunakan '\xF8' atau print("\xB0")
-Untuk simbol centang:     gunakan '\x13' (karakter ASCII 19)
+Untuk simbol centang:     Gunakan teks standar "OK" (CP437 tak memiliki ✓)
 Untuk simbol panah:       gunakan '\x10' (▶, ASCII 16)
 
 Jika membutuhkan lebih banyak simbol atau font custom,
