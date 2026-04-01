@@ -1014,7 +1014,7 @@ void loop() {
   switch (currentState) {
 
     case STATE_MENU:
-      // Scroll: geser cursor ke bawah, wrap-around ke atas
+      // Scroll: geser cursor ke bawah (wrap-around otomatis)
       if (btnScroll.pressed) {
         menuCursor = (menuCursor + 1) % MENU_ITEM_COUNT;
         drawMenu();
@@ -1022,40 +1022,52 @@ void loop() {
       }
       // Select: masuk ke halaman yang dipilih
       if (btnSelect.pressed) {
-        if (menuCursor == 0) currentState = STATE_INFO;
-        if (menuCursor == 1) currentState = STATE_GRAFIK;
-        if (menuCursor == 2) currentState = STATE_SETTING;
+        if (menuCursor == 0) {
+          currentState = STATE_INFO;
+          tInfoTerakhir = now; // Reset timer auto-update
+          drawPageInfo();      // Paksa gambar frame pertama (Anti-Lag UX)
+        } else if (menuCursor == 1) {
+          currentState = STATE_GRAFIK;
+          tGrafikTerakhir = now; // Reset timer animasi
+          drawPageGrafik();      // Paksa gambar frame pertama
+        } else if (menuCursor == 2) {
+          currentState = STATE_SETTING;
+          drawPageSetting();     // HANYA dipanggil 1x saat transisi!
+        }
         Serial.printf("Masuk state: %d\n", currentState);
       }
       break;
 
     case STATE_INFO:
+      // Auto-update info sensor secara berkala
       if (now - tInfoTerakhir >= INTERVAL_INFO_MS) {
         tInfoTerakhir = now;
         drawPageInfo();
       }
       if (btnSelect.pressed) {
         currentState = STATE_MENU;
-        drawMenu();
+        drawMenu(); // Kembali ke menu
       }
       break;
 
     case STATE_GRAFIK:
+      // Auto-update animasi grafik ADC
       if (now - tGrafikTerakhir >= INTERVAL_GRAFIK_MS) {
         tGrafikTerakhir = now;
         drawPageGrafik();
       }
       if (btnSelect.pressed) {
         currentState = STATE_MENU;
-        drawMenu();
+        drawMenu(); // Kembali ke menu
       }
       break;
 
     case STATE_SETTING:
-      drawPageSetting();
+      // HALAMAN STATIS: Tidak butuh fungsi redraw konstan di dalam loop()!
+      // (Mencegah layar OLED berkedip parah & traffic packet flood I2C)
       if (btnSelect.pressed) {
         currentState = STATE_MENU;
-        drawMenu();
+        drawMenu(); // Kembali ke menu
       }
       break;
   }
