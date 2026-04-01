@@ -373,41 +373,32 @@ void updateBreathing(unsigned long now) {
 }
 
 // ── Police Strobe State ──────────────────────────────────────────────────
-// Urutan pola strobe: Nyala(Merah) → Mati → Nyala(Merah) → Jeda 
-//                   → Nyala(Biru) → Mati → Nyala(Biru) → Jeda
+// Pola strobe 8-langkah (Array visual: Nyala, Mati, Nyala, JedaPanjang...)
 uint8_t strobeStep = 0;
-uint8_t strobeHue  = 0; // 0=Merah, 160=Biru
 
 void updatePoliceStrobe(unsigned long now) {
-  // Atur interval dinamis: nyala sangat cepat, mati jeda sejenak
-  unsigned long interval = 0;
+  unsigned long interval = 50; // Durasi default "Nyala" (kilat cepat)
   
-  if (strobeStep % 2 == 1) {
-    interval = 60; // Durasi "Mati" kilat
-  } else if (strobeStep == 4 || strobeStep >= 8) {
-    interval = 250; // Jeda antara ganti warna
-  } else {
-    interval = 50;  // Durasi "Nyala" kilat
+  if (strobeStep == 3 || strobeStep == 7) {
+    interval = 250;  // Jeda pergantian warna
+  } else if (strobeStep % 2 != 0) {
+    interval = 60;   // Durasi "Mati" sementara antar kilat
   }
 
   if (now - tStrobe < interval) return;
   tStrobe = now;
 
-  if (strobeStep == 0) strobeHue = 0;      // Mulai Merah
-  if (strobeStep == 5) strobeHue = 160;    // Mulai Biru (jangan pakai CHSV BIRU karena R=0, ganti Hue)
-
-  if (strobeStep < 4 || (strobeStep > 4 && strobeStep < 9)) {
-    if (strobeStep % 2 == 0) {
-      // Nyala terang penuh
-      fill_solid(leds, NUM_LEDS, CHSV(strobeHue, 255, MAX_BRIGHT));
-    } else {
-      fill_solid(leds, NUM_LEDS, CRGB::Black);
-    }
-    FastLED.show();
+  if (strobeStep % 2 == 0) {
+    // Langkah genap: Nyala (0,2 = Merah | 4,6 = Biru)
+    uint8_t hue = (strobeStep < 4) ? 0 : 160; 
+    fill_solid(leds, NUM_LEDS, CHSV(hue, 255, MAX_BRIGHT));
+  } else {
+    // Langkah ganjil: Mati
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
   }
+  FastLED.show();
 
-  strobeStep++;
-  if (strobeStep >= 10) strobeStep = 0; // Reset siklus
+  strobeStep = (strobeStep + 1) % 8; // Siklus 8 tahap berulang
 }
 
 void setup() {
@@ -726,21 +717,22 @@ void updateBreathing(unsigned long now) {
 uint8_t pStep = 0;
 unsigned long tStrobe = 0;
 void updatePolice(unsigned long now) {
-  unsigned long jeda = (pStep % 2 == 1) ? 60 : (pStep >= 4 && pStep <= 5) ? 200 : 40;
+  unsigned long jeda = 50; 
+  if (pStep == 3 || pStep == 7) jeda = 250;
+  else if (pStep % 2 != 0) jeda = 60;
+
   if (now - tStrobe < jeda) return;
   tStrobe = now;
 
-  if (pStep < 4) { // Siklus kilat merah ganda
-    fill_solid(leds, NUM_LEDS, (pStep % 2 == 0) ? CHSV(0, 255, MAX_BRIGHT) : CRGB::Black);
-  } else if (pStep > 5 && pStep < 10) { // Siklus kilat biru cerah ganda
-    fill_solid(leds, NUM_LEDS, (pStep % 2 == 0) ? CHSV(160, 255, MAX_BRIGHT) : CRGB::Black);
+  if (pStep % 2 == 0) {
+    uint8_t hue = (pStep < 4) ? 0 : 160; 
+    fill_solid(leds, NUM_LEDS, CHSV(hue, 255, MAX_BRIGHT));
   } else {
     fill_solid(leds, NUM_LEDS, CRGB::Black);
   }
   FastLED.show();
 
-  pStep++;
-  if (pStep >= 11) pStep = 0;
+  pStep = (pStep + 1) % 8;
 }
 
 // ── Modul Efek: Solid Standby ────────────────────────────────────────────
@@ -765,8 +757,8 @@ void setup() {
   pinMode(BTN_PIN, INPUT);
 
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(MAX_BRIGHT);
-  FastLED.clear(); FastLED.show();
+  FastLED.clear(); 
+  FastLED.show(); // Global brightness berada di 255 bawaan (Diatur batas via CHSV tiap pixel)
 
   Serial.println("=== BAB 36 Program 4: FSM LED ===");
   Serial.println("Tekan IO32 untuk melompat navigasi secara manual!");
