@@ -51,7 +51,7 @@
 // ── Konfigurasi WiFi ─────────────────────────────────────────────
 const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
 const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
-const char* MDNS_NAME = "bluino";
+const char* HOSTNAME  = "bluino";
 
 // ── Pin ──────────────────────────────────────────────────────────
 #define DHT_PIN   27   // DHT11 IO27 (hardwired di Bluino Kit)
@@ -198,7 +198,7 @@ void setup() {
   // ── Koneksi WiFi ──────────────────────────────────────────────
   Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
+  WiFi.setHostname(HOSTNAME);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
