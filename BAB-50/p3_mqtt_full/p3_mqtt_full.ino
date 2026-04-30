@@ -1,44 +1,18 @@
 /*
  * BAB 50 - Program 3: MQTT Full IoT — Publish + Subscribe + LWT
- * ─────────────────────────────────────────────────────────────────
+ *
+ * Arsitektur: Pub + Sub + Status Monitoring via LWT
+ *
  * Fitur:
- *   ▶ MQTT Publish: kirim data DHT11 ke Antares tiap 15 detik
- *   ▶ MQTT Subscribe: terima perintah relay dari dashboard Antares
- *   ▶ Last Will & Testament (LWT): jika ESP32 putus mendadak, broker
- *     otomatis publish "OFFLINE" ke topik status device
- *   ▶ Status ONLINE/OFFLINE dikirim ke Antares topik status saat connect/disconnect
- *   ▶ Relay IO4: dikontrol via pesan MQTT subscribe
- *   ▶ DHT11 IO27: baca non-blocking tiap 2 detik
- *   ▶ OLED: tampilkan status broker, suhu, dan status relay
- *   ▶ Non-blocking reconnect (millis-based, coba ulang tiap 5 detik)
- *   ▶ Heartbeat tiap 60 detik
+ *   ► PUBLISH: Data DHT11 ke Antares setiap 15 detik
+ *   ► SUBSCRIBE: Terima & eksekusi perintah relay via callback
+ *   ► LWT: Broker auto-publish "OFFLINE" jika ESP32 mati mendadak
+ *   ► ONLINE: Publish status "ONLINE" setelah connect berhasil
+ *   ► Non-blocking reconnect WiFi & MQTT
+ *   ► Heartbeat tiap 30 detik
  *
- * Tentang Last Will & Testament (LWT):
- *   LWT adalah pesan yang dititipkan ESP32 ke broker PADA SAAT PERTAMA
- *   KALI TERHUBUNG. Broker menyimpan pesan ini dan akan otomatis
- *   mempublishnya ke topik yang ditentukan jika ESP32 putus mendadak
- *   (timeout keepalive, mati listrik, dsb.) tanpa disconnect yang proper.
- *
- *   Dalam program ini:
- *   - Saat connect: ESP32 publish "ONLINE" ke topik status
- *   - Saat disconnect normal: ESP32 publish "OFFLINE" sendiri
- *   - Saat disconnect mendadak: BROKER yang publish "OFFLINE" via LWT
- *
- * Format Topik Antares (oneM2M):
- *   Publish data: /oneM2M/req/{KEY}/antares-cse/{APP}/{DEVICE}/json
- *   Subscribe   : /oneM2M/resp/antares-cse/{KEY}/json
- *   Status LWT  : /oneM2M/req/{KEY}/antares-cse/{APP}/status/json
- *
- * Library yang dibutuhkan:
- *   - PubSubClient by Nick O'Leary   (Library Manager: "PubSubClient")
- *   - ArduinoJson >= 6.x              (Library Manager)
- *   - DHT sensor library by Adafruit  (Library Manager)
- *   - Adafruit Unified Sensor         (Library Manager)
- *   - Adafruit SSD1306 + GFX          (Library Manager)
- *   - WiFi.h                          (bawaan ESP32 Core)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SEMUA konfigurasi di bawah sebelum upload!
+ * Hardware:
+ *   DHT11 → IO27, Relay → IO4, OLED → SDA=IO21, SCL=IO22
  */
 
 #include <WiFi.h>
@@ -49,375 +23,243 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";   // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";   // ← Ganti!
+// ── Konfigurasi ────────────────────────────────────────────────────
+const char* WIFI_SSID          = "NamaWiFiKamu";
+const char* WIFI_PASS          = "PasswordWiFi";
+const char* ANTARES_HOST       = "platform.antares.id";
+const int   ANTARES_PORT       = 1338;
+const char* ANTARES_ACCESS_KEY = "1234567890abcdef:1234567890abcdef"; // ← Ganti!
+const char* ANTARES_APP        = "bluino-kit";       // ← Ganti!
+const char* ANTARES_DEVICE     = "sensor-ruangan";   // ← Ganti!
 
-// ── Konfigurasi Antares MQTT ──────────────────────────────────────
-const char* ACCESS_KEY     = "ACCESSKEY-ANDA-DISINI"; // ← Ganti!
-const char* APP_NAME       = "bluino-kit";             // ← Sesuaikan!
-const char* DEVICE_NAME    = "sensor-ruangan";         // ← Sesuaikan!
-const char* STATUS_DEVICE  = "status";  // Device khusus untuk LWT di Antares
+const unsigned long PUB_INTERVAL = 15000UL;
 
-const char* MQTT_HOST      = "platform.antares.id";
-const int   MQTT_PORT      = 1338;
+// ── Topik ───────────────────────────────────────────────────────────
+char TOPIC_PUB[160];     // publish data sensor
+char TOPIC_SUB[160];     // subscribe perintah
+char TOPIC_STATUS[160];  // LWT status (ONLINE / OFFLINE)
 
-const unsigned long PUBLISH_INTERVAL = 15000UL;
-
-// ── Pin ──────────────────────────────────────────────────────────
+// ── Hardware ────────────────────────────────────────────────────────
 #define DHT_PIN   27
-#define DHT_TYPE  DHT11
-#define RELAY_PIN  4   // IO4 — hardwired di Bluino Kit
+#define RELAY_PIN 4
+DHT dht(DHT_PIN, DHT11);
+Adafruit_SSD1306 oled(128, 64, &Wire, -1);
 
-// ── OLED ──────────────────────────────────────────────────────────
-#define OLED_W    128
-#define OLED_H     64
-#define OLED_ADDR 0x3C
+// ── State ─────────────────────────────────────────────────────────────
+float    lastT      = NAN;
+float    lastH      = NAN;
+bool     relayState = false;
+uint32_t pubCount   = 0;
+uint32_t msgCount   = 0;
+char     clientId[24];
 
-// ── Objek ─────────────────────────────────────────────────────────
 WiFiClient   wifiClient;
 PubSubClient mqtt(wifiClient);
-DHT          dht(DHT_PIN, DHT_TYPE);
-Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
-bool oledReady = false;
 
-// ── State ─────────────────────────────────────────────────────────
-float    lastTemp    = NAN;
-float    lastHumid   = NAN;
-bool     sensorOk    = false;
-bool     relayState  = false;
-uint32_t pubCount    = 0;
-uint32_t msgCount    = 0;
-
-// ─────────────────────────────────────────────────────────────────
-// Bangun Client ID unik dari MAC address ESP32
-// ─────────────────────────────────────────────────────────────────
-String buildClientId() {
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  char id[24];
-  snprintf(id, sizeof(id), "BluinoKit-%02X%02X%02X", mac[3], mac[4], mac[5]);
-  return String(id);
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Helper: kontrol relay
-// ─────────────────────────────────────────────────────────────────
-void setRelay(bool on) {
-  relayState = on;
-  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
-  Serial.printf("[RELAY] ✅ Relay → %s\n", on ? "ON" : "OFF");
-}
-
-// ─────────────────────────────────────────────────────────────────
-// OLED Helpers
-// ─────────────────────────────────────────────────────────────────
-void oledShowBoot() {
-  if (!oledReady) return;
+// ── OLED update ──────────────────────────────────────────────────────
+void updateOLED() {
   oled.clearDisplay();
-  oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE);
+  oled.setTextColor(WHITE); oled.setTextSize(1);
+
+  // Baris 1: Status broker
   oled.setCursor(0, 0);
-  oled.println("Bluino IoT Kit");
-  oled.println("BAB 50 - Program 3");
-  oled.println();
-  oled.println("MQTT Full IoT");
-  oled.println("Pub + Sub + LWT");
-  oled.println("Menghubungkan...");
+  oled.print(mqtt.connected() ? "MQTT:OK " : "MQTT:-- ");
+  oled.print(relayState ? "[RLY:ON] " : "[RLY:OFF]");
+
+  // Baris 2-3: Suhu besar
+  oled.setTextSize(2); oled.setCursor(0, 12);
+  if (!isnan(lastT)) {
+    oled.print(lastT, 1); oled.print("C");
+  } else { oled.print("---"); }
+
+  // Baris 4: Kelembaban
+  oled.setTextSize(1); oled.setCursor(0, 36);
+  if (!isnan(lastH)) { oled.print("H: "); oled.print(lastH, 0); oled.print("%"); }
+
+  // Baris 5: Counter
+  oled.setCursor(0, 48);
+  oled.print("Pub:#"); oled.print(pubCount);
+  oled.print(" Msg:#"); oled.print(msgCount);
   oled.display();
 }
 
-void oledShowDashboard() {
-  if (!oledReady) return;
-  oled.clearDisplay();
-  oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE);
-
-  // Baris 1: Status MQTT
-  oled.setCursor(0, 0);
-  oled.print("MQTT:");
-  oled.print(mqtt.connected() ? "OK " : "-- ");
-  // Baris 1 lanjut: Relay state
-  oled.print("RLY:");
-  oled.println(relayState ? "ON " : "OFF");
-  oled.drawLine(0, 10, OLED_W - 1, 10, SSD1306_WHITE);
-
-  // Baris 2: Suhu besar
-  if (sensorOk) {
-    oled.setTextSize(2);
-    oled.setCursor(0, 14);
-    oled.printf("%.1fC", lastTemp);
-    oled.setTextSize(1);
-    oled.setCursor(70, 14);
-    oled.printf("H:%.0f%%", lastHumid);
-  } else {
-    oled.setCursor(0, 14);
-    oled.println("Sensor Error!");
-  }
-
-  // Baris 3-4: Statistik
-  oled.setTextSize(1);
-  oled.setCursor(0, 38);
-  oled.printf("Pub:#%lu  Msg:#%lu", pubCount, msgCount);
-  oled.setCursor(0, 50);
-  oled.printf("Heap: %u B", ESP.getFreeHeap());
-  oled.display();
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Callback MQTT — dipanggil otomatis setiap ada pesan masuk
-// ─────────────────────────────────────────────────────────────────
+// ── Callback: pesan masuk dari broker ───────────────────────────────
 void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   msgCount++;
-  Serial.printf("[MQTT] 📨 Pesan masuk di topik: %s\n", topic);
+  char buf[512];
+  if (length >= sizeof(buf)) return;
+  memcpy(buf, payload, length); buf[length] = '\0';
+  Serial.printf("[MQTT] Pesan masuk: %s\n", buf);
 
-  char msg[512];
-  size_t copyLen = (length < sizeof(msg) - 1) ? length : sizeof(msg) - 1;
-  memcpy(msg, payload, copyLen);
-  msg[copyLen] = '\0';
-
-  // Parse oneM2M response: m2m:rsp → pc → m2m:cin → con
+  // Parse oneM2M response
   StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, msg)) {
-    Serial.println("[MQTT] ⚠️ JSON parse error.");
-    return;
+  if (deserializeJson(doc, buf)) { Serial.println("[MQTT] ❌ Parse gagal."); return; }
+
+  const char* conStr = doc["m2m:rsp"]["pc"]["m2m:cin"]["con"];
+  if (!conStr) { Serial.println("[MQTT] ⚠️ 'con' tidak ditemukan."); return; }
+
+  StaticJsonDocument<128> inner;
+  if (deserializeJson(inner, conStr)) { Serial.println("[MQTT] ❌ Parse 'con' gagal."); return; }
+
+  const char* relayCmd = inner["relay"];
+  if (!relayCmd) return;
+
+  if (strcmp(relayCmd, "ON") == 0) {
+    relayState = true; digitalWrite(RELAY_PIN, HIGH);
+    Serial.println("[RELAY] ✅ Relay → ON");
+  } else if (strcmp(relayCmd, "OFF") == 0) {
+    relayState = false; digitalWrite(RELAY_PIN, LOW);
+    Serial.println("[RELAY] ✅ Relay → OFF");
   }
-
-  const char* con = doc["m2m:rsp"]["pc"]["m2m:cin"]["con"] | nullptr;
-  if (!con) return;
-
-  // Parse inner JSON di dalam "con"
-  StaticJsonDocument<128> innerDoc;
-  if (deserializeJson(innerDoc, con)) return;
-
-  const char* relayCmd = innerDoc["relay"] | nullptr;
-  if (!relayCmd) {
-    Serial.println("[MQTT] ⚠️ Field 'relay' tidak ada.");
-    return;
-  }
-
-  if (strcmp(relayCmd, "ON") == 0)       setRelay(true);
-  else if (strcmp(relayCmd, "OFF") == 0) setRelay(false);
-  else Serial.printf("[MQTT] ⚠️ Perintah tidak dikenal: '%s'\n", relayCmd);
-
-  oledShowDashboard();
+  updateOLED();
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Publish pesan status ONLINE/OFFLINE ke Antares
-// ─────────────────────────────────────────────────────────────────
-void publishStatus(const char* status) {
-  char topic[192];
-  snprintf(topic, sizeof(topic),
-           "/oneM2M/req/%s/antares-cse/%s/%s/json",
-           ACCESS_KEY, APP_NAME, STATUS_DEVICE);
+// ── Connect MQTT dengan LWT ──────────────────────────────────────────
+void mqttConnect() {
+  Serial.printf("[MQTT] Menghubungkan... (ID: %s)\n", clientId);
 
-  // Bungkus dalam oneM2M m2m:cin
-  char payload[128];
-  snprintf(payload, sizeof(payload),
-           "{\"m2m:cin\":{\"con\":\"{\\\"status\\\":\\\"%s\\\"}\"}}",
-           status);
+  // LWT: jika ESP32 mati mendadak, broker publish "OFFLINE"
+  bool ok = mqtt.connect(
+    clientId,
+    ANTARES_ACCESS_KEY,   // username
+    ANTARES_ACCESS_KEY,   // password
+    TOPIC_STATUS,         // willTopic
+    0,                    // willQos
+    true,                 // willRetain — pesan LWT disimpan broker
+    "OFFLINE"             // willMessage
+  );
 
-  mqtt.publish(topic, payload);
-  Serial.printf("[MQTT] Publish %s → topik status\n", status);
+  if (ok) {
+    Serial.printf("[MQTT] ✅ Terhubung! LWT aktif di: %s\n", TOPIC_STATUS);
+
+    // Publish status ONLINE
+    mqtt.publish(TOPIC_STATUS, "ONLINE", true);  // retained
+    Serial.println("[MQTT] Publish ONLINE → topik status");
+
+    // Subscribe perintah
+    bool subOk = mqtt.subscribe(TOPIC_SUB);
+    Serial.printf("[MQTT] %s Subscribe: %s\n", subOk ? "✅" : "❌", TOPIC_SUB);
+  } else {
+    Serial.printf("[MQTT] ❌ Gagal, rc=%d\n", mqtt.state());
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Publish data sensor ke Antares
-// ─────────────────────────────────────────────────────────────────
+// ── Publish sensor ────────────────────────────────────────────────────
 void publishSensor() {
-  if (!mqtt.connected()) return;
+  if (isnan(lastT)) { Serial.println("[PUB] ⚠️ Skip — sensor belum valid."); return; }
 
-  char topic[192];
-  snprintf(topic, sizeof(topic),
-           "/oneM2M/req/%s/antares-cse/%s/%s/json",
-           ACCESS_KEY, APP_NAME, DEVICE_NAME);
+  char conStr[64];
+  snprintf(conStr, sizeof(conStr), "{\"temp\":%.1f,\"humidity\":%.0f}", lastT, lastH);
 
-  // StaticJsonDocument<160>: headroom aman untuk 4 field (temp, humidity, relay, uptime)
-  StaticJsonDocument<160> innerDoc;
-  innerDoc["temp"]     = sensorOk ? lastTemp  : (float)NAN;
-  innerDoc["humidity"] = sensorOk ? lastHumid : (float)NAN;
-  innerDoc["relay"]    = relayState ? "ON" : "OFF";
-  innerDoc["uptime"]   = millis() / 1000UL;
+  StaticJsonDocument<256> doc;
+  doc.createNestedObject("m2m:cin")["con"] = conStr;
 
-  char innerJson[128];
-  serializeJson(innerDoc, innerJson, sizeof(innerJson));
+  char body[256];
+  size_t len = serializeJson(doc, body, sizeof(body));
 
-  StaticJsonDocument<256> outerDoc;
-  outerDoc["m2m:cin"]["con"] = innerJson;
-
-  char payload[256];
-  size_t payloadLen = serializeJson(outerDoc, payload, sizeof(payload));
-
-  Serial.printf("[MQTT] Publish #%lu → data sensor\n", pubCount + 1);
-
-  if (mqtt.publish(topic, (uint8_t*)payload, payloadLen, false)) {
+  Serial.printf("[MQTT] Publish #%u → data sensor\n", pubCount + 1);
+  if (mqtt.publish(TOPIC_PUB, (uint8_t*)body, len, false)) {
     pubCount++;
     Serial.printf("[MQTT] ✅ Publish berhasil! Heap: %u B\n", ESP.getFreeHeap());
   } else {
     Serial.println("[MQTT] ❌ Publish gagal!");
   }
-
-  oledShowDashboard();
+  updateOLED();
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Non-blocking MQTT Reconnect + LWT + Resubscribe
-// ─────────────────────────────────────────────────────────────────
-void mqttReconnect() {
-  static unsigned long tLastAttempt = 0;
-  if (millis() - tLastAttempt < 5000UL) return;
-  tLastAttempt = millis();
-
-  String clientId = buildClientId();
-  Serial.printf("[MQTT] Menghubungkan ke broker Antares... (ID: %s)\n", clientId.c_str());
-
-  // ── Bangun LWT topic dan payload ─────────────────────────────
-  // LWT dititipkan ke broker saat connect — akan dipublish jika ESP32
-  // putus mendadak (tanpa disconnect proper)
-  char lwtTopic[192];
-  snprintf(lwtTopic, sizeof(lwtTopic),
-           "/oneM2M/req/%s/antares-cse/%s/%s/json",
-           ACCESS_KEY, APP_NAME, STATUS_DEVICE);
-
-  // Payload LWT: "OFFLINE" dalam format oneM2M
-  const char* lwtPayload =
-    "{\"m2m:cin\":{\"con\":\"{\\\"status\\\":\\\"OFFLINE\\\"}\"}}";
-
-  // connect(clientId, user, pass, lwtTopic, lwtQoS, lwtRetain, lwtMsg)
-  if (mqtt.connect(clientId.c_str(),
-                   ACCESS_KEY, ACCESS_KEY,
-                   lwtTopic, 0, false, lwtPayload)) {
-    Serial.printf("[MQTT] ✅ Terhubung! LWT aktif di topik status\n");
-
-    // Publish ONLINE saat berhasil terhubung
-    publishStatus("ONLINE");
-
-    // Subscribe topik response oneM2M
-    char subTopic[128];
-    snprintf(subTopic, sizeof(subTopic),
-             "/oneM2M/resp/antares-cse/%s/json", ACCESS_KEY);
-    mqtt.subscribe(subTopic);
-    Serial.printf("[MQTT] ✅ Subscribe: %s\n", subTopic);
-
-    oledShowDashboard();
-  } else {
-    Serial.printf("[MQTT] ❌ Gagal (state: %d) — coba lagi dalam 5 detik\n", mqtt.state());
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW);
   dht.begin();
   Wire.begin(21, 22);
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);
-  delay(500);
+  oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  oled.clearDisplay(); oled.setTextColor(WHITE);
+
+  // Client ID dari MAC
+  uint8_t mac[6]; WiFi.macAddress(mac);
+  snprintf(clientId, sizeof(clientId), "BluinoKit-%02X%02X%02X", mac[3], mac[4], mac[5]);
+
+  // Bangun semua topik
+  snprintf(TOPIC_PUB, sizeof(TOPIC_PUB),
+    "/oneM2M/req/%s/antares-cse/%s/%s/json",
+    ANTARES_ACCESS_KEY, ANTARES_APP, ANTARES_DEVICE);
+  snprintf(TOPIC_SUB, sizeof(TOPIC_SUB),
+    "/oneM2M/resp/antares-cse/%s/json", ANTARES_ACCESS_KEY);
+  snprintf(TOPIC_STATUS, sizeof(TOPIC_STATUS),
+    "/oneM2M/req/%s/antares-cse/%s/status/json",
+    ANTARES_ACCESS_KEY, ANTARES_APP);
 
   Serial.println("\n=== BAB 50 Program 3: MQTT Full IoT — Pub + Sub + LWT ===");
-  Serial.printf("[INFO] Broker: %s:%d\n", MQTT_HOST, MQTT_PORT);
-  Serial.printf("[INFO] App: %s | Device: %s\n", APP_NAME, DEVICE_NAME);
+  Serial.printf("[INFO] Broker: %s:%d\n", ANTARES_HOST, ANTARES_PORT);
+  Serial.printf("[INFO] App: %s | Device: %s\n", ANTARES_APP, ANTARES_DEVICE);
 
-  // ── OLED ──────────────────────────────────────────────────────
-  if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-    oledShowBoot();
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak ditemukan — lanjut tanpa OLED.");
-  }
+  oled.setCursor(0, 0);  oled.print("BAB 50 Full IoT");
+  oled.setCursor(0, 12); oled.print("WiFi..."); oled.display();
 
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname("bluino");
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
+  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
+  uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
+    if (millis() - t0 >= 15000UL) { delay(2000); ESP.restart(); }
     Serial.print("."); delay(500);
   }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s | SSID: %s\n",
-                WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
+  Serial.printf("\n[WiFi] ✅ Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
 
-  // ── Setup MQTT ────────────────────────────────────────────────
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
-  mqtt.setCallback(onMqttMessage);
+  mqtt.setServer(ANTARES_HOST, ANTARES_PORT);
   mqtt.setBufferSize(512);
-  mqtt.setKeepAlive(30); // Keepalive 30 detik — broker mendeteksi disconnect dalam 30 s
+  mqtt.setCallback(onMqttMessage);
 
-  mqttReconnect();
+  // Baca sensor awal
+  float t = dht.readTemperature(); float h = dht.readHumidity();
+  if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
 
-  // Baca sensor pertama saat boot
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastTemp = t; lastHumid = h; sensorOk = true;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", t, h);
-  }
-
-  Serial.printf("[INFO] Publish tiap %lu detik | LWT aktif\n", PUBLISH_INTERVAL / 1000UL);
+  mqttConnect();
+  Serial.printf("[INFO] Publish tiap %lu detik | LWT aktif\n", PUB_INTERVAL / 1000UL);
+  updateOLED();
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  // ── MQTT Loop & Reconnect ─────────────────────────────────────
-  if (!mqtt.connected()) {
-    mqttReconnect();
-  } else {
-    mqtt.loop();
+  // WiFi check
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[WiFi] ⚠️ Terputus! Reconnect...");
+    WiFi.reconnect(); delay(5000); return;
   }
 
-  // ── DHT11 Non-Blocking (tiap 2 detik) ────────────────────────
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      if (!sensorOk) Serial.println("[DHT] ✅ Sensor pulih!");
-      lastTemp = t; lastHumid = h; sensorOk = true;
-    } else {
-      if (sensorOk) Serial.println("[DHT] ⚠️ Gagal baca! Cek wiring IO27.");
-      sensorOk = false;
-    }
+  // MQTT reconnect non-blocking
+  static unsigned long tRecon = 0;
+  if (!mqtt.connected() && millis() - tRecon >= 5000UL) {
+    tRecon = millis(); mqttConnect();
   }
 
-  // ── Publish sensor Non-Blocking ──────────────────────────────
+  // WAJIB: proses semua incoming messages & keep-alive
+  mqtt.loop();
+
+  // Publish tiap PUB_INTERVAL
   static unsigned long tPub = 0;
-  if (millis() - tPub >= PUBLISH_INTERVAL) {
-    tPub = millis();
-    if (mqtt.connected()) {
-      Serial.printf("[DHT] %.1f°C | %.0f%%\n", lastTemp, lastHumid);
-      publishSensor();
+  static bool firstRun = true;
+  if (firstRun || millis() - tPub >= PUB_INTERVAL) {
+    firstRun = false; tPub = millis();
+
+    float t = dht.readTemperature(); float h = dht.readHumidity();
+    if (!isnan(t) && !isnan(h)) {
+      lastT = t; lastH = h;
+      Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
+    } else {
+      Serial.println("[DHT] ⚠️ Gagal baca! Cek IO27.");
     }
+
+    if (mqtt.connected()) publishSensor();
+    else Serial.println("[PUB] ⚠️ MQTT terputus, skip publish.");
   }
 
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  static bool prevWiFi = true;
-  bool currWiFi = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFi && currWiFi)
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n", WiFi.localIP().toString().c_str());
-  if (prevWiFi && !currWiFi)
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-  prevWiFi = currWiFi;
-
-  // ── Heartbeat (tiap 60 detik) ─────────────────────────────────
+  // Heartbeat
   static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
+  if (millis() - tHb >= 30000UL) {
     tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Relay: %s | Pub: %lu | Heap: %u B\n",
-                  lastTemp, lastHumid, relayState ? "ON" : "OFF",
-                  pubCount, ESP.getFreeHeap());
-  }
-
-  // ── Update OLED tiap 5 detik ──────────────────────────────────
-  static unsigned long tOled = 0;
-  if (millis() - tOled >= 5000UL) {
-    tOled = millis();
-    oledShowDashboard();
+    Serial.printf("[HB] %.1fC %.0f%% | Relay:%s | Pub:%u | Heap:%u B | Up:%lu s\n",
+      isnan(lastT) ? 0.0f : lastT, isnan(lastH) ? 0.0f : lastH,
+      relayState ? "ON" : "OFF", pubCount, ESP.getFreeHeap(), millis() / 1000UL);
   }
 }
