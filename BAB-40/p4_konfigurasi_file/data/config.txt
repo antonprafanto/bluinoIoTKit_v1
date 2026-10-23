@@ -1,0 +1,5 @@
+# Pengaturan Program 4 BAB 40
+# File ini dikirim dari komputer lewat folder data
+nama=Dari-Komputer
+kedip_ms=1000
+led=1
