@@ -1,264 +1,196 @@
 /*
- * BAB 48 - Program 1: HTTP GET — Cuaca Real-Time di OLED
- * ────────────────────────────────────────────────────────
- * Fitur:
- *   ▶ HTTP GET ke wttr.in → ambil data cuaca kota dalam format JSON
- *   ▶ Parse JSON dengan ArduinoJson (StaticJsonDocument — stack only)
- *   ▶ Tampilkan suhu, kondisi, kelembaban di OLED 128×64 I2C (IO21/IO22)
- *   ▶ Non-blocking: fetch tiap FETCH_INTERVAL (default: 10 menit)
- *   ▶ Error handling: timeout, DNS fail, HTTP code != 200
- *   ▶ mDNS: http://bluino.local
- *
- * Cara Uji:
- *   1. Install library berikut via Arduino Library Manager:
- *      - "ArduinoJson" by bblanchon >= 6.x
- *      - "Adafruit SSD1306" by Adafruit
- *      - "Adafruit GFX Library" by Adafruit
- *   2. Ganti WIFI_SSID, WIFI_PASS, dan CITY di bawah
- *   3. Upload, buka Serial Monitor (115200 baud)
- *   4. Tunggu 3–5 detik → data cuaca muncul di OLED dan Serial
- *
- * Library yang dibutuhkan:
- *   - HTTPClient.h, WiFi.h, ESPmDNS.h     (bawaan ESP32 Core)
- *   - ArduinoJson    >= 6.x               (install via Library Manager)
- *   - Adafruit_SSD1306 + Adafruit_GFX    (install via Library Manager)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sebelum upload!
+ * BAB 48 - Program 1: Cuaca Terkini dari Open-Meteo (HTTP GET + JSON)
+ * ESP32 meminta data cuaca ke API Open-Meteo (gratis, tanpa kunci API)
+ * saat menyala lalu setiap 15 menit, dan menampilkannya di Serial Monitor.
+ * Ketik sebuah huruf + Enter di Serial Monitor (line ending: New Line)
+ * untuk mengambil data sekarang.
+ * Rangkaian: tidak perlu.
+ * Library  : ArduinoJson by Benoit Blanchon (versi 7)
  */
 
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID  = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS  = "PasswordWiFi";  // ← Ganti!
-const char* MDNS_NAME  = "bluino";
-const char* CITY       = "Jakarta";       // ← Ganti nama kota!
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── API Endpoint ──────────────────────────────────────────────────
-// wttr.in: layanan cuaca gratis, tanpa API key, format JSON
-// Dokumentasi: https://wttr.in/:help
-const unsigned long FETCH_INTERVAL = 600000UL; // 10 menit antar fetch
+// Lokasi yang ingin dilihat cuacanya (koordinat kota lain ada di README).
+// Desimal memakai titik, bukan koma.
+const char *NAMA_KOTA = "Jakarta";
+const char *LINTANG = "-6.2088";  // latitude (minus = selatan khatulistiwa)
+const char *BUJUR = "106.8456";   // longitude
 
-// ── OLED ──────────────────────────────────────────────────────────
-#define OLED_W    128
-#define OLED_H     64
-#define OLED_ADDR 0x3C  // Coba 0x3D jika blank
+// Data "current" Open-Meteo diperbarui setiap 15 menit, jadi tidak ada
+// gunanya meminta lebih sering dari itu.
+const unsigned long INTERVAL_CUACA = 15UL * 60UL * 1000UL;  // 15 menit (ms)
 
-Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── State Cuaca ───────────────────────────────────────────────────
-struct WeatherData {
-  int     tempC    = -999;
-  int     humidity = -1;
-  char    desc[32] = "---";
-  bool    valid    = false;
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
 };
 
-WeatherData wx;
+Timer timerCuaca = {INTERVAL_CUACA, 0};
+char urlCuaca[256];  // alamat lengkap API, disusun di setup()
 
-// ── Helper ────────────────────────────────────────────────────────
-void oledShowBooting() {
-  oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  oled.println("Bluino IoT Kit");
-  oled.println("BAB 48 - HTTP GET");
-  oled.println();
-  oled.println("Menghubungkan WiFi...");
-  oled.display();
-}
-
-void oledShowWeather() {
-  oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-
-  // Judul
-  oled.setCursor(0, 0);
-  oled.print("Cuaca: ");
-  oled.println(CITY);
-  oled.drawLine(0, 10, OLED_W - 1, 10, SSD1306_WHITE);
-
-  if (!wx.valid) {
-    oled.setCursor(0, 16);
-    oled.println("Mengambil data...");
-    oled.display();
-    return;
+// Menerjemahkan kode cuaca WMO dari Open-Meteo ke bahasa Indonesia
+const char *artiKodeCuaca(int kode) {
+  switch (kode) {
+    case 0: return "Cerah";
+    case 1: return "Cerah berawan";
+    case 2: return "Berawan sebagian";
+    case 3: return "Mendung";
+    case 45:
+    case 48: return "Berkabut";
+    case 51:
+    case 53:
+    case 55: return "Gerimis";
+    case 61: return "Hujan ringan";
+    case 63: return "Hujan sedang";
+    case 65: return "Hujan lebat";
+    case 80: return "Hujan lokal ringan";
+    case 81: return "Hujan lokal sedang";
+    case 82: return "Hujan lokal sangat lebat";
+    case 95: return "Badai petir";
+    case 96:
+    case 99: return "Badai petir disertai hujan es";
+    default: return "Lainnya (lihat tabel kode WMO)";
   }
-
-  // Suhu (besar)
-  oled.setTextSize(3);
-  oled.setCursor(0, 16);
-  oled.print(wx.tempC);
-  oled.print((char)247); // derajat ° (char 247 di font Adafruit)
-  oled.print("C");
-
-  // Kelembaban
-  oled.setTextSize(1);
-  oled.setCursor(0, 48);
-  oled.printf("Hum: %d%%  ", wx.humidity);
-
-  // Kondisi
-  oled.setCursor(0, 56);
-  oled.print(wx.desc);
-
-  oled.display();
 }
 
-void oledShowError(const char* msg) {
-  oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  oled.println("HTTP Error!");
-  oled.println();
-  oled.println(msg);
-  oled.display();
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.print(" tersambung! IP: ");
+  Serial.println(WiFi.localIP());
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Fetch cuaca dari wttr.in dan parse JSON
-// Menggunakan StaticJsonDocument (stack) — Zero Heap Fragmentation
-// ─────────────────────────────────────────────────────────────────
-void fetchWeather() {
+void ambilCuaca() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[HTTP] ⚠️ WiFi tidak terhubung, skip fetch.");
+    Serial.println("[CUACA] WiFi terputus, permintaan dilewati.");
     return;
   }
 
-  // Bangun URL: http://wttr.in/Jakarta?format=j1
-  char url[96];
-  snprintf(url, sizeof(url), "http://wttr.in/%s?format=j1", CITY);
-  Serial.printf("[HTTP] GET %s\n", url);
+  Serial.println();
+  Serial.printf("[HTTP] GET %s\n", urlCuaca);
+  unsigned long mulai = millis();
 
+  // Langkah 1: siapkan alamat tujuan dan pengaturan request
   HTTPClient http;
-  WiFiClient client;
-  http.begin(client, url);
-  http.setTimeout(8000);                   // 8 detik timeout — WAJIB!
-  http.addHeader("User-Agent", "Bluino-IoT/2026 (ESP32)"); // Sopan ke server gratis :)
+  http.begin(urlCuaca);
+  http.setConnectTimeout(5000);              // batas waktu menyambung (ms)
+  http.setTimeout(5000);                     // batas waktu menunggu data (ms)
+  http.setUserAgent("BluinoKit-BAB48/1.0");  // "nama" client kita
 
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("[HTTP] ❌ Error: %d (%s)\n", code, http.errorToString(code).c_str());
-    oledShowError(http.errorToString(code).c_str());
+  // Langkah 2: kirim GET dan tunggu jawaban
+  int kode = http.GET();
+  if (kode < 0) {  // negatif = gagal sebelum server menjawab
+    Serial.printf("[HTTP] Gagal: %d (%s)\n", kode, http.errorToString(kode).c_str());
     http.end();
     return;
   }
 
-  // ── Parse JSON dengan ArduinoJson ────────────────────────────
-  // Ukuran buffer: hitung dengan ArduinoJson Assistant di arduinojson.org/v6/assistant
-  // wttr.in/?format=j1 menghasilkan response ~3KB; kita hanya butuh field teratas
-  // Filter digunakan agar hanya field yang dibutuhkan dimasukkan ke dokumen
-  StaticJsonDocument<256> filter;
-  filter["current_condition"][0]["temp_C"]         = true;
-  filter["current_condition"][0]["humidity"]       = true;
-  filter["current_condition"][0]["weatherDesc"][0]["value"] = true;
-
-  StaticJsonDocument<512> doc;
-  DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+  // Langkah 3 dan 4: ambil isi jawaban, lalu tutup sambungan
+  String isi = http.getString();
   http.end();
+  Serial.printf("[HTTP] Kode status %d, %u byte, %lu ms\n",
+                kode, isi.length(), millis() - mulai);
 
+  if (kode != HTTP_CODE_OK) {  // HTTP_CODE_OK = 200
+    Serial.print("[HTTP] Permintaan ditolak. Isi jawaban: ");
+    Serial.println(isi);
+    return;
+  }
+  Serial.println(isi);  // JSON mentah: bandingkan dengan tampilan di browser
+
+  // Langkah 5: baca JSON dengan ArduinoJson 7
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, isi);
   if (err) {
-    Serial.printf("[HTTP] ❌ JSON Parse Error: %s\n", err.c_str());
-    oledShowError("JSON parse error");
+    Serial.printf("[JSON] Gagal dibaca: %s\n", err.c_str());
     return;
   }
 
-  // Ekstrak data dari JSON bersarang
-  JsonObject cur = doc["current_condition"][0];
-  wx.tempC    = cur["temp_C"].as<int>();
-  wx.humidity = cur["humidity"].as<int>();
+  JsonObject kini = doc["current"];
+  if (!kini["temperature_2m"].is<float>() || !kini["weather_code"].is<int>()) {
+    Serial.println("[JSON] Bagian \"current\" tidak lengkap.");
+    return;
+  }
 
-  // Salin deskripsi cuaca dengan aman ke char[] yang dibatasi panjangnya
-  const char* rawDesc = cur["weatherDesc"][0]["value"] | "Unknown";
-  strncpy(wx.desc, rawDesc, sizeof(wx.desc) - 1);
-  wx.desc[sizeof(wx.desc) - 1] = '\0';
-  wx.valid = true;
+  float suhu = kini["temperature_2m"];
+  float terasa = kini["apparent_temperature"];
+  int kelembapan = kini["relative_humidity_2m"];
+  float angin = kini["wind_speed_10m"];
+  int kodeCuaca = kini["weather_code"];
+  const char *waktu = kini["time"] | "-";  // contoh: "2026-10-24T05:30"
+  const char *jam = strchr(waktu, 'T');      // ambil bagian setelah huruf T
+  jam = (jam != nullptr) ? jam + 1 : waktu;
 
-  Serial.printf("[HTTP] ✅ 200 OK | Suhu: %d°C | Kondisi: %s | Kelembaban: %d%%\n",
-                wx.tempC, wx.desc, wx.humidity);
-
-  oledShowWeather();
+  Serial.printf("=== Cuaca %s (data pukul %s) ===\n", NAMA_KOTA, jam);
+  Serial.printf("Kondisi    : %s (kode %d)\n", artiKodeCuaca(kodeCuaca), kodeCuaca);
+  Serial.printf("Suhu       : %.1f °C (terasa %.1f °C)\n", suhu, terasa);
+  Serial.printf("Kelembapan : %d %%\n", kelembapan);
+  Serial.printf("Angin      : %.1f km/jam\n", angin);
 }
 
-// ─────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  Wire.begin(21, 22); // SDA=IO21, SCL=IO22 (hardwired di Bluino Kit)
+  delay(1000);
+  Serial.println("\nBAB 48 - Program 1: Cuaca Terkini dari Open-Meteo");
 
-  Serial.println("\n=== BAB 48 Program 1: HTTP GET — Cuaca Real-Time ===");
+  // Susun alamat API: koordinat + daftar data "current" yang diminta.
+  // timezone=auto: jam di jawaban mengikuti zona waktu lokasi (WIB/WITA/WIT).
+  snprintf(urlCuaca, sizeof(urlCuaca),
+           "http://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
+           "&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
+           "weather_code,wind_speed_10m&timezone=auto",
+           LINTANG, BUJUR);
 
-  // ── OLED ──────────────────────────────────────────────────────
-  if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-    oledShowBooting();
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak ditemukan — lanjut tanpa OLED.");
-  }
+  sambungkanWiFi();
+  Serial.println("Ketik sebuah huruf lalu tekan Enter di Serial Monitor untuk mengambil data sekarang.");
 
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    Serial.print("."); delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s | SSID: %s\n",
-                WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
-    Serial.printf("[mDNS] ✅ http://%s.local\n", MDNS_NAME);
-  } else {
-    Serial.println("[mDNS] ⚠️ Gagal — lanjut tanpa mDNS.");
-  }
-
-  // Fetch pertama saat boot
-  fetchWeather();
+  ambilCuaca();                     // data pertama langsung diambil
+  timerCuaca.waktuLalu = millis();  // berikutnya 15 menit lagi
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  // ── Fetch cuaca Non-Blocking (tiap FETCH_INTERVAL) ───────────
-  static unsigned long tFetch = 0;
-  if (millis() - tFetch >= FETCH_INTERVAL) {
-    tFetch = millis();
-    fetchWeather();
+  // Tugas 1: ambil cuaca setiap 15 menit
+  if (timerCuaca.sudahWaktunya(millis())) {
+    ambilCuaca();
   }
 
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  static bool prevWiFi = true;
-  bool currWiFi = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFi && currWiFi) {
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n", WiFi.localIP().toString().c_str());
-    fetchWeather(); // Fetch ulang begitu WiFi pulih
+  // Tugas 2: ambil sekarang kalau ada Enter dari Serial Monitor
+  bool adaEnter = false;
+  while (Serial.available() > 0) {
+    if (Serial.read() == '\n') {
+      adaEnter = true;
+    }
   }
-  if (prevWiFi && !currWiFi)
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-  prevWiFi = currWiFi;
-
-  // ── Heartbeat (tiap 60 detik) ──────────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Cuaca: %d°C %s | Heap: %u B | Uptime: %lu s\n",
-                  wx.tempC, wx.desc, ESP.getFreeHeap(), millis() / 1000UL);
+  if (adaEnter) {
+    ambilCuaca();
+    timerCuaca.waktuLalu = millis();  // hitung ulang 15 menit dari sekarang
   }
 }

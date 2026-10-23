@@ -1,217 +1,181 @@
 /*
- * BAB 48 - Program 2: HTTP POST — Kirim Data Sensor ke Server
- * ────────────────────────────────────────────────────────────
- * Fitur:
- *   ▶ Baca DHT11 (IO27) — suhu & kelembaban, non-blocking
- *   ▶ Bangun JSON payload dengan ArduinoJson (stack-allocated)
- *   ▶ HTTP POST ke httpbin.org/post (echo server gratis, tanpa registrasi)
- *   ▶ Parse response server → cetak ke Serial (validasi payload)
- *   ▶ Upload telemetri tiap POST_INTERVAL (default: 30 detik)
- *   ▶ Error handling: timeout, WiFi putus, HTTP code != 200
- *   ▶ Heartbeat log tiap 60 detik
- *
- * Tentang httpbin.org/post:
- *   Server ini memantulkan kembali (echo) semua data yang kita POST.
- *   Sangat berguna untuk memastikan format JSON yang dikirim sudah benar
- *   sebelum dikirim ke server produksi seperti Firebase atau thingspeak.
- *
- * Cara Uji:
- *   1. Install: "ArduinoJson" dan "DHT sensor library" via Library Manager
- *   2. Ganti WIFI_SSID dan WIFI_PASS di bawah
- *   3. Upload → buka Serial Monitor (115200 baud)
- *   4. Tiap 30 detik → data DHT11 dikirim ke httpbin.org
- *   5. Server membalas dengan kopi JSON yang kita kirim → validasi di Serial!
- *
- * Library yang dibutuhkan:
- *   - HTTPClient.h, WiFi.h, ESPmDNS.h  (bawaan ESP32 Core)
- *   - ArduinoJson >= 6.x               (install via Library Manager)
- *   - DHT sensor library by Adafruit   (install via Library Manager)
- *   - Adafruit Unified Sensor          (dependensi DHT, install otomatis)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sebelum upload!
+ * BAB 48 - Program 2: Mengirim Data DHT11 dengan HTTP POST
+ * DHT11 dibaca setiap 2 detik. Setiap 30 detik ESP32 mengirim suhu dan
+ * kelembapan dalam format JSON ke http://httpbin.org/post. Server itu
+ * memantulkan kembali data yang diterimanya, jadi kita bisa mengeceknya.
+ * Rangkaian: DHT (header hijau) -> IO27
+ * Library  : DHT sensor library + Adafruit Unified Sensor (Adafruit),
+ *            ArduinoJson by Benoit Blanchon (versi 7)
  */
 
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
-const char* MDNS_NAME = "bluino";
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── API Endpoint ──────────────────────────────────────────────────
-// httpbin.org/post: echo server gratis — memantulkan kembali body POST
-const char* POST_URL = "http://httpbin.org/post";
-const unsigned long POST_INTERVAL = 30000UL; // Upload tiap 30 detik
+// Alamat tujuan. Untuk melihat data di browser, ganti dengan alamat
+// webhook.site milikmu (diawali http://, lihat README bagian 48.7.1).
+const char *URL_TUJUAN = "http://httpbin.org/post";
+const char *NAMA_PERANGKAT = "bluino-01";  // nama kit-mu di dalam data
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define DHT_PIN  27
-#define DHT_TYPE DHT11
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
 
-// ── Objek ────────────────────────────────────────────────────────
-DHT dht(DHT_PIN, DHT_TYPE);
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── State Sensor (cache non-blocking) ────────────────────────────
-float   lastTemp  = NAN;
-float   lastHumid = NAN;
-bool    sensorOk  = false;
-uint32_t uploadCount = 0;
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
 
-// ─────────────────────────────────────────────────────────────────
-// POST data sensor ke server
-// Payload dibangun dengan ArduinoJson (stack-allocated)
-// ─────────────────────────────────────────────────────────────────
-void postTelemetry() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[HTTP] ⚠️ WiFi tidak terhubung, skip POST.");
+DHT dht(PIN_DHT, TIPE_DHT);
+Timer timerDHT = {2000, 0};     // baca DHT11 setiap 2 detik (jangan kurang dari 2000)
+Timer timerKirim = {30000, 0};  // kirim data setiap 30 detik
+
+// Hasil bacaan DHT11 terakhir
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
+unsigned long nomorKirim = 0;  // sudah berapa kali mencoba mengirim
+
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  // Cetak pesan hanya pada bacaan pertama atau saat status berubah
+  if (bacaanPertama || berhasil != dhtOk) {
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
+    } else {
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+    }
+  }
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
+  }
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.print(" tersambung! IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void kirimData() {
+  if (!dhtOk) {
+    Serial.println("[KIRIM] Dilewati: belum ada bacaan DHT11 yang valid.");
     return;
   }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[KIRIM] Dilewati: WiFi terputus.");
+    return;
+  }
+  nomorKirim = nomorKirim + 1;
 
-  // ── Bangun JSON Payload ───────────────────────────────────────
-  // StaticJsonDocument di stack — Zero Heap Fragmentation
-  StaticJsonDocument<256> payload;
-  payload["device"]   = "bluino";
-  payload["temp"]     = sensorOk ? lastTemp   : (float)NAN;
-  payload["humidity"] = sensorOk ? lastHumid  : (float)NAN;
-  payload["sensorOk"] = sensorOk;
-  payload["uptime"]   = millis() / 1000UL;
-  payload["freeHeap"] = ESP.getFreeHeap();
-  payload["upload"]   = uploadCount + 1;
+  // 1. Susun data JSON
+  JsonDocument data;
+  data["perangkat"] = NAMA_PERANGKAT;
+  data["suhu"] = suhu;                    // °C
+  data["kelembapan"] = kelembapan;        // %RH
+  data["nomor"] = nomorKirim;             // urutan pengiriman
+  data["waktu_nyala"] = millis() / 1000;  // detik sejak ESP32 menyala
+  String body;
+  serializeJson(data, body);
 
-  // Serialisasi JSON ke char buffer (stack) — hindari String heap
-  char body[256];
-  size_t jsonLen = serializeJson(payload, body, sizeof(body));
+  Serial.println();
+  Serial.printf("[HTTP] POST %s\n", URL_TUJUAN);
+  Serial.printf("[HTTP] Body: %s\n", body.c_str());
+  unsigned long mulai = millis();
 
-  // ── HTTP POST ─────────────────────────────────────────────────
-  Serial.printf("[HTTP] POST → %s\n", POST_URL);
-  Serial.printf("[HTTP] Body: %s\n", body);
-
+  // 2. Kirim dengan POST
   HTTPClient http;
-  WiFiClient client;
-  http.begin(client, POST_URL);
-  http.setTimeout(8000);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("User-Agent",   "Bluino-IoT/2026 (ESP32)");
-
-  // Menggunakan jsonLen untuk menghilangkan overhead O(N) dari strlen()
-  int code = http.POST((uint8_t*)body, jsonLen);
-
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("[HTTP] ❌ Error: %d (%s)\n", code, http.errorToString(code).c_str());
+  http.begin(URL_TUJUAN);
+  http.setConnectTimeout(5000);
+  http.setTimeout(5000);
+  http.setUserAgent("BluinoKit-BAB48/1.0");
+  http.addHeader("Content-Type", "application/json");  // beri tahu server: isinya JSON
+  int kode = http.POST(body);
+  if (kode < 0) {
+    Serial.printf("[HTTP] Gagal: %d (%s)\n", kode, http.errorToString(kode).c_str());
     http.end();
     return;
   }
-
-  uploadCount++;
-
-  // ── Parse Response (httpbin memantulkan body kita di "json" key) ──
-  // Filter: kita hanya butuh field "json" dari response yang panjang
-  StaticJsonDocument<64> filter;
-  filter["json"] = true;
-
-  StaticJsonDocument<512> resp;
-  DeserializationError err = deserializeJson(resp, http.getStream(),
-                                              DeserializationOption::Filter(filter));
+  String jawaban = http.getString();
   http.end();
+  Serial.printf("[HTTP] Kode status %d, %lu ms\n", kode, millis() - mulai);
 
-  if (err) {
-    Serial.printf("[HTTP] ✅ %d OK — (response parse skip: %s)\n", code, err.c_str());
+  if (kode < 200 || kode > 299) {  // 2xx = berhasil
+    Serial.print("[HTTP] Ditolak server. Isi jawaban: ");
+    Serial.println(jawaban.substring(0, 200));
     return;
   }
 
-  // Cetak echo payload yang diterima server (validasi format JSON kita)
-  char echo[256];
-  serializeJson(resp["json"], echo, sizeof(echo));
-  Serial.printf("[HTTP] ✅ %d OK — Server menerima payload:\n  %s\n", code, echo);
+  // 3. httpbin.org memantulkan JSON kita di bagian "json".
+  //    Filter: simpan bagian itu saja, abaikan sisanya.
+  JsonDocument filter;
+  filter["json"] = true;
+  JsonDocument pantulan;
+  DeserializationError err = deserializeJson(pantulan, jawaban,
+                                             DeserializationOption::Filter(filter));
+  if (!err && !pantulan["json"].isNull()) {
+    Serial.print("[HTTP] Diterima server: ");
+    serializeJson(pantulan["json"], Serial);
+    Serial.println();
+  } else {
+    // Server lain (misalnya webhook.site) tidak memantulkan JSON
+    Serial.print("[HTTP] Jawaban server: ");
+    Serial.println(jawaban.substring(0, 120));
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
+  delay(1000);
+  Serial.println("\nBAB 48 - Program 2: Mengirim Data DHT11 dengan HTTP POST");
+
   dht.begin();
-  delay(500); // Warm-up DHT11
-
-  Serial.println("\n=== BAB 48 Program 2: HTTP POST — Sensor Telemetry ===");
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    Serial.print("."); delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s | SSID: %s\n",
-                WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
-    Serial.printf("[mDNS] ✅ http://%s.local\n", MDNS_NAME);
-  } else {
-    Serial.println("[mDNS] ⚠️ Gagal — lanjut tanpa mDNS.");
-  }
-
-  Serial.printf("[INFO] Telemetri akan dikirim tiap %lu detik\n", POST_INTERVAL / 1000UL);
-  Serial.printf("[INFO] Endpoint: %s\n", POST_URL);
-
-  // Baca sensor pertama saat boot
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastTemp = t; lastHumid = h; sensorOk = true;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", t, h);
-  }
+  sambungkanWiFi();
+  Serial.printf("Data dikirim setiap %lu detik ke %s\n", timerKirim.interval / 1000, URL_TUJUAN);
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  // ── DHT11 Non-Blocking (tiap 2 detik) ────────────────────────
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      if (!sensorOk) Serial.println("[DHT] ✅ Sensor pulih!");
-      lastTemp = t; lastHumid = h; sensorOk = true;
-    } else {
-      if (sensorOk) Serial.println("[DHT] ⚠️ Gagal baca! Cek wiring IO27.");
-      sensorOk = false;
-    }
+  unsigned long sekarang = millis();
+
+  if (timerDHT.sudahWaktunya(sekarang)) {  // tugas 1: baca DHT11 setiap 2 detik
+    bacaDHT();
   }
-
-  // ── HTTP POST Non-Blocking (tiap POST_INTERVAL) ───────────────
-  static unsigned long tPost = 0;
-  if (millis() - tPost >= POST_INTERVAL) {
-    tPost = millis();
-    Serial.printf("[DHT] %.1f°C | %.0f%%\n", lastTemp, lastHumid);
-    postTelemetry();
-  }
-
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  static bool prevWiFi = true;
-  bool currWiFi = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFi && currWiFi)
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n", WiFi.localIP().toString().c_str());
-  if (prevWiFi && !currWiFi)
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-  prevWiFi = currWiFi;
-
-  // ── Heartbeat (tiap 60 detik) ──────────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Heap: %u B | Upload #%lu\n",
-                  lastTemp, lastHumid, ESP.getFreeHeap(), uploadCount);
+  if (timerKirim.sudahWaktunya(sekarang)) {  // tugas 2: kirim setiap 30 detik
+    kirimData();
   }
 }
