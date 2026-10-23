@@ -1,224 +1,252 @@
 /*
- * BAB 53 - Program 2: BLE Read + Write — Kontrol Relay dari Smartphone
- *
- * Fitur:
- *   ► 1 Service dengan 2 Characteristic:
- *       - Sensor Data (READ + NOTIFY): JSON suhu & kelembaban tiap 5 detik
- *       - Relay Control (READ + WRITE): tulis "ON"/"OFF"/"TOGGLE" dari nRF Connect
- *   ► Safety: relay auto-OFF saat BLE client disconnect
- *   ► Callback WRITE: BLECharacteristicCallbacks::onWrite()
- *   ► OLED tampilkan status relay, BLE, suhu
- *   ► Heartbeat tiap 60 detik
- *
- * Hardware:
- *   DHT11 → IO27 | Relay → IO4 | OLED → SDA=IO21, SCL=IO22
- *
- * Cara Uji (nRF Connect):
- *   1. CONNECT ke "Bluino-Relay-BLE"
- *   2. Subscribe panah bawah pada Char Sensor → data suhu muncul tiap 5 detik
- *   3. Klik panah atas pada Char Relay → ketik "ON" (UTF-8) → SEND → relay ON!
- *   4. Ketik "OFF" → relay OFF | Ketik "TOGGLE" → toggle status relay
+ * BAB 53 - Program 2: Kontrol Relay dari HP (Write)
+ * Service Layanan Bluino berisi dua characteristic:
+ *   - Data Sensor (READ + NOTIFY)      : {"t":28.6,"h":70} setiap 2 detik
+ *   - Relay (READ + WRITE + NOTIFY)    : HP menulis ON / OFF / TOGGLE (atau 1 / 0),
+ *                                        ESP32 membalas status "ON" atau "OFF"
+ * Pengaman: relay otomatis mati saat sambungan BLE terputus.
+ * Rangkaian: DHT -> IO27, RELAY -> IO26.
+ * LED biru bawaan board (IO2): berkedip = menunggu HP, menyala = HP tersambung.
  */
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
+#include <BLE2902.h>  // descriptor CCCD: sakelar notifikasi
+#include <BLE2901.h>  // descriptor label teks
 #include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ── UUID ──────────────────────────────────────────────────────────────
-#define SERVICE_UUID      "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
-#define CHAR_SENSOR_UUID  "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  // READ+NOTIFY
-#define CHAR_RELAY_UUID   "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  // READ+WRITE
+const char *NAMA_BLE = "Bluino-BLE";  // nama yang muncul di HP (boleh diganti)
 
-// ── Hardware ──────────────────────────────────────────────────────────
-#define RELAY_PIN 4
-#define DHT_PIN   27
-DHT dht(DHT_PIN, DHT11);
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
+// UUID buatan sendiri (lihat 53.4), huruf kecil semua
+#define UUID_LAYANAN "2ed00001-fc4c-400d-bb3c-1953ec992b13"
+#define UUID_SENSOR "2ed00002-fc4c-400d-bb3c-1953ec992b13"
+#define UUID_RELAY "2ed00003-fc4c-400d-bb3c-1953ec992b13"
 
-// ── BLE Objects ───────────────────────────────────────────────────────
-BLEServer*         pServer     = nullptr;
-BLECharacteristic* pSensorChar = nullptr;
-BLECharacteristic* pRelayChar  = nullptr;
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define PIN_RELAY 26  // RELAY, aktif HIGH (BAB 37)
+#define LED_BIRU 2    // LED biru bawaan board ESP32, aktif HIGH
 
-// ── State ─────────────────────────────────────────────────────────────
-bool     deviceConnected = false;
-bool     relayState      = false;
-float    lastT           = NAN;
-float    lastH           = NAN;
-uint32_t notifyCount     = 0;
-uint32_t writeCount      = 0;
+// Jenis perintah dari HP (tipe data ditulis di atas, sebelum fungsi pertama)
+enum Perintah { TIDAK_ADA, NYALAKAN, MATIKAN, BALIK, TIDAK_DIKENAL };
 
-// ── Kontrol Relay ─────────────────────────────────────────────────────
-void setRelay(bool on) {
-  relayState = on;
-  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
-  // Update nilai Characteristic agar client bisa READ status terkini
-  pRelayChar->setValue(on ? "ON" : "OFF");
-  Serial.printf("[RELAY] → %s\n", on ? "ON" : "OFF");
-}
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── OLED Helper ───────────────────────────────────────────────────────
-void updateOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-  oled.setCursor(0, 0);  oled.print("BLE Read+Write");
-  oled.drawLine(0, 10, 127, 10, WHITE);
-  oled.setCursor(0, 14);
-  oled.print(deviceConnected ? "BLE: TERHUBUNG" : "BLE: Advertising...");
-  oled.setTextSize(2); oled.setCursor(0, 26);
-  oled.print("RLY:");
-  oled.print(relayState ? "ON " : "OFF");
-  oled.setTextSize(1); oled.setCursor(0, 50);
-  if (!isnan(lastT)) { oled.printf("%.1fC %.0f%%", lastT, lastH); }
-  oled.print(" Ntf:#"); oled.print(notifyCount);
-  oled.display();
-}
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
 
-// ── Callback: WRITE pada Characteristic Relay ─────────────────────────
-class RelayCharCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* pChar) override {
-    std::string val = pChar->getValue();
-    if (val.length() == 0) return;
+DHT dht(PIN_DHT, TIPE_DHT);
+BLECharacteristic *karSensor = nullptr;  // characteristic Data Sensor
+BLECharacteristic *karRelay = nullptr;   // characteristic Relay
+BLE2902 *cccdSensor = nullptr;           // sakelar notifikasi Data Sensor
+BLE2902 *cccdRelay = nullptr;            // sakelar notifikasi Relay
 
-    String cmd = String(val.c_str());
-    cmd.trim(); cmd.toUpperCase();
-    writeCount++;
-    Serial.printf("[BLE] Write #%u: '%s'\n", writeCount, cmd.c_str());
+Timer timerSensor = {2000, 0};  // baca DHT11 setiap 2 detik
+Timer timerKedip = {500, 0};    // kedip LED selama menunggu HP
 
-    if (cmd == "ON") {
-      setRelay(true);
-    } else if (cmd == "OFF") {
-      setRelay(false);
-    } else if (cmd == "TOGGLE") {
-      setRelay(!relayState);
+// Diubah oleh callback (task Bluetooth), dibaca oleh loop()
+volatile bool hpTersambung = false;
+volatile Perintah perintahMasuk = TIDAK_ADA;
+
+bool tersambungSebelumnya = false;
+bool ledNyala = false;
+bool relayNyala = false;
+unsigned long jumlahNotifikasi = 0;
+
+// Callback sambungan: cukup ubah penanda, sisanya dikerjakan loop()
+class PenanganServer : public BLEServerCallbacks {
+  void onConnect(BLEServer *server) override {
+    hpTersambung = true;
+  }
+  void onDisconnect(BLEServer *server) override {
+    hpTersambung = false;
+  }
+};
+
+// Dipanggil saat HP menulis ke characteristic Relay
+class PenanganRelay : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *kar) override {
+    String teks = kar->getValue();  // core 3.x: getValue() mengembalikan String
+    teks.trim();                    // buang spasi/Enter di awal dan akhir
+    teks.toUpperCase();             // "on", "On", dan "ON" dianggap sama
+    if (teks == "ON" || teks == "1") {
+      perintahMasuk = NYALAKAN;
+    } else if (teks == "OFF" || teks == "0") {
+      perintahMasuk = MATIKAN;
+    } else if (teks == "TOGGLE") {
+      perintahMasuk = BALIK;
     } else {
-      Serial.printf("[BLE] ⚠️ Perintah tidak dikenal: '%s' (ON/OFF/TOGGLE)\n", cmd.c_str());
+      perintahMasuk = TIDAK_DIKENAL;
     }
-    updateOLED();
   }
 };
 
-// ── Server Callbacks ──────────────────────────────────────────────────
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pSrv) override {
-    deviceConnected = true;
-    Serial.println("[BLE] ✅ Client terhubung!");
-    updateOLED();
+// Membuat characteristic beserta CCCD dan labelnya
+BLECharacteristic *buatCharacteristic(BLEService *layanan, const char *uuid, uint32_t sifat,
+                                      BLE2902 *&cccd, const char *keterangan) {
+  BLECharacteristic *kar = layanan->createCharacteristic(uuid, sifat);
+  cccd = new BLE2902();  // wajib untuk NOTIFY di ESP32 (Bluedroid)
+  kar->addDescriptor(cccd);
+  BLE2901 *label = new BLE2901();
+  label->setDescription(keterangan);
+  label->setAccessPermissions(ESP_GATT_PERM_READ);  // label hanya boleh dibaca
+  kar->addDescriptor(label);
+  return kar;
+}
+
+void siapkanBLE() {
+  if (!BLEDevice::init(NAMA_BLE)) {
+    Serial.println("[BLE] Gagal menyalakan BLE! ESP32 restart dalam 5 detik...");
+    delay(5000);
+    ESP.restart();
   }
-  void onDisconnect(BLEServer* pSrv) override {
-    deviceConnected = false;
-    Serial.println("[BLE] ⚠️ Client terputus — restart advertising...");
-    // Safety: matikan relay saat BLE disconnect
-    if (relayState) {
-      setRelay(false);
-      Serial.println("[SAFETY] Relay auto-OFF karena BLE terputus!");
-    }
-    delay(500);
-    pSrv->startAdvertising();
-    updateOLED();
+
+  BLEServer *server = BLEDevice::createServer();
+  server->setCallbacks(new PenanganServer());
+  server->advertiseOnDisconnect(true);  // beriklan lagi setelah HP memutus
+
+  BLEService *layanan = server->createService(UUID_LAYANAN);
+
+  karSensor = buatCharacteristic(layanan, UUID_SENSOR,
+                                 BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY,
+                                 cccdSensor, "Suhu (C) dan kelembapan (%)");
+  karSensor->setValue("Menunggu data");
+
+  karRelay = buatCharacteristic(layanan, UUID_RELAY,
+                                BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE |
+                                    BLECharacteristic::PROPERTY_NOTIFY,
+                                cccdRelay, "Relay: tulis ON, OFF, atau TOGGLE");
+  karRelay->setCallbacks(new PenanganRelay());
+  karRelay->setValue("OFF");
+
+  layanan->start();
+
+  BLEAdvertising *iklan = BLEDevice::getAdvertising();
+  iklan->addServiceUUID(UUID_LAYANAN);
+  iklan->setScanResponse(true);
+  BLEDevice::startAdvertising();
+}
+
+// Mengubah relay, menyimpan statusnya di characteristic, lalu mengabari HP
+void aturRelay(bool nyala) {
+  relayNyala = nyala;
+  digitalWrite(PIN_RELAY, nyala ? HIGH : LOW);
+  karRelay->setValue(nyala ? "ON" : "OFF");
+  if (hpTersambung && cccdRelay->getNotifications()) {
+    karRelay->notify();
   }
-};
+  Serial.printf("[RELAY] %s\n", nyala ? "AKTIF" : "MATI");
+}
+
+void jalankanPerintah(Perintah perintah) {
+  if (perintah == NYALAKAN) {
+    Serial.println("[BLE] Perintah diterima: ON");
+    aturRelay(true);
+  } else if (perintah == MATIKAN) {
+    Serial.println("[BLE] Perintah diterima: OFF");
+    aturRelay(false);
+  } else if (perintah == BALIK) {
+    Serial.println("[BLE] Perintah diterima: TOGGLE");
+    aturRelay(!relayNyala);
+  } else {
+    Serial.printf("[BLE] Perintah tidak dikenal: \"%s\". Pakai ON, OFF, atau TOGGLE.\n",
+                  karRelay->getValue().c_str());
+    aturRelay(relayNyala);  // kembalikan isi characteristic ke status sebenarnya
+  }
+}
+
+void bacaDanKirimSensor() {
+  dht.read(true);  // paksa membaca sensor sekarang (BAB 26)
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  char teks[24];  // isi maksimal 20 karakter (batas notifikasi, lihat 53.3.3)
+  if (isnan(h) || isnan(t)) {
+    snprintf(teks, sizeof(teks), "{\"t\":null,\"h\":null}");
+    Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+  } else {
+    snprintf(teks, sizeof(teks), "{\"t\":%.1f,\"h\":%.0f}", t, h);
+  }
+
+  karSensor->setValue((uint8_t *)teks, strlen(teks));  // nilai terbaru untuk READ
+
+  Serial.printf("[DHT11] %s -> ", teks);
+  if (!hpTersambung) {
+    Serial.println("belum ada HP tersambung");
+  } else if (!cccdSensor->getNotifications()) {
+    Serial.println("HP belum menyalakan notifikasi");
+  } else {
+    karSensor->notify();  // kirim nilai sekarang ke HP
+    jumlahNotifikasi++;
+    Serial.printf("notifikasi #%lu terkirim\n", jumlahNotifikasi);
+  }
+}
 
 void setup() {
   Serial.begin(115200);
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);
+  delay(1000);
+  Serial.println("\nBAB 53 - Program 2: Kontrol Relay dari HP");
+
+  pinMode(PIN_RELAY, OUTPUT);  // pinMode dulu, baru digitalWrite (core 3.x)
+  digitalWrite(PIN_RELAY, LOW);
+  pinMode(LED_BIRU, OUTPUT);
+  digitalWrite(LED_BIRU, LOW);
   dht.begin();
-  Wire.begin(21, 22);
 
-  Serial.println("\n=== BAB 53 Program 2: BLE Read+Write — Relay ===");
+  siapkanBLE();
 
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak terdeteksi.");
-  }
-
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastT = t; lastH = h;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
-  }
-
-  // ── Inisiasi BLE ──────────────────────────────────────────────────
-  BLEDevice::init("Bluino-Relay-BLE");
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  BLEService* pService = pServer->createService(SERVICE_UUID);
-
-  // Characteristic 1: Sensor Data (READ + NOTIFY)
-  pSensorChar = pService->createCharacteristic(
-    CHAR_SENSOR_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
-  );
-  pSensorChar->addDescriptor(new BLE2902()); // WAJIB untuk NOTIFY
-  pSensorChar->setValue("Menunggu sensor...");
-
-  // Characteristic 2: Relay Control (READ + WRITE)
-  pRelayChar = pService->createCharacteristic(
-    CHAR_RELAY_UUID,
-    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
-  );
-  pRelayChar->setCallbacks(new RelayCharCallbacks()); // Tangani WRITE
-  pRelayChar->setValue("OFF"); // Nilai awal
-
-  pService->start();
-
-  BLEAdvertising* pAdv = BLEDevice::getAdvertising();
-  pAdv->addServiceUUID(SERVICE_UUID);
-  pAdv->setScanResponse(true);
-  pAdv->setMinPreferred(0x06);
-  BLEDevice::startAdvertising();
-
-  Serial.println("[BLE] ✅ Advertising: 'Bluino-Relay-BLE'");
-  Serial.println("[BLE] nRF Connect → CONNECT → Subscribe sensor → Write relay ON/OFF");
-  updateOLED();
+  Serial.printf("[BLE] Siap! Nama perangkat: %s\n", NAMA_BLE);
+  Serial.printf("[BLE] Alamat BLE (MAC): %s\n", BLEDevice::getAddress().toString().c_str());
+  Serial.println("[BLE] Tulis ON, OFF, atau TOGGLE ke characteristic 2ed00003-...");
 }
 
 void loop() {
-  // Baca DHT11 non-blocking tiap 2 detik
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      bool changed = (fabs(t - lastT) > 0.1f || fabs(h - lastH) > 1.0f);
-      lastT = t; lastH = h;
-      if (changed) updateOLED();
+  unsigned long sekarang = millis();
+
+  // 1. Perubahan sambungan (penandanya diubah oleh callback)
+  bool tersambung = hpTersambung;
+  if (tersambung != tersambungSebelumnya) {
+    tersambungSebelumnya = tersambung;
+    if (tersambung) {
+      Serial.println("[BLE] HP tersambung.");
+    } else {
+      cccdSensor->setNotifications(false);  // HP berikutnya harus berlangganan lagi
+      cccdRelay->setNotifications(false);
+      Serial.println("[BLE] HP terputus. ESP32 beriklan lagi.");
+      if (relayNyala) {
+        Serial.println("[PENGAMAN] Sambungan putus, relay dimatikan.");
+        aturRelay(false);
+      }
     }
   }
 
-  // Notify sensor tiap 5 detik
-  static unsigned long tNotify = 0;
-  if (millis() - tNotify >= 5000UL) {
-    tNotify = millis();
-    if (deviceConnected && !isnan(lastT)) {
-      char payload[96];
-      snprintf(payload, sizeof(payload),
-        "{\"temp\":%.1f,\"humidity\":%.0f,\"relay\":\"%s\",\"uptime\":%lu}",
-        lastT, lastH, relayState ? "ON" : "OFF", millis() / 1000UL);
-      pSensorChar->setValue((uint8_t*)payload, strlen(payload));
-      pSensorChar->notify();
-      notifyCount++;
-      Serial.printf("[BLE] Notify #%u: %s\n", notifyCount, payload);
-      updateOLED();
-    }
+  // 2. Perintah dari HP (penandanya diubah oleh callback onWrite)
+  Perintah perintah = perintahMasuk;
+  if (perintah != TIDAK_ADA) {
+    perintahMasuk = TIDAK_ADA;
+    jalankanPerintah(perintah);
   }
 
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] BLE:%s | Relay:%s | Ntf:%u | Wr:%u | Heap:%u B | Up:%lu s\n",
-      deviceConnected?"ON":"OFF", relayState?"ON":"OFF",
-      notifyCount, writeCount, ESP.getFreeHeap(), millis()/1000UL);
+  // 3. LED biru: menyala terus saat tersambung, berkedip saat menunggu
+  if (tersambung) {
+    digitalWrite(LED_BIRU, HIGH);
+  } else if (timerKedip.sudahWaktunya(sekarang)) {
+    ledNyala = !ledNyala;
+    digitalWrite(LED_BIRU, ledNyala ? HIGH : LOW);
+  }
+
+  // 4. Baca sensor dan kirim setiap 2 detik
+  if (timerSensor.sudahWaktunya(sekarang)) {
+    bacaDanKirimSensor();
   }
 }

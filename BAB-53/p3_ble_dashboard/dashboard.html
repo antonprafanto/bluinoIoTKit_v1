@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard BLE Bluino</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #f2f4f7;
+         color: #222; margin: 0; padding: 16px; }
+  .wadah { max-width: 520px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  h1 { font-size: 1.3em; margin: 0; color: #1565c0; }
+  h2 { font-size: 1em; color: #555; margin: 20px 0 8px; }
+  .koneksi { font-size: 0.85em; padding: 4px 10px; border-radius: 999px;
+             background: #e0e0e0; color: #555; white-space: nowrap; }
+  .koneksi.ok { background: #e8f5e9; color: #2e7d32; }
+  .koneksi.putus { background: #ffebee; color: #c62828; }
+  .aksi { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 10px; }
+  .kartu { background: #fff; border-radius: 12px; padding: 14px;
+           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+  .label { font-size: 0.9em; color: #666; }
+  .nilai { font-size: 2em; font-weight: bold; margin-top: 4px; }
+  .satuan { font-size: 0.5em; color: #666; font-weight: normal; }
+  .baris { display: flex; justify-content: space-between; align-items: center;
+           gap: 10px; margin-bottom: 10px; }
+  .lencana { display: inline-block; margin-top: 6px; font-size: 0.85em;
+             padding: 2px 10px; border-radius: 999px; background: #eceff1; color: #546e7a; }
+  .lencana.nyala { background: #fff3e0; color: #e65100; }
+  button { font-size: 1em; padding: 12px 16px; min-width: 120px; border: none;
+           border-radius: 8px; background: #1565c0; color: #fff; cursor: pointer; }
+  button.matikan { background: #455a64; }
+  button:disabled { background: #90a4ae; cursor: not-allowed; }
+  .peringatan { color: #c62828; font-size: 0.9em; min-height: 1.2em; margin: 8px 0 0; }
+  .info { font-size: 0.85em; color: #666; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="wadah">
+  <header>
+    <h1>Dashboard BLE Bluino</h1>
+    <span id="koneksi" class="koneksi">Belum tersambung</span>
+  </header>
+
+  <div class="aksi">
+    <button id="tombolSambung" onclick="sambungkan()">Hubungkan ke ESP32</button>
+    <button id="tombolPutus" class="matikan" onclick="putuskan()" disabled>Putuskan</button>
+  </div>
+  <p id="dukungan" class="peringatan"></p>
+
+  <h2>Sensor</h2>
+  <div class="grid">
+    <div class="kartu">
+      <div class="label">Suhu</div>
+      <div class="nilai"><span id="suhu">--</span> <span class="satuan">°C</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Kelembapan</div>
+      <div class="nilai"><span id="lembap">--</span> <span class="satuan">%RH</span></div>
+    </div>
+  </div>
+  <p id="dhtPesan" class="peringatan"></p>
+
+  <h2>Kontrol</h2>
+  <div class="kartu baris">
+    <div>
+      <div class="label">Relay (IO26)</div>
+      <span id="relayStatus" class="lencana">--</span>
+    </div>
+    <button id="relayTombol" onclick="kirimRelay()" disabled>Nyalakan</button>
+  </div>
+  <p id="pesan" class="peringatan"></p>
+
+  <h2>Info Perangkat</h2>
+  <div class="kartu info">
+    Perangkat: <span id="nama">--</span><br>
+    Data sensor diperbarui pukul: <span id="jam">--</span>
+  </div>
+</div>
+
+<script>
+// Harus sama dengan UUID di program ESP32 (huruf kecil semua)
+const UUID_LAYANAN = "2ed00001-fc4c-400d-bb3c-1953ec992b13";
+const UUID_SENSOR = "2ed00002-fc4c-400d-bb3c-1953ec992b13";
+const UUID_RELAY = "2ed00003-fc4c-400d-bb3c-1953ec992b13";
+
+function el(id) { return document.getElementById(id); }
+let perangkat = null;    // perangkat BLE yang dipilih pengguna
+let karRelay = null;     // characteristic Relay (untuk menulis perintah)
+let relayNyala = false;  // status relay terakhir menurut ESP32
+const pembaca = new TextDecoder();  // byte -> teks
+const penulis = new TextEncoder();  // teks -> byte
+
+// Periksa dukungan Web Bluetooth begitu halaman dibuka
+if (!navigator.bluetooth) {
+  el("tombolSambung").disabled = true;
+  el("dukungan").textContent = window.isSecureContext
+    ? "Browser ini tidak mendukung Web Bluetooth. Pakai Chrome/Edge di laptop atau Chrome di Android."
+    : "Web Bluetooth mati karena halaman dibuka lewat http:// biasa. Buka lewat http://localhost atau https://.";
+}
+
+function aturKoneksi(teks, kelas) {
+  el("koneksi").textContent = teks;
+  el("koneksi").className = "koneksi " + kelas;
+}
+
+// Isi characteristic Data Sensor, misalnya {"t":28.6,"h":70}
+function tampilkanSensor(dataView) {
+  const teks = pembaca.decode(dataView);
+  let d;
+  try {
+    d = JSON.parse(teks);
+  } catch (err) {
+    return;  // misalnya "Menunggu data" sebelum bacaan pertama
+  }
+  el("suhu").textContent = d.t === null ? "--" : d.t.toFixed(1).replace(".", ",");
+  el("lembap").textContent = d.h === null ? "--" : d.h.toFixed(0);
+  el("dhtPesan").textContent = d.t === null ? "DHT11 belum terbaca. Periksa kabel DHT ke IO27." : "";
+  el("jam").textContent = new Date().toLocaleTimeString("id-ID");
+}
+
+// Isi characteristic Relay: "ON" atau "OFF"
+// Status = keadaan SEKARANG; tulisan tombol = AKSI yang terjadi kalau ditekan
+function tampilkanRelay(dataView) {
+  relayNyala = pembaca.decode(dataView) === "ON";
+  el("relayStatus").textContent = relayNyala ? "Aktif" : "Mati";
+  el("relayStatus").className = "lencana" + (relayNyala ? " nyala" : "");
+  el("relayTombol").textContent = relayNyala ? "Matikan" : "Nyalakan";
+  el("relayTombol").className = relayNyala ? "matikan" : "";
+  el("relayTombol").disabled = false;
+}
+
+// Dipanggil tombol "Hubungkan" (Web Bluetooth wajib dipicu klik pengguna)
+async function sambungkan() {
+  el("pesan").textContent = "";
+  try {
+    if (!perangkat) {
+      // Jendela pilihan: hanya perangkat yang mengiklankan UUID layanan kita
+      perangkat = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [UUID_LAYANAN] }]
+      });
+      perangkat.addEventListener("gattserverdisconnected", saatTerputus);
+    }
+    el("tombolSambung").disabled = true;
+    aturKoneksi("Menyambung...", "");
+
+    const server = await perangkat.gatt.connect();
+    const layanan = await server.getPrimaryService(UUID_LAYANAN);
+    const karSensor = await layanan.getCharacteristic(UUID_SENSOR);
+    karRelay = await layanan.getCharacteristic(UUID_RELAY);
+
+    // Nilai baru dari notifikasi ESP32
+    karSensor.addEventListener("characteristicvaluechanged", (e) => tampilkanSensor(e.target.value));
+    karRelay.addEventListener("characteristicvaluechanged", (e) => tampilkanRelay(e.target.value));
+
+    tampilkanSensor(await karSensor.readValue());  // nilai awal (READ)
+    tampilkanRelay(await karRelay.readValue());
+    await karSensor.startNotifications();          // browser menulis CCCD = 1
+    await karRelay.startNotifications();
+
+    el("nama").textContent = perangkat.name || "(tanpa nama)";
+    aturKoneksi("● Terhubung", "ok");
+    el("tombolPutus").disabled = false;
+  } catch (err) {
+    el("pesan").textContent = "Gagal menyambung: " + err.message;
+    el("tombolSambung").disabled = false;
+    if (perangkat && perangkat.gatt.connected) {
+      perangkat.gatt.disconnect();  // bersihkan sambungan yang setengah jadi
+    } else {
+      aturKoneksi(perangkat ? "● Terputus" : "Belum tersambung", perangkat ? "putus" : "");
+    }
+  }
+}
+
+// Dipanggil browser saat sambungan putus (ESP32 reset, keluar jangkauan, atau Putuskan)
+function saatTerputus() {
+  karRelay = null;
+  aturKoneksi("● Terputus", "putus");
+  el("relayTombol").disabled = true;
+  el("tombolPutus").disabled = true;
+  el("tombolSambung").disabled = false;
+  el("tombolSambung").textContent = "Hubungkan lagi";
+}
+
+function putuskan() {
+  if (perangkat && perangkat.gatt.connected) {
+    perangkat.gatt.disconnect();  // memicu saatTerputus()
+  }
+}
+
+// Tombol relay: kirim keadaan TUJUAN, lalu tunggu notifikasi status dari ESP32
+async function kirimRelay() {
+  if (!karRelay) return;
+  el("relayTombol").disabled = true;  // cegah klik ganda selama menulis
+  el("pesan").textContent = "";
+  try {
+    await karRelay.writeValueWithResponse(penulis.encode(relayNyala ? "OFF" : "ON"));
+  } catch (err) {
+    el("pesan").textContent = "Gagal mengirim perintah: " + err.message;
+  }
+  if (karRelay) el("relayTombol").disabled = false;
+}
+</script>
+</body>
+</html>
