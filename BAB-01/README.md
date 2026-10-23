@@ -347,7 +347,7 @@ Selain microSD, ESP32 juga bisa menyimpan data kecil (misalnya pengaturan) di me
 
 ### Komponen yang Sudah Tersambung dan Pin "Custom"
 
-Sebagian komponen sudah tersambung ke pin ESP32 lewat jalur tembaga di PCB, misalnya OLED, DHT11, dan DS18B20. Komponen lain — LED, tombol, *buzzer*, *relay*, potensiometer, LDR, PIR, *touch pad*, serta konektor HC-SR04 dan servo — berakhir di deretan pin kecil berlabel **Custom**. Kamu sendiri yang menyambungkan pin **Custom** itu ke pin ESP32 memakai kabel *jumper* *female-female* (kabel dengan lubang di kedua ujungnya). Desain ini sengaja dibuat supaya kamu belajar memilih dan menyambung pin.
+Sebagian komponen sudah tersambung ke pin ESP32 lewat *jumper cap* (penutup *jumper* hitam) di PCB, yaitu OLED, MPU-6050, BMP180, dan adaptor microSD. Komponen lain — DHT11, DS18B20, RGB LED WS2812, LED, tombol, *buzzer*, *relay*, potensiometer, LDR, PIR, *touch pad*, serta konektor HC-SR04 dan servo — berakhir di deretan pin kecil yang di skematik disebut **Custom** (di PCB, pin-pin ini diberi label nama komponennya, misalnya `DHT`, `LED1`, atau `SW1`). Kamu sendiri yang menyambungkan pin **Custom** itu ke pin ESP32 memakai kabel *jumper* *female-female* (kabel dengan lubang di kedua ujungnya). Desain ini sengaja dibuat supaya kamu belajar memilih dan menyambung pin.
 
 Pin mana dipakai untuk komponen apa sudah dibakukan dalam **Peta Pin Standar** yang dibahas lengkap di [BAB 6](../BAB-06/README.md). Setiap program di BAB-BAB berikutnya juga punya tabel **Rangkaian** yang menunjukkan kabel mana yang perlu disambung.
 

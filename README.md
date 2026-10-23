@@ -59,45 +59,45 @@ Kamu juga bisa berkontribusi langsung dengan membuka **Issue** atau **Pull Reque
 | # | Komponen | Koneksi | Protokol |
 |---|----------|---------|----------|
 | 1 | ESP32 DEVKIT V1 | — | — |
-| 2 | OLED 0,96" 128×64 | SDA = IO21, SCL = IO22 | I2C |
-| 3 | DHT11 (suhu & kelembapan) | IO27 + *pull-up* 4,7 kΩ | Digital |
-| 4 | DS18B20 (suhu presisi) | IO14 + *pull-up* 4,7 kΩ | OneWire |
-| 5 | BMP180 (tekanan udara) | SDA = IO21, SCL = IO22 | I2C |
-| 6 | MPU-6050 (akselerometer & giroskop) | SDA = IO21, SCL = IO22 | I2C |
-| 7 | RGB LED WS2812 (NeoPixel) | IO12 | Data satu kabel |
-| 8 | Adaptor microSD | CS = IO5, MOSI = IO23, CLK = IO18, MISO = IO19 | SPI |
-| 9 | *Touch pad* | Custom → IO33 (T8) | Kapasitif |
-| 10 | 4 LED (merah, kuning, hijau, biru) | Custom → IO4, IO16, IO17, IO2 (+ resistor 330 Ω) | Digital |
-| 11 | 2 tombol (S1, S2) | Custom → IO15, IO25 (+ *pull-down* 10 kΩ) | Digital |
-| 12 | *Buzzer* aktif | Custom → IO13 | Digital |
-| 13 | Potensiometer 10 kΩ | Custom → IO34 | Analog (ADC1) |
-| 14 | LDR (sensor cahaya) | Custom → IO35 (+ resistor 10 kΩ) | Analog (ADC1) |
-| 15 | PIR AM312 (sensor gerak) | Custom → IO33 | Digital |
-| 16 | *Relay* 5 V + *driver* BC547 | Custom → IO26 | Digital |
-| 17 | Konektor HC-SR04 (ultrasonik) | Custom → Trig IO25, Echo IO36 (wajib pembagi tegangan) | Digital |
-| 18 | Konektor servo | Custom → IO32 | PWM |
+| 2 | OLED 0,96" 128×64 | *Jumper cap* → SDA = IO21, SCL = IO22 | I2C |
+| 3 | BMP180 (tekanan udara) | *Jumper cap* → SDA = IO21, SCL = IO22 | I2C |
+| 4 | MPU-6050 (akselerometer & giroskop) | *Jumper cap* → SDA = IO21, SCL = IO22 | I2C |
+| 5 | Adaptor microSD | *Jumper cap* → CS = IO5, MOSI = IO23, CLK = IO18, MISO = IO19 | SPI |
+| 6 | DHT11 (suhu & kelembapan) | Kabel *jumper*: `DHT` → IO27 (*pull-up* 4,7 kΩ di PCB) | Digital |
+| 7 | DS18B20 (suhu presisi) | Kabel *jumper*: `DS` → IO14 (*pull-up* 4,7 kΩ di PCB) | OneWire |
+| 8 | RGB LED WS2812 (NeoPixel) | Kabel *jumper*: `D-IN` → IO12 | Data satu kabel |
+| 9 | 4 LED (merah, kuning, hijau, biru) | Kabel *jumper*: `LED1` merah → IO4, `LED4` kuning → IO16, `LED2` hijau → IO17, `LED3` biru → IO2 (+ resistor 330 Ω) | Digital |
+| 10 | 2 tombol (S1, S2) | Kabel *jumper*: `SW1` → IO15, `SW2` → IO25 (+ *pull-down* 10 kΩ) | Digital |
+| 11 | *Buzzer* aktif | Kabel *jumper*: `BUZZ` → IO13 | Digital |
+| 12 | *Relay* 5 V + *driver* BC547 | Kabel *jumper*: `RELAY` → IO26 | Digital |
+| 13 | Potensiometer 10 kΩ | Kabel *jumper*: `VR10K` → IO34 | Analog (ADC1) |
+| 14 | LDR (sensor cahaya) | Kabel *jumper*: `LDR` → IO35 (+ resistor 10 kΩ) | Analog (ADC1) |
+| 15 | *Touch pad* | Kabel *jumper*: `TOUCH` → IO33 (T8) | Kapasitif |
+| 16 | PIR AM312 (sensor gerak) | Kabel *jumper*: `PIR` → IO33 | Digital |
+| 17 | Konektor HC-SR04 (ultrasonik) | Kabel *jumper*: `Tr` → IO25, `Ec` → IO36 (wajib pembagi tegangan) | Digital |
+| 18 | Konektor servo | Kabel *jumper*: `SRV` → IO32 | PWM |
 
-> 📌 **Catatan:** **"Custom"** berarti komponen berakhir di pin header bertanda Custom. Kamu menyambungkannya sendiri ke pin ESP32 dengan kabel *jumper* *female-female*. Pin yang tertulis di tabel adalah **pin standar** yang dipakai di seluruh materi — lihat [BAB 6](BAB-06/README.md) untuk penjelasan lengkapnya.
+> 📌 **Catatan:** Modul I2C dan microSD sudah tersambung lewat *jumper cap* (penutup *jumper* hitam berlabel **JP**). Komponen lainnya berakhir di pin header berlabel nama komponennya (di skematik disebut pin **Custom**), dan kamu menyambungkannya sendiri ke pin ESP32 dengan kabel *jumper* *female-female*. Pin yang tertulis di tabel adalah **pin standar** yang dipakai di seluruh materi — lihat [BAB 6](BAB-06/README.md) untuk penjelasan lengkap dan foto letak setiap pin.
 
 > 🛒 **Tidak termasuk kit:** sensor HC-SR04 (hanya konektornya), motor servo, kartu microSD, dan ESP32 tambahan untuk BAB yang membutuhkan dua *board* (misalnya ESP-NOW dan ESP-MESH).
 
 ## 📌 Peta Pin Standar
 
-### Sudah terpasang di PCB (tidak perlu kabel)
+### Tersambung lewat *jumper cap* (tidak perlu kabel)
 
 | Pin ESP32 | Komponen |
 |---|---|
 | IO21 (SDA), IO22 (SCL) | Bus I2C bersama: OLED (`0x3C`), MPU-6050 (`0x68`), BMP180 (`0x77`) |
 | IO5 (CS), IO23 (MOSI), IO18 (CLK), IO19 (MISO) | Bus SPI: adaptor microSD |
-| IO27 | DHT11 |
-| IO14 | DS18B20 |
-| IO12 | RGB LED WS2812 |
 
 ### Pin Custom (disambung dengan kabel *jumper*)
 
 | Pin ESP32 | Komponen | Catatan |
 |---|---|---|
-| IO4 / IO16 / IO17 / IO2 | LED merah / kuning / hijau / biru | IO2 juga terhubung ke LED biru bawaan *board* |
+| IO27 | DHT11 (label `DHT`) | |
+| IO14 | DS18B20 (label `DS`) | |
+| IO12 | RGB LED WS2812 (label `D-IN`) | |
+| IO4 / IO16 / IO17 / IO2 | LED merah / kuning / hijau / biru (label `LED1` / `LED4` / `LED2` / `LED3`) | IO2 juga terhubung ke LED biru bawaan *board* |
 | IO13 | *Buzzer* aktif | |
 | IO26 | *Relay* | |
 | IO15 / IO25 | Tombol S1 / S2 | Ditekan = HIGH |

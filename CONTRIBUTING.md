@@ -78,39 +78,43 @@ Komponen berikut **tidak termasuk kit** — tulis dengan jelas di bagian "Yang P
 
 Pakai peta pin ini di **semua** BAB supaya pembaca tidak perlu bongkar-pasang kabel setiap ganti BAB. Kalau sebuah program terpaksa memakai pin lain, jelaskan alasannya.
 
-### Sudah terpasang di PCB (tidak perlu kabel)
+### Tersambung lewat *jumper cap* (tidak perlu kabel)
+
+Jalur I2C dan SPI disambungkan oleh *jumper cap* (penutup *jumper* hitam) di header berlabel **JP**. Normalnya *jumper cap* sudah terpasang, jadi modul-modul ini langsung bisa dipakai. Kalau modul tidak terdeteksi, periksa dulu *jumper cap*-nya.
 
 | Komponen | Pin ESP32 |
 |---|---|
 | OLED SSD1306 (alamat I2C `0x3C`) | SDA = IO21, SCL = IO22 |
 | BMP180 (alamat I2C `0x77`) | SDA = IO21, SCL = IO22 |
 | MPU-6050 (alamat I2C `0x68`) | SDA = IO21, SCL = IO22 |
-| DHT11 (*pull-up* 4,7 kΩ di PCB) | IO27 |
-| DS18B20 (*pull-up* 4,7 kΩ di PCB) | IO14 |
-| RGB LED WS2812 | IO12 |
 | microSD (SPI) | CS = IO5, MOSI = IO23, CLK = IO18, MISO = IO19 |
 
-### Pin "Custom" (disambung dengan kabel *jumper*)
+### Disambung dengan kabel *jumper* (pin "Custom")
 
-| Komponen | Pin ESP32 | Catatan |
-|---|---|---|
-| LED Merah | IO4 | Aktif HIGH (menyala saat HIGH) |
-| LED Kuning | IO16 | Aktif HIGH |
-| LED Hijau | IO17 | Aktif HIGH |
-| LED Biru | IO2 | Aktif HIGH; IO2 juga terhubung ke LED biru bawaan *board* |
-| *Buzzer* aktif | IO13 | Aktif HIGH |
-| *Relay* | IO26 | Aktif HIGH (lewat transistor BC547) |
-| Tombol S1 (SW1) | IO15 | Ditekan = HIGH (*pull-down* 10 kΩ di PCB) → pakai `INPUT` |
-| Tombol S2 (SW2) | IO25 | Ditekan = HIGH → pakai `INPUT` |
-| Sensor PIR AM312 | IO33 | HIGH saat ada gerakan |
-| *Touch pad* | IO33 (T8) | Bergantian dengan PIR — pasang salah satu saja |
-| Potensiometer | IO34 | ADC1, aman dipakai bersama WiFi |
-| LDR | IO35 | ADC1; **makin gelap → nilai ADC makin besar** (LDR di sisi GND) |
-| Servo (sinyal) | IO32 | Daya servo dari header servo (5 V) |
-| HC-SR04 Trig | IO25 | Bergantian dengan tombol S2 |
-| HC-SR04 Echo | IO36 (VP) | **Wajib lewat pembagi tegangan** (Echo = 5 V, ESP32 maks. 3,3 V) |
+Komponen lain berakhir di pin header yang diberi label nama komponennya (misalnya `DHT`, `PIR`, `SW1`, `LED1`) — di skematik, pin seperti ini digambar sebagai kotak **Custom** (atau kotak bertuliskan nomor IO yang disarankan, misalnya `IO27`). Pin ini **belum** tersambung ke ESP32 sampai kamu memasang kabel *jumper*.
 
-Cara menyambung: kabel *jumper* *female-female* dari pin header bertanda **Custom** ke pin header ESP32 dengan nomor yang sama (misalnya label `D4`/`IO4`).
+| Komponen | Label header di PCB | Pin ESP32 | Catatan |
+|---|---|---|---|
+| DHT11 | `DHT` (header hijau) | IO27 | *Pull-up* 4,7 kΩ sudah ada di PCB |
+| DS18B20 | `DS` (header hijau) | IO14 | *Pull-up* 4,7 kΩ sudah ada di PCB |
+| RGB LED WS2812 | `D-IN` (header LED) | IO12 | IO12 pin *strapping*; jalur data WS2812 tidak mengganggu *boot* |
+| LED Merah | `LED1` (header LED) | IO4 | Aktif HIGH (menyala saat HIGH) |
+| LED Kuning | `LED4` (header LED) | IO16 | Aktif HIGH |
+| LED Hijau | `LED2` (header LED) | IO17 | Aktif HIGH |
+| LED Biru | `LED3` (header LED) | IO2 | Aktif HIGH; IO2 juga terhubung ke LED biru bawaan *board* |
+| *Buzzer* aktif | `BUZZ` | IO13 | Aktif HIGH |
+| *Relay* | `RELAY` | IO26 | Aktif HIGH (lewat transistor BC547) |
+| Tombol S1 | `SW1` (header kuning) | IO15 | Ditekan = HIGH (*pull-down* 10 kΩ di PCB) → pakai `INPUT` |
+| Tombol S2 | `SW2` (header kuning) | IO25 | Ditekan = HIGH → pakai `INPUT` |
+| Sensor PIR AM312 | `PIR` (header hijau) | IO33 | HIGH saat ada gerakan |
+| *Touch pad* | `TOUCH` (header kuning) | IO33 (T8) | Bergantian dengan PIR — pasang salah satu saja |
+| Potensiometer | `VR10K` (header kuning) | IO34 | ADC1, aman dipakai bersama WiFi |
+| LDR | `LDR` (header kuning) | IO35 | ADC1; **makin gelap → nilai ADC makin besar** (LDR di sisi GND) |
+| Servo (sinyal) | `SRV` (header hijau) | IO32 | Daya servo dari header servo `S V G` (5 V) |
+| HC-SR04 Trig | `Tr` (header hijau) | IO25 | Bergantian dengan tombol S2 |
+| HC-SR04 Echo | `Ec` (header hijau) | IO36 (VP) | **Wajib lewat pembagi tegangan** (Echo = 5 V, ESP32 maks. 3,3 V) |
+
+Cara menyambung: kabel *jumper* *female-female* dari pin header komponen ke pin header ESP32 dengan nomor yang sama (misalnya label `4`/`D4`/`IO4`). Setiap BAB wajib menuliskan langkah ini di tabel **Rangkaian** setiap program — termasuk untuk DHT11, DS18B20, dan WS2812.
 
 ### Letak pin di PCB (dicocokkan dengan foto kit v3.x)
 
@@ -119,6 +123,10 @@ Cara menyambung: kabel *jumper* *female-female* dari pin header bertanda **Custo
 | Header LED (biru, di bawah 4 LED) | `D-IN`, `LED1`, `LED2`, `LED3`, `LED4` — **LED1 = merah, LED2 = hijau, LED3 = biru, LED4 = kuning** |
 | Header kuning 5 pin (di bawah ESP32, dari kiri) | `LDR`, `TOUCH`, `SW1`, `SW2`, `VR10K` (potensiometer) |
 | Header biru dekat *buzzer* | `BUZZ`, `RELAY` (bersebelahan — jangan tertukar) |
+| Header hijau 6 pin (di kanan MPU-6050, dari atas) | `Ec`, `Tr`, `DHT`, `DS`, `PIR`, `SRV` |
+| Konektor HC-SR04 (4 pin, kanan atas) | `G`, `Ec`, `Tr`, `V` |
+| Header servo (3 pin) | `S`, `V`, `G` |
+| Header *jumper cap* **JP** | Di samping microSD: `MISO`, `CLK`, `MOSI`, `CS`, `SCL`, `SDA`; di bawah MPU-6050: `SCL`/`SDA` MPU6050 dan `SCL`/`SDA` BMP180 |
 | Deretan pin ESP32 bawah (dari kiri) | `3V`, `G`, `15`, `2`, `4`, `16`, `17`, `5`, `18`, `19`, `21`, `3`, `1`, `22`, `23` |
 | Deretan pin ESP32 atas (dari kiri) | `5V`, `G`, `13`, `12`, `14`, `27`, `26`, `25`, `33`, `32`, `35`, `34`, `VN`, `VP`, `EN` |
 
