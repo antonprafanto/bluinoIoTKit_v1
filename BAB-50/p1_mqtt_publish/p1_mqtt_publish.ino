@@ -1,231 +1,191 @@
 /*
- * BAB 50 - Program 1: MQTT Publish — Kirim Data DHT11 ke Antares.id
+ * BAB 50 - Program 1: Publish Data DHT11
+ * Setiap 10 detik ESP32 membaca DHT11, lalu mengirim (publish) hasilnya
+ * dalam format JSON ke topik bluino/<ID_TOPIK>/sensor di broker publik.
+ * Pantau dengan MQTT Explorer / HiveMQ WebSocket Client:
+ *   subscribe ke bluino/<ID_TOPIK>/#
  *
- * Fitur:
- *   ▶ Connect ke MQTT Broker Antares.id (port 1338)
- *   ▶ Publish data DHT11 (suhu & kelembaban) setiap 15 detik
- *   ▶ Payload format oneM2M (m2m:cin) — standar Antares
- *   ▶ Non-blocking reconnect WiFi & MQTT via millis()
- *   ▶ setBufferSize(512) — WAJIB agar payload oneM2M tidak terpotong
- *   ▶ Tampil status di OLED & Serial Monitor
- *   ▶ Heartbeat tiap 60 detik
- *
- * Hardware:
- *   DHT11 → IO27 (hardwired Bluino Kit)
- *   OLED  → SDA=IO21, SCL=IO22 (hardwired)
- *
- * Library:
- *   PubSubClient by Nick O'Leary (Library Manager)
- *   ArduinoJson by bblanchon >= 6.x
- *
- * Cara Uji:
- *   1. Install PubSubClient via Library Manager
- *   2. Isi WIFI_SSID, WIFI_PASS, ANTARES_ACCESS_KEY, ANTARES_APP, ANTARES_DEVICE
- *   3. Upload → Serial Monitor 115200 baud
- *   4. Buka Dashboard Antares → lihat data sensor masuk tiap 15 detik
+ * Rangkaian: DHT (header hijau) -> IO27
+ * Library  : PubSubClient (Nick O'Leary), ArduinoJson 7 (Benoit Blanchon),
+ *            DHT sensor library + Adafruit Unified Sensor (Adafruit)
  */
 
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include "esp_mac.h"  // esp_read_mac(): membaca alamat MAC untuk Client ID
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";   // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";   // ← Ganti!
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Konfigurasi Antares MQTT ──────────────────────────────────────────
-const char* ANTARES_HOST       = "platform.antares.id";
-const int   ANTARES_PORT       = 1338;
-const char* ANTARES_ACCESS_KEY = "1234567890abcdef:1234567890abcdef"; // ← Ganti!
-const char* ANTARES_APP        = "bluino-kit";       // ← Ganti!
-const char* ANTARES_DEVICE     = "sensor-ruangan";   // ← Ganti!
+// Broker publik gratis tanpa akun. Cadangan: "broker.emqx.io" atau "test.mosquitto.org"
+const char *MQTT_BROKER = "broker.hivemq.com";
+const uint16_t MQTT_PORT = 1883;
 
-const unsigned long PUB_INTERVAL = 15000UL;  // 15 detik
+// Awalan topik unik: nama panggilan + 4 angka acak (huruf kecil, tanpa spasi)
+#define ID_TOPIK "andi-4821"  // ← ganti dengan awalan milikmu
+const char *TOPIK_SENSOR = "bluino/" ID_TOPIK "/sensor";
 
-// ── Topik (dibangun saat setup) ───────────────────────────────────────
-char TOPIC_PUB[160];
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
 
-// ── Hardware ──────────────────────────────────────────────────────────
-#define DHT_PIN 27
-DHT dht(DHT_PIN, DHT11);
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── State ─────────────────────────────────────────────────────────────
-float    lastT    = NAN;
-float    lastH    = NAN;
-uint32_t pubCount = 0;
-char     clientId[24];
-
-// ── Objek MQTT ────────────────────────────────────────────────────────
-WiFiClient   wifiClient;
-PubSubClient mqtt(wifiClient);
-
-// ── Fungsi: Connect ke broker MQTT ───────────────────────────────────
-bool mqttConnect() {
-  Serial.printf("[MQTT] Menghubungkan ke broker... (ID: %s)\n", clientId);
-  // connect(clientId, username, password)
-  // Antares: username = password = ACCESS_KEY
-  bool ok = mqtt.connect(clientId, ANTARES_ACCESS_KEY, ANTARES_ACCESS_KEY);
-  if (ok) {
-    Serial.printf("[MQTT] ✅ Terhubung! Client ID: %s\n", clientId);
-  } else {
-    Serial.printf("[MQTT] ❌ Gagal, rc=%d — lihat tabel state code di 50.3\n", mqtt.state());
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
   }
-  return ok;
+};
+
+WiFiClient wifiClient;          // jalur TCP yang dipakai MQTT
+PubSubClient mqtt(wifiClient);  // client MQTT
+DHT dht(PIN_DHT, TIPE_DHT);
+
+Timer timerKirim = {10000, 0};  // kirim data setiap 10 detik
+char idKlien[24];               // Client ID, misalnya "bluino-A1B2C3"
+
+// Variabel sambung ulang MQTT dengan backoff
+unsigned long jedaSambung = 0;  // jeda sebelum percobaan berikutnya (0 = boleh langsung)
+unsigned long waktuCoba = 0;    // millis() saat percobaan terakhir
+bool mqttTadiTersambung = false;
+bool wifiTadiTersambung = true;
+
+// Client ID dari 3 byte terakhir alamat MAC, supaya setiap kit berbeda
+void buatIdKlien() {
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(idKlien, sizeof(idKlien), "bluino-%02X%02X%02X", mac[3], mac[4], mac[5]);
 }
 
-// ── Fungsi: Publish data sensor ke Antares ───────────────────────────
-void publishSensor() {
-  if (isnan(lastT)) {
-    Serial.println("[PUB] ⚠️ Skip — belum ada data sensor valid.");
-    return;
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  Serial.print("Alamat IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+// Satu kali percobaan menyambung ke broker. Hasilnya true kalau berhasil.
+bool sambungMqtt() {
+  Serial.printf("[MQTT] Menyambung ke %s:%u sebagai %s ... ", MQTT_BROKER, MQTT_PORT, idKlien);
+  if (mqtt.connect(idKlien)) {
+    Serial.println("berhasil!");
+    return true;
+  }
+  Serial.printf("gagal, state=%d\n", mqtt.state());
+  return false;
+}
+
+// Dipanggil setiap putaran loop(). Tidak pernah menunggu di dalam perulangan.
+void jagaKoneksi() {
+  // 1. Laporkan perubahan status WiFi (sambung ulang WiFi dikerjakan driver)
+  bool wifiTersambung = (WiFi.status() == WL_CONNECTED);
+  if (wifiTersambung != wifiTadiTersambung) {
+    wifiTadiTersambung = wifiTersambung;
+    if (wifiTersambung) {
+      Serial.printf("[WiFi] Tersambung lagi, IP: %s\n", WiFi.localIP().toString().c_str());
+    } else {
+      Serial.println("[WiFi] Terputus, menunggu sambung ulang otomatis...");
+    }
   }
 
-  // Bangun 'con': JSON data sensor yang sebenarnya
-  char conStr[64];
-  snprintf(conStr, sizeof(conStr), "{\"temp\":%.1f,\"humidity\":%.0f}", lastT, lastH);
+  // 2. Laporkan kalau koneksi MQTT baru saja putus
+  bool mqttTersambung = mqtt.connected();
+  if (mqttTadiTersambung && !mqttTersambung) {
+    Serial.printf("[MQTT] Koneksi terputus, state=%d\n", mqtt.state());
+  }
+  mqttTadiTersambung = mqttTersambung;
+  if (mqttTersambung || !wifiTersambung) {
+    return;  // sudah tersambung, atau WiFi belum siap
+  }
 
-  // Bangun body oneM2M di stack (zero heap fragmentation)
-  StaticJsonDocument<256> doc;
-  JsonObject cin = doc.createNestedObject("m2m:cin");
-  cin["con"] = conStr;
+  // 3. Belum waktunya mencoba lagi? Langsung keluar.
+  unsigned long sekarang = millis();
+  if (sekarang - waktuCoba < jedaSambung) {
+    return;
+  }
+  waktuCoba = sekarang;
 
-  char body[256];
-  size_t bodyLen = serializeJson(doc, body, sizeof(body));
-
-  Serial.printf("[MQTT] Publish #%u → %s\n", pubCount + 1, TOPIC_PUB);
-  Serial.printf("[MQTT] Body: %s\n", body);
-
-  // publish(topic, payload, length, retained)
-  bool ok = mqtt.publish(TOPIC_PUB, (uint8_t*)body, bodyLen, false);
-  if (ok) {
-    pubCount++;
-    Serial.printf("[MQTT] ✅ Publish berhasil! Heap: %u B\n", ESP.getFreeHeap());
-
-    oled.clearDisplay();
-    oled.setTextSize(1); oled.setTextColor(WHITE);
-    oled.setCursor(0, 0);  oled.print("MQTT Pub OK!");
-    oled.setCursor(0, 12); oled.print("T:"); oled.print(lastT, 1);
-    oled.print("C H:"); oled.print(lastH, 0); oled.print("%");
-    oled.setCursor(0, 24); oled.print("Pub: #"); oled.print(pubCount);
-    oled.setCursor(0, 36); oled.print("Heap: "); oled.print(ESP.getFreeHeap()); oled.print("B");
-    oled.display();
+  if (sambungMqtt()) {
+    mqttTadiTersambung = true;
+    jedaSambung = 0;  // berhasil: kalau nanti putus, langsung coba lagi
   } else {
-    Serial.println("[MQTT] ❌ Publish gagal! Cek koneksi broker atau bufferSize.");
+    // gagal: jeda 2, 4, 8, 16, 32, lalu paling lama 60 detik
+    jedaSambung = (jedaSambung == 0) ? 2000 : min(jedaSambung * 2, 60000UL);
+    Serial.printf("[MQTT] Coba lagi dalam %lu detik\n", jedaSambung / 1000);
+  }
+}
+
+void kirimDataSensor() {
+  float kelembapan = dht.readHumidity();
+  float suhu = dht.readTemperature();
+  bool dhtOk = !isnan(kelembapan) && !isnan(suhu);
+
+  JsonDocument doc;
+  if (dhtOk) {
+    doc["suhu"] = suhu;              // °C
+    doc["kelembapan"] = kelembapan;  // %RH
+  } else {
+    doc["suhu"] = nullptr;  // null = tidak ada data valid
+    doc["kelembapan"] = nullptr;
+    Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["rssi"] = WiFi.RSSI();             // kekuatan sinyal WiFi (dBm)
+  doc["waktu_nyala"] = millis() / 1000;  // detik sejak ESP32 menyala
+
+  String payload;
+  serializeJson(doc, payload);
+
+  if (mqtt.publish(TOPIK_SENSOR, payload.c_str())) {
+    Serial.printf("[PUB] %s -> %s\n", TOPIK_SENSOR, payload.c_str());
+  } else {
+    Serial.println("[PUB] Gagal! Koneksi putus atau pesan lebih besar dari buffer.");
   }
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
+  Serial.println("\nBAB 50 - Program 1: Publish Data DHT11");
+
   dht.begin();
-  Wire.begin(21, 22);
-  oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  oled.clearDisplay(); oled.setTextColor(WHITE);
+  buatIdKlien();
+  sambungkanWiFi();
 
-  // Client ID unik dari 3 byte terakhir MAC address
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
-  snprintf(clientId, sizeof(clientId), "BluinoKit-%02X%02X%02X", mac[3], mac[4], mac[5]);
-
-  // Bangun topik publish
-  snprintf(TOPIC_PUB, sizeof(TOPIC_PUB),
-    "/oneM2M/req/%s/antares-cse/%s/%s/json",
-    ANTARES_ACCESS_KEY, ANTARES_APP, ANTARES_DEVICE);
-
-  Serial.println("\n=== BAB 50 Program 1: MQTT Publish — Antares.id ===");
-  Serial.printf("[INFO] Broker: %s:%d\n", ANTARES_HOST, ANTARES_PORT);
-  Serial.printf("[INFO] App: %s | Device: %s\n", ANTARES_APP, ANTARES_DEVICE);
-  Serial.printf("[INFO] Client ID: %s\n", clientId);
-  Serial.printf("[INFO] Publish topic: %s\n", TOPIC_PUB);
-
-  // OLED splash
-  oled.setCursor(0, 0);  oled.print("BAB 50 MQTT Pub");
-  oled.setCursor(0, 12); oled.print("WiFi..."); oled.display();
-
-  // WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - t0 >= 15000UL) { delay(2000); ESP.restart(); }
-    Serial.print("."); delay(500);
-  }
-  Serial.printf("\n[WiFi] ✅ Terhubung! IP: %s | SSID: %s\n",
-    WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // MQTT setup — WAJIB setBufferSize sebelum connect!
-  mqtt.setServer(ANTARES_HOST, ANTARES_PORT);
-  mqtt.setBufferSize(512);  // ← Default 256 byte terlalu kecil untuk payload oneM2M
-
-  // Baca sensor pertama
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastT = t; lastH = h;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
-  } else {
-    Serial.println("[DHT] ⚠️ Gagal baca awal. Akan coba di loop().");
-  }
-
-  // Connect MQTT pertama kali
-  mqttConnect();
-  Serial.printf("[INFO] Publish tiap %lu detik ke Antares\n", PUB_INTERVAL / 1000UL);
+  mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+  mqtt.setSocketTimeout(5);  // tunggu jawaban broker paling lama 5 detik
+  Serial.printf("Client ID: %s\n", idKlien);
+  Serial.printf("Topik    : %s\n", TOPIK_SENSOR);
 }
 
 void loop() {
-  // ── Cek WiFi ────────────────────────────────────────────────────────
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] ⚠️ Terputus! Reconnect...");
-    WiFi.reconnect();
-    delay(5000); return;
-  }
+  jagaKoneksi();  // tugas 1: jaga koneksi WiFi dan MQTT
+  mqtt.loop();    // tugas 2: keep-alive dan pesan masuk
 
-  // ── Reconnect MQTT (non-blocking, max 1 percobaan tiap 5 detik) ─────
-  static unsigned long tRecon = 0;
-  if (!mqtt.connected() && millis() - tRecon >= 5000UL) {
-    tRecon = millis();
-    mqttConnect();
-  }
-
-  // ── WAJIB: proses keep-alive & incoming data ─────────────────────────
-  mqtt.loop();
-
-  // ── Baca sensor + publish tiap PUB_INTERVAL ──────────────────────────
-  static unsigned long tPub = 0;
-  static bool firstRun = true;
-  if (firstRun || millis() - tPub >= PUB_INTERVAL) {
-    firstRun = false;
-    tPub = millis();
-
-    float t = dht.readTemperature();
-    float h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      lastT = t; lastH = h;
-      Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
-    } else {
-      Serial.println("[DHT] ⚠️ Gagal baca! Cek IO27.");
-    }
-
-    if (mqtt.connected()) {
-      publishSensor();
-    } else {
-      Serial.println("[PUB] ⚠️ MQTT belum tersambung, skip publish.");
-    }
-  }
-
-  // ── Heartbeat tiap 60 detik ───────────────────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Pub: %u | Heap: %u B | Uptime: %lu s\n",
-      isnan(lastT) ? 0.0f : lastT,
-      isnan(lastH) ? 0.0f : lastH,
-      pubCount, ESP.getFreeHeap(), millis() / 1000UL);
+  // tugas 3: kirim data setiap 10 detik, hanya kalau sedang tersambung
+  if (timerKirim.sudahWaktunya(millis()) && mqtt.connected()) {
+    kirimDataSensor();
   }
 }

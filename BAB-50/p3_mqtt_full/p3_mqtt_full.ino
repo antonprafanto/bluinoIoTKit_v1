@@ -1,265 +1,283 @@
 /*
- * BAB 50 - Program 3: MQTT Full IoT — Publish + Subscribe + LWT
+ * BAB 50 - Program 3: Sensor, Kontrol, dan Status Online/Offline
+ * - Publish data DHT11 (JSON) ke bluino/<ID_TOPIK>/sensor setiap 10 detik
+ * - Subscribe bluino/<ID_TOPIK>/perintah/+ : ON/OFF/TOGGLE untuk led dan relay
+ * - Laporan keadaan (retained) ke bluino/<ID_TOPIK>/keadaan/led dan .../relay
+ * - Status (retained) di bluino/<ID_TOPIK>/status: "online", dan "offline"
+ *   lewat Last Will kalau ESP32 hilang tanpa pamit
  *
- * Arsitektur: Pub + Sub + Status Monitoring via LWT
- *
- * Fitur:
- *   ► PUBLISH: Data DHT11 ke Antares setiap 15 detik
- *   ► SUBSCRIBE: Terima & eksekusi perintah relay via callback
- *   ► LWT: Broker auto-publish "OFFLINE" jika ESP32 mati mendadak
- *   ► ONLINE: Publish status "ONLINE" setelah connect berhasil
- *   ► Non-blocking reconnect WiFi & MQTT
- *   ► Heartbeat tiap 30 detik
- *
- * Hardware:
- *   DHT11 → IO27, Relay → IO4, OLED → SDA=IO21, SCL=IO22
+ * Rangkaian: DHT -> IO27, LED1 (merah) -> IO4, RELAY -> IO26
+ * Library  : PubSubClient (Nick O'Leary), ArduinoJson 7 (Benoit Blanchon),
+ *            DHT sensor library + Adafruit Unified Sensor (Adafruit)
+ * Relay dicoba tanpa beban. Jangan pernah menyambungkan listrik PLN 220 V!
  */
 
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include "esp_mac.h"  // esp_read_mac(): membaca alamat MAC untuk Client ID
 
-// ── Konfigurasi ────────────────────────────────────────────────────
-const char* WIFI_SSID          = "NamaWiFiKamu";
-const char* WIFI_PASS          = "PasswordWiFi";
-const char* ANTARES_HOST       = "platform.antares.id";
-const int   ANTARES_PORT       = 1338;
-const char* ANTARES_ACCESS_KEY = "1234567890abcdef:1234567890abcdef"; // ← Ganti!
-const char* ANTARES_APP        = "bluino-kit";       // ← Ganti!
-const char* ANTARES_DEVICE     = "sensor-ruangan";   // ← Ganti!
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-const unsigned long PUB_INTERVAL = 15000UL;
+const char *MQTT_BROKER = "broker.hivemq.com";  // cadangan: "broker.emqx.io"
+const uint16_t MQTT_PORT = 1883;
 
-// ── Topik ───────────────────────────────────────────────────────────
-char TOPIC_PUB[160];     // publish data sensor
-char TOPIC_SUB[160];     // subscribe perintah
-char TOPIC_STATUS[160];  // LWT status (ONLINE / OFFLINE)
+#define ID_TOPIK "andi-4821"  // ← ganti dengan awalan milikmu
+const char *AWALAN_TOPIK = "bluino/" ID_TOPIK;
+const char *TOPIK_SENSOR = "bluino/" ID_TOPIK "/sensor";
+const char *TOPIK_STATUS = "bluino/" ID_TOPIK "/status";
+const char *TOPIK_PERINTAH = "bluino/" ID_TOPIK "/perintah/+";  // + = led atau relay
+const char *TOPIK_PERINTAH_LED = "bluino/" ID_TOPIK "/perintah/led";
+const char *TOPIK_PERINTAH_RELAY = "bluino/" ID_TOPIK "/perintah/relay";
+const char *TOPIK_KEADAAN_LED = "bluino/" ID_TOPIK "/keadaan/led";
+const char *TOPIK_KEADAAN_RELAY = "bluino/" ID_TOPIK "/keadaan/relay";
 
-// ── Hardware ────────────────────────────────────────────────────────
-#define DHT_PIN   27
-#define RELAY_PIN 4
-DHT dht(DHT_PIN, DHT11);
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define PIN_LED_MERAH 4  // LED1 (merah), aktif HIGH
+#define PIN_RELAY 26     // relay, aktif HIGH
 
-// ── State ─────────────────────────────────────────────────────────────
-float    lastT      = NAN;
-float    lastH      = NAN;
-bool     relayState = false;
-uint32_t pubCount   = 0;
-uint32_t msgCount   = 0;
-char     clientId[24];
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-WiFiClient   wifiClient;
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
+
+WiFiClient wifiClient;
 PubSubClient mqtt(wifiClient);
+DHT dht(PIN_DHT, TIPE_DHT);
 
-// ── OLED update ──────────────────────────────────────────────────────
-void updateOLED() {
-  oled.clearDisplay();
-  oled.setTextColor(WHITE); oled.setTextSize(1);
+Timer timerKirim = {10000, 0};  // kirim data sensor setiap 10 detik
+char idKlien[24];
+bool ledNyala = false;
+bool relayNyala = false;
+bool perluLapor = false;  // true = keadaan perlu dilaporkan dari loop()
 
-  // Baris 1: Status broker
-  oled.setCursor(0, 0);
-  oled.print(mqtt.connected() ? "MQTT:OK " : "MQTT:-- ");
-  oled.print(relayState ? "[RLY:ON] " : "[RLY:OFF]");
+// Variabel sambung ulang MQTT dengan backoff
+unsigned long jedaSambung = 0;
+unsigned long waktuCoba = 0;
+bool mqttTadiTersambung = false;
+bool wifiTadiTersambung = true;
 
-  // Baris 2-3: Suhu besar
-  oled.setTextSize(2); oled.setCursor(0, 12);
-  if (!isnan(lastT)) {
-    oled.print(lastT, 1); oled.print("C");
-  } else { oled.print("---"); }
-
-  // Baris 4: Kelembaban
-  oled.setTextSize(1); oled.setCursor(0, 36);
-  if (!isnan(lastH)) { oled.print("H: "); oled.print(lastH, 0); oled.print("%"); }
-
-  // Baris 5: Counter
-  oled.setCursor(0, 48);
-  oled.print("Pub:#"); oled.print(pubCount);
-  oled.print(" Msg:#"); oled.print(msgCount);
-  oled.display();
+void buatIdKlien() {
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(idKlien, sizeof(idKlien), "bluino-%02X%02X%02X", mac[3], mac[4], mac[5]);
 }
 
-// ── Callback: pesan masuk dari broker ───────────────────────────────
-void onMqttMessage(char* topic, byte* payload, unsigned int length) {
-  msgCount++;
-  char buf[512];
-  if (length >= sizeof(buf)) return;
-  memcpy(buf, payload, length); buf[length] = '\0';
-  Serial.printf("[MQTT] Pesan masuk: %s\n", buf);
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
 
-  // Parse oneM2M response
-  StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, buf)) { Serial.println("[MQTT] ❌ Parse gagal."); return; }
-
-  const char* conStr = doc["m2m:rsp"]["pc"]["m2m:cin"]["con"];
-  if (!conStr) { Serial.println("[MQTT] ⚠️ 'con' tidak ditemukan."); return; }
-
-  StaticJsonDocument<128> inner;
-  if (deserializeJson(inner, conStr)) { Serial.println("[MQTT] ❌ Parse 'con' gagal."); return; }
-
-  const char* relayCmd = inner["relay"];
-  if (!relayCmd) return;
-
-  if (strcmp(relayCmd, "ON") == 0) {
-    relayState = true; digitalWrite(RELAY_PIN, HIGH);
-    Serial.println("[RELAY] ✅ Relay → ON");
-  } else if (strcmp(relayCmd, "OFF") == 0) {
-    relayState = false; digitalWrite(RELAY_PIN, LOW);
-    Serial.println("[RELAY] ✅ Relay → OFF");
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
   }
-  updateOLED();
+  Serial.println(" tersambung!");
+  Serial.print("Alamat IP: ");
+  Serial.println(WiFi.localIP());
 }
 
-// ── Connect MQTT dengan LWT ──────────────────────────────────────────
-void mqttConnect() {
-  Serial.printf("[MQTT] Menghubungkan... (ID: %s)\n", clientId);
+// ---------- Bagian sensor (dari Program 1) ----------
 
-  // LWT: jika ESP32 mati mendadak, broker publish "OFFLINE"
-  bool ok = mqtt.connect(
-    clientId,
-    ANTARES_ACCESS_KEY,   // username
-    ANTARES_ACCESS_KEY,   // password
-    TOPIC_STATUS,         // willTopic
-    0,                    // willQos
-    true,                 // willRetain — pesan LWT disimpan broker
-    "OFFLINE"             // willMessage
-  );
+void kirimDataSensor() {
+  float kelembapan = dht.readHumidity();
+  float suhu = dht.readTemperature();
+  bool dhtOk = !isnan(kelembapan) && !isnan(suhu);
 
-  if (ok) {
-    Serial.printf("[MQTT] ✅ Terhubung! LWT aktif di: %s\n", TOPIC_STATUS);
-
-    // Publish status ONLINE
-    mqtt.publish(TOPIC_STATUS, "ONLINE", true);  // retained
-    Serial.println("[MQTT] Publish ONLINE → topik status");
-
-    // Subscribe perintah
-    bool subOk = mqtt.subscribe(TOPIC_SUB);
-    Serial.printf("[MQTT] %s Subscribe: %s\n", subOk ? "✅" : "❌", TOPIC_SUB);
+  JsonDocument doc;
+  if (dhtOk) {
+    doc["suhu"] = suhu;              // °C
+    doc["kelembapan"] = kelembapan;  // %RH
   } else {
-    Serial.printf("[MQTT] ❌ Gagal, rc=%d\n", mqtt.state());
+    doc["suhu"] = nullptr;  // null = tidak ada data valid
+    doc["kelembapan"] = nullptr;
+    Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["rssi"] = WiFi.RSSI();             // kekuatan sinyal WiFi (dBm)
+  doc["waktu_nyala"] = millis() / 1000;  // detik sejak ESP32 menyala
+
+  String payload;
+  serializeJson(doc, payload);
+
+  if (mqtt.publish(TOPIK_SENSOR, payload.c_str())) {
+    Serial.printf("[PUB] %s -> %s\n", TOPIK_SENSOR, payload.c_str());
+  } else {
+    Serial.println("[PUB] Gagal! Koneksi putus atau pesan lebih besar dari buffer.");
   }
 }
 
-// ── Publish sensor ────────────────────────────────────────────────────
-void publishSensor() {
-  if (isnan(lastT)) { Serial.println("[PUB] ⚠️ Skip — sensor belum valid."); return; }
+// ---------- Bagian kontrol (dari Program 2) ----------
 
-  char conStr[64];
-  snprintf(conStr, sizeof(conStr), "{\"temp\":%.1f,\"humidity\":%.0f}", lastT, lastH);
+// Mengubah teks perintah menjadi keadaan baru: 1 = nyala, 0 = mati, -1 = tidak dikenal
+int bacaPerintah(const char *isi, bool keadaanSekarang) {
+  if (strcasecmp(isi, "ON") == 0) return 1;
+  if (strcasecmp(isi, "OFF") == 0) return 0;
+  if (strcasecmp(isi, "TOGGLE") == 0) return keadaanSekarang ? 0 : 1;
+  return -1;
+}
 
-  StaticJsonDocument<256> doc;
-  doc.createNestedObject("m2m:cin")["con"] = conStr;
-
-  char body[256];
-  size_t len = serializeJson(doc, body, sizeof(body));
-
-  Serial.printf("[MQTT] Publish #%u → data sensor\n", pubCount + 1);
-  if (mqtt.publish(TOPIC_PUB, (uint8_t*)body, len, false)) {
-    pubCount++;
-    Serial.printf("[MQTT] ✅ Publish berhasil! Heap: %u B\n", ESP.getFreeHeap());
-  } else {
-    Serial.println("[MQTT] ❌ Publish gagal!");
+// Callback: dipanggil oleh mqtt.loop() setiap ada pesan di topik langganan
+void pesanMasuk(char *topik, byte *payload, unsigned int panjang) {
+  char isi[16];
+  if (panjang >= sizeof(isi)) {
+    Serial.printf("[SUB] %s -> (pesan %u byte, terlalu panjang, diabaikan)\n", topik, panjang);
+    return;
   }
-  updateOLED();
+  memcpy(isi, payload, panjang);  // payload tidak diakhiri '\0'
+  isi[panjang] = '\0';
+  Serial.printf("[SUB] %s -> %s\n", topik, isi);
+
+  if (panjang == 0) {
+    return;  // pesan kosong (misalnya penghapus retained message): abaikan
+  }
+
+  bool untukLed = (strcmp(topik, TOPIK_PERINTAH_LED) == 0);
+  bool untukRelay = (strcmp(topik, TOPIK_PERINTAH_RELAY) == 0);
+  if (!untukLed && !untukRelay) {
+    Serial.println("      Topik tidak dikenal, diabaikan.");
+    return;
+  }
+
+  int baru = bacaPerintah(isi, untukLed ? ledNyala : relayNyala);
+  if (baru < 0) {
+    Serial.println("      Perintah tidak dikenal. Pakai ON, OFF, atau TOGGLE.");
+    return;
+  }
+
+  if (untukLed) {
+    ledNyala = (baru == 1);
+    digitalWrite(PIN_LED_MERAH, ledNyala ? HIGH : LOW);
+    Serial.printf("      LED merah -> %s\n", ledNyala ? "ON" : "OFF");
+  } else {
+    relayNyala = (baru == 1);
+    digitalWrite(PIN_RELAY, relayNyala ? HIGH : LOW);
+    Serial.printf("      Relay -> %s\n", relayNyala ? "ON" : "OFF");
+  }
+  perluLapor = true;  // laporan dikirim dari loop(), bukan dari dalam callback
+}
+
+// Melaporkan keadaan LED dan relay sebagai retained message
+void laporKeadaan() {
+  perluLapor = false;
+  bool berhasil = mqtt.publish(TOPIK_KEADAAN_LED, ledNyala ? "ON" : "OFF", true) &&
+                  mqtt.publish(TOPIK_KEADAAN_RELAY, relayNyala ? "ON" : "OFF", true);
+  if (berhasil) {
+    Serial.printf("[PUB] Keadaan: led=%s, relay=%s (retained)\n",
+                  ledNyala ? "ON" : "OFF", relayNyala ? "ON" : "OFF");
+  } else {
+    Serial.println("[PUB] Gagal mengirim keadaan.");
+  }
+}
+
+// ---------- Bagian koneksi ----------
+
+// Satu kali percobaan menyambung (dengan Last Will), lalu umumkan online dan subscribe
+bool sambungMqtt() {
+  Serial.printf("[MQTT] Menyambung ke %s:%u sebagai %s ... ", MQTT_BROKER, MQTT_PORT, idKlien);
+  // Titipkan wasiat: kalau ESP32 hilang tanpa pamit, broker mengirim "offline"
+  // ke TOPIK_STATUS dengan QoS 1 dan tanda retained.
+  if (!mqtt.connect(idKlien, TOPIK_STATUS, 1, true, "offline")) {
+    Serial.printf("gagal, state=%d\n", mqtt.state());
+    return false;
+  }
+  Serial.println("berhasil!");
+
+  // Timpa status dengan "online" (retained), lalu subscribe ulang
+  mqtt.publish(TOPIK_STATUS, "online", true);
+  Serial.printf("[PUB] %s -> online (retained, wasiat: offline)\n", TOPIK_STATUS);
+  bool ok = mqtt.subscribe(TOPIK_PERINTAH, 1);  // QoS 1
+  Serial.printf("[MQTT] Subscribe %s (QoS 1): %s\n", TOPIK_PERINTAH, ok ? "OK" : "gagal");
+  perluLapor = true;  // laporkan keadaan terbaru setelah tersambung
+  return true;
+}
+
+// Dipanggil setiap putaran loop(). Tidak pernah menunggu di dalam perulangan.
+void jagaKoneksi() {
+  bool wifiTersambung = (WiFi.status() == WL_CONNECTED);
+  if (wifiTersambung != wifiTadiTersambung) {
+    wifiTadiTersambung = wifiTersambung;
+    if (wifiTersambung) {
+      Serial.printf("[WiFi] Tersambung lagi, IP: %s\n", WiFi.localIP().toString().c_str());
+    } else {
+      Serial.println("[WiFi] Terputus, menunggu sambung ulang otomatis...");
+    }
+  }
+
+  bool mqttTersambung = mqtt.connected();
+  if (mqttTadiTersambung && !mqttTersambung) {
+    Serial.printf("[MQTT] Koneksi terputus, state=%d\n", mqtt.state());
+  }
+  mqttTadiTersambung = mqttTersambung;
+  if (mqttTersambung || !wifiTersambung) {
+    return;
+  }
+
+  unsigned long sekarang = millis();
+  if (sekarang - waktuCoba < jedaSambung) {
+    return;
+  }
+  waktuCoba = sekarang;
+
+  if (sambungMqtt()) {
+    mqttTadiTersambung = true;
+    jedaSambung = 0;
+  } else {
+    jedaSambung = (jedaSambung == 0) ? 2000 : min(jedaSambung * 2, 60000UL);
+    Serial.printf("[MQTT] Coba lagi dalam %lu detik\n", jedaSambung / 1000);
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW);
+  pinMode(PIN_LED_MERAH, OUTPUT);
+  digitalWrite(PIN_LED_MERAH, LOW);
+  pinMode(PIN_RELAY, OUTPUT);
+  digitalWrite(PIN_RELAY, LOW);  // relay mati saat ESP32 baru menyala
+  delay(1000);
+  Serial.println("\nBAB 50 - Program 3: Sensor, Kontrol, dan Status Online/Offline");
+
   dht.begin();
-  Wire.begin(21, 22);
-  oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  oled.clearDisplay(); oled.setTextColor(WHITE);
+  buatIdKlien();
+  sambungkanWiFi();
 
-  // Client ID dari MAC
-  uint8_t mac[6]; WiFi.macAddress(mac);
-  snprintf(clientId, sizeof(clientId), "BluinoKit-%02X%02X%02X", mac[3], mac[4], mac[5]);
-
-  // Bangun semua topik
-  snprintf(TOPIC_PUB, sizeof(TOPIC_PUB),
-    "/oneM2M/req/%s/antares-cse/%s/%s/json",
-    ANTARES_ACCESS_KEY, ANTARES_APP, ANTARES_DEVICE);
-  snprintf(TOPIC_SUB, sizeof(TOPIC_SUB),
-    "/oneM2M/resp/antares-cse/%s/json", ANTARES_ACCESS_KEY);
-  snprintf(TOPIC_STATUS, sizeof(TOPIC_STATUS),
-    "/oneM2M/req/%s/antares-cse/%s/status/json",
-    ANTARES_ACCESS_KEY, ANTARES_APP);
-
-  Serial.println("\n=== BAB 50 Program 3: MQTT Full IoT — Pub + Sub + LWT ===");
-  Serial.printf("[INFO] Broker: %s:%d\n", ANTARES_HOST, ANTARES_PORT);
-  Serial.printf("[INFO] App: %s | Device: %s\n", ANTARES_APP, ANTARES_DEVICE);
-
-  oled.setCursor(0, 0);  oled.print("BAB 50 Full IoT");
-  oled.setCursor(0, 12); oled.print("WiFi..."); oled.display();
-
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - t0 >= 15000UL) { delay(2000); ESP.restart(); }
-    Serial.print("."); delay(500);
-  }
-  Serial.printf("\n[WiFi] ✅ Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
-
-  mqtt.setServer(ANTARES_HOST, ANTARES_PORT);
-  mqtt.setBufferSize(512);
-  mqtt.setCallback(onMqttMessage);
-
-  // Baca sensor awal
-  float t = dht.readTemperature(); float h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
-
-  mqttConnect();
-  Serial.printf("[INFO] Publish tiap %lu detik | LWT aktif\n", PUB_INTERVAL / 1000UL);
-  updateOLED();
+  mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+  mqtt.setCallback(pesanMasuk);
+  mqtt.setSocketTimeout(5);
+  Serial.printf("Client ID: %s\n", idKlien);
+  Serial.printf("Awalan topik: %s\n", AWALAN_TOPIK);
 }
 
 void loop() {
-  // WiFi check
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] ⚠️ Terputus! Reconnect...");
-    WiFi.reconnect(); delay(5000); return;
+  jagaKoneksi();  // tugas 1: jaga koneksi WiFi dan MQTT
+  mqtt.loop();    // tugas 2: keep-alive dan pesan masuk
+
+  if (perluLapor && mqtt.connected()) {  // tugas 3: laporkan keadaan kalau berubah
+    laporKeadaan();
   }
 
-  // MQTT reconnect non-blocking
-  static unsigned long tRecon = 0;
-  if (!mqtt.connected() && millis() - tRecon >= 5000UL) {
-    tRecon = millis(); mqttConnect();
-  }
-
-  // WAJIB: proses semua incoming messages & keep-alive
-  mqtt.loop();
-
-  // Publish tiap PUB_INTERVAL
-  static unsigned long tPub = 0;
-  static bool firstRun = true;
-  if (firstRun || millis() - tPub >= PUB_INTERVAL) {
-    firstRun = false; tPub = millis();
-
-    float t = dht.readTemperature(); float h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      lastT = t; lastH = h;
-      Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
-    } else {
-      Serial.println("[DHT] ⚠️ Gagal baca! Cek IO27.");
-    }
-
-    if (mqtt.connected()) publishSensor();
-    else Serial.println("[PUB] ⚠️ MQTT terputus, skip publish.");
-  }
-
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 30000UL) {
-    tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Relay:%s | Pub:%u | Heap:%u B | Up:%lu s\n",
-      isnan(lastT) ? 0.0f : lastT, isnan(lastH) ? 0.0f : lastH,
-      relayState ? "ON" : "OFF", pubCount, ESP.getFreeHeap(), millis() / 1000UL);
+  // tugas 4: kirim data sensor setiap 10 detik, hanya kalau tersambung
+  if (timerKirim.sudahWaktunya(millis()) && mqtt.connected()) {
+    kirimDataSensor();
   }
 }
