@@ -267,7 +267,7 @@ Potongan kode di atas sudah cukup untuk memahami idenya. Di [10.7](#107-variabel
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* dari pin `SW1` (pin ke-3 dari kiri pada header kuning di atas tombol) ke pin berlabel **15** di deretan pin ESP32 bawah, sama seperti di [BAB 9](../BAB-09/README.md).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p1_interupsi_pertama.ino`](p1_interupsi_pertama/p1_interupsi_pertama.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_interupsi_pertama.ino`](p1_interupsi_pertama/p1_interupsi_pertama.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
 4. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -499,7 +499,7 @@ Aturan memakai bagian kritis:
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas: `SW1` → pin berlabel **15** dan `LED1` → pin berlabel **4**, keduanya di deretan pin ESP32 bawah (letak *header* LED ada di BAB 8).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p2_toggle_interupsi.ino`](p2_toggle_interupsi/p2_toggle_interupsi.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_toggle_interupsi.ino`](p2_toggle_interupsi/p2_toggle_interupsi.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -680,7 +680,7 @@ Pin Custom sensor PIR adalah pin berlabel **PIR** pada header hijau 6 pin di seb
 
 1. Cabut kabel USB, lalu pasang 5 kabel *jumper* sesuai tabel **Rangkaian**: `SW1` → **15** dan `LED1` → **4** di deretan pin ESP32 bawah; `SW2` → **25**, `PIR` → **33**, dan `BUZZ` → **13** di deretan pin ESP32 atas. Letak pin tombol ada di BAB 9, letak `LED1` dan `BUZZ` di BAB 8, dan letak pin `PIR` di Gambar 10.4.
 2. Kalau kabel HC-SR04 atau *touch pad* dari percobaan lain masih terpasang di IO25 atau IO33, lepas dulu.
-3. Sambungkan kembali kabel USB. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p3_alarm_pir.ino`](p3_alarm_pir/p3_alarm_pir.ino).
+3. Sambungkan kembali kabel USB. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_alarm_pir.ino`](p3_alarm_pir/p3_alarm_pir.ino).
 4. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 5. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 6. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.

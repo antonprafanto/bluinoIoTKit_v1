@@ -180,7 +180,7 @@ Kenapa memakai IO32? Pin itu termasuk ADC1 (aman dipakai bersama WiFi, lihat BAB
 **Cara Menjalankan:**
 
 1. Cabut kabel USB, lalu pasang kabel *jumper* dari pin `25` ke pin `32` di deretan pin ESP32 atas.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p1_tangga_tegangan.ino`](p1_tangga_tegangan/p1_tangga_tegangan.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_tangga_tegangan.ino`](p1_tangga_tegangan/p1_tangga_tegangan.ino).
 3. Sambungkan kabel USB. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
 4. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -302,7 +302,7 @@ Sama dengan Program 1.
 **Cara Menjalankan:**
 
 1. Biarkan kabel 25 → 32 seperti pada Program 1.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p2_gelombang_plotter.ino`](p2_gelombang_plotter/p2_gelombang_plotter.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_gelombang_plotter.ino`](p2_gelombang_plotter/p2_gelombang_plotter.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Plotter** (**Tools → Serial Plotter**). Di jendela Serial Plotter, pilih baud **115200** pada pilihan di pojok kanan bawah. Kalau Serial Monitor sedang terbuka dan Serial Plotter tidak mau tersambung, tutup dulu Serial Monitor.
@@ -418,7 +418,7 @@ Cabut dulu kabel `RELAY` dari pin `26` kalau ada. Kabel 25 → 32 dari Program 1
 **Cara Menjalankan:**
 
 1. Cabut kabel USB. Pindahkan kabel LED1 (merah) dari pin `4` ke pin **26** di deretan pin ESP32 atas (lihat Gambar 13.2).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p3_led_dac.ino`](p3_led_dac/p3_led_dac.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_led_dac.ino`](p3_led_dac/p3_led_dac.ino).
 3. Sambungkan kabel USB. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Catat pada nilai berapa LED mulai menyala.
@@ -536,7 +536,7 @@ Bandingkan dengan PWM di BAB 12: pada *duty cycle* 25%, LED sudah jelas menyala,
 **Cara Menjalankan:**
 
 1. Cabut kabel USB. Pastikan ketiga kabel di tabel **Rangkaian** terpasang: kabel 25 → 32 dan LED1 → 26 dari program sebelumnya, ditambah kabel dari pin Custom **VR10K** ke pin **34**.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p4_pot_ke_dac.ino`](p4_pot_ke_dac/p4_pot_ke_dac.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p4_pot_ke_dac.ino`](p4_pot_ke_dac/p4_pot_ke_dac.ino).
 3. Sambungkan kabel USB. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Putar potensiometer perlahan.

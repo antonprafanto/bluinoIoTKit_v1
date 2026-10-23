@@ -148,7 +148,7 @@ Langkah memasang kabel:
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas (lihat juga [14.2.2](#1422-menyambungkan-kabel-jumper)). Pastikan tidak ada kabel dari pin `PIR` di pin `33`.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p1_baca_touch.ino`](p1_baca_touch/p1_baca_touch.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_baca_touch.ino`](p1_baca_touch/p1_baca_touch.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
 4. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Amati angkanya, lalu sentuh bulatan TOUCH dengan ujung jari selama beberapa detik dan lepaskan lagi.
@@ -297,7 +297,7 @@ Histeresis dipakai di Program 3. Mirip *debounce* tombol di [BAB 9](../BAB-09/RE
 **Cara Menjalankan:**
 
 1. Sambungkan kedua kabel *jumper* sesuai tabel **Rangkaian** di atas.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p2_kalibrasi_touch.ino`](p2_kalibrasi_touch/p2_kalibrasi_touch.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_kalibrasi_touch.ino`](p2_kalibrasi_touch/p2_kalibrasi_touch.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Tekan tombol **EN** di *board* supaya program mulai dari awal sambil kamu membaca petunjuknya.
@@ -462,7 +462,7 @@ Di kit: LED merah menyala selama pad disentuh dan mati begitu jari diangkat. Ang
 **Cara Menjalankan:**
 
 1. Biarkan kabel *jumper* seperti pada Program 2.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p3_sakelar_sentuh.ino`](p3_sakelar_sentuh/p3_sakelar_sentuh.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_sakelar_sentuh.ino`](p3_sakelar_sentuh/p3_sakelar_sentuh.ino).
 3. Kalau persentase sentuh hasil Program 2 lebih dari 50%, sesuaikan dulu `PERSEN_SENTUH` dan `PERSEN_LEPAS` (lihat **Penjelasan Kode**).
 4. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 5. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**. **Jangan sentuh pad** selama sekitar 2 detik setelah *upload* atau setelah menekan **EN**, karena saat itulah program mengukur nilai tanpa sentuhan.
@@ -629,7 +629,7 @@ Fungsi yang dipanggil oleh *driver* disebut ***callback***. Fungsi ini berjalan 
 **Cara Menjalankan:**
 
 1. Biarkan kabel *jumper* seperti pada Program 2 dan 3.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p4_interrupt_touch.ino`](p4_interrupt_touch/p4_interrupt_touch.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p4_interrupt_touch.ino`](p4_interrupt_touch/p4_interrupt_touch.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**. Jangan sentuh pad selama sekitar 2 detik setelahnya (kalibrasi).
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Sentuh pad, tahan sebentar, lalu lepaskan.
@@ -767,7 +767,7 @@ Bagian ini opsional — boleh dilewati dulu dan dipelajari lagi setelah [BAB 27]
 **Cara Menjalankan:**
 
 1. Biarkan kabel *jumper* seperti pada program sebelumnya.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p5_bangun_sentuh.ino`](p5_bangun_sentuh/p5_bangun_sentuh.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p5_bangun_sentuh.ino`](p5_bangun_sentuh/p5_bangun_sentuh.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**, kemudian tekan tombol **EN** supaya program mulai dari awal.

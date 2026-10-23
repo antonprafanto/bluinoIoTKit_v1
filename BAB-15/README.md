@@ -275,7 +275,7 @@ Langkah memasang kabel:
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas (lihat juga [15.5](#155-rangkaian-untuk-seluruh-bab)).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p1_timer_kedip.ino`](p1_timer_kedip/p1_timer_kedip.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_timer_kedip.ino`](p1_timer_kedip/p1_timer_kedip.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
 4. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -402,7 +402,7 @@ Di kit: LED merah menyala 500 ms dan mati 500 ms, terus-menerus. Angka waktu di 
 **Cara Menjalankan:**
 
 1. Pastikan kabel `LED1` → **4** dan `LED4` → **16** terpasang (lihat [15.5](#155-rangkaian-untuk-seluruh-bab)).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p2_timer_vs_millis.ino`](p2_timer_vs_millis/p2_timer_vs_millis.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_timer_vs_millis.ino`](p2_timer_vs_millis/p2_timer_vs_millis.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Amati kedua LED saat muncul tulisan `loop() sibuk 2 detik...`.
@@ -524,7 +524,7 @@ Di kit: kedua LED berkedip cepat bersamaan. Saat tulisan `loop() sibuk 2 detik..
 **Cara Menjalankan:**
 
 1. Pastikan kabel `SW1` → **15** dan `LED1` → **4** terpasang (lihat [15.5](#155-rangkaian-untuk-seluruh-bab)).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p3_lampu_tangga.ino`](p3_lampu_tangga/p3_lampu_tangga.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_lampu_tangga.ino`](p3_lampu_tangga/p3_lampu_tangga.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Tekan S1 sekali dan tunggu; lalu coba tekan S1 lagi sebelum 5 detik habis.
@@ -670,7 +670,7 @@ Di kit: setelah S1 ditekan, LED merah menyala dan padam sendiri 5 detik kemudian
 **Cara Menjalankan:**
 
 1. Biarkan kabel seperti pada Program 3.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p4_stopwatch.ino`](p4_stopwatch/p4_stopwatch.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p4_stopwatch.ino`](p4_stopwatch/p4_stopwatch.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Tekan S1 untuk mulai, tunggu beberapa detik, lalu tekan S1 lagi.
@@ -839,7 +839,7 @@ Memanggil `attach...()` atau `once...()` lagi pada objek Ticker yang sama akan m
 **Cara Menjalankan:**
 
 1. Pastikan ketiga kabel terpasang sesuai [15.5](#155-rangkaian-untuk-seluruh-bab).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p5_ticker_kedip.ino`](p5_ticker_kedip/p5_ticker_kedip.ino). *Library* Ticker sudah termasuk *board package* esp32, jadi tidak perlu diinstal.
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p5_ticker_kedip.ino`](p5_ticker_kedip/p5_ticker_kedip.ino). *Library* Ticker sudah termasuk *board package* esp32, jadi tidak perlu diinstal.
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Tekan S1 beberapa kali.

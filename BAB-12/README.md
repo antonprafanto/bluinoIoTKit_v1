@@ -235,7 +235,7 @@ Letak *header* LED, pin BUZZ, dan kedua deretan pin ESP32 bisa kamu lihat di [Ga
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas (lihat juga [12.3](#123-menyiapkan-rangkaian)).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p1_kecerahan_bertingkat.ino`](p1_kecerahan_bertingkat/p1_kecerahan_bertingkat.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_kecerahan_bertingkat.ino`](p1_kecerahan_bertingkat/p1_kecerahan_bertingkat.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
 4. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -337,7 +337,7 @@ Di kit: LED merah mati selama 2 detik, lalu menyala makin terang setiap 2 detik 
 **Cara Menjalankan:**
 
 1. Biarkan kabel *jumper* seperti pada Program 1.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p2_led_bernapas.ino`](p2_led_bernapas/p2_led_bernapas.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_led_bernapas.ino`](p2_led_bernapas/p2_led_bernapas.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -432,7 +432,7 @@ Di kit: LED merah perlahan menyala sampai paling terang dalam ±2 detik, lalu pe
 **Cara Menjalankan:**
 
 1. Biarkan kabel *jumper* seperti pada Program 1.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p3_berkedip_jadi_redup.ino`](p3_berkedip_jadi_redup/p3_berkedip_jadi_redup.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_berkedip_jadi_redup.ino`](p3_berkedip_jadi_redup/p3_berkedip_jadi_redup.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Amati LED setiap kali baris baru muncul.
@@ -555,7 +555,7 @@ Baris terakhir tabel itu penting: setelah kedipan tidak terlihat lagi, **menaikk
 **Cara Menjalankan:**
 
 1. Sambungkan keempat kabel *jumper* sesuai tabel **Rangkaian** di atas.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p4_led_berjalan_halus.ino`](p4_led_berjalan_halus/p4_led_berjalan_halus.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p4_led_berjalan_halus.ino`](p4_led_berjalan_halus/p4_led_berjalan_halus.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -672,7 +672,7 @@ Di kit: cahaya mengalir halus dari merah → hijau → biru → kuning, lalu mel
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* dari pin Custom **VR10K** ke pin berlabel **34** di deretan pin ESP32 atas. Kabel LED1 → **4** tetap terpasang.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p5_dimmer_potensiometer.ino`](p5_dimmer_potensiometer/p5_dimmer_potensiometer.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p5_dimmer_potensiometer.ino`](p5_dimmer_potensiometer/p5_dimmer_potensiometer.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Putar potensiometer perlahan dari ujung ke ujung.
@@ -767,7 +767,7 @@ Di kit: putar potensiometer ke satu arah, LED makin terang; putar ke arah sebali
 **Cara Menjalankan:**
 
 1. Pastikan kabel LED1 → **4** dan LED3 → **2** terpasang (kabel lain boleh tetap terpasang).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p6_fade_hardware.ino`](p6_fade_hardware/p6_fade_hardware.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p6_fade_hardware.ino`](p6_fade_hardware/p6_fade_hardware.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -921,7 +921,7 @@ Jadi dengan *buzzer* bawaan kit, PWM hanya bisa mengatur **irama** bunyi, bukan 
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* dari pin **BUZZ** ke pin berlabel **13** di deretan pin ESP32 atas (sama seperti di BAB 8).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p7_alarm_bip.ino`](p7_alarm_bip/p7_alarm_bip.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p7_alarm_bip.ino`](p7_alarm_bip/p7_alarm_bip.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -1030,7 +1030,7 @@ Di kit: *buzzer* berbunyi "bip... bip..." pelan, makin lama makin rapat seperti 
 
 1. Cabut kabel USB, lalu **lepas kabel *jumper* BUZZ dari pin 13**. Satu pin hanya bisa dipasangi satu kabel, dan *buzzer* aktif kit tidak boleh ikut berbunyi.
 2. Sambungkan modul *buzzer* pasif sesuai tabel **Rangkaian**. Kalau modulmu punya pin ketiga bertanda `+` atau VCC, sambungkan ke pin **3V**. Kalau yang kamu punya adalah *buzzer* pasif lepas (bukan modul) dan kamu ragu jenisnya, pasang resistor ±100 Ω secara seri di kaki sinyalnya supaya arus pin tidak berlebihan.
-3. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p8_melodi_buzzer_pasif.ino`](p8_melodi_buzzer_pasif/p8_melodi_buzzer_pasif.ino).
+3. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p8_melodi_buzzer_pasif.ino`](p8_melodi_buzzer_pasif/p8_melodi_buzzer_pasif.ino).
 4. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu, lalu klik **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
 

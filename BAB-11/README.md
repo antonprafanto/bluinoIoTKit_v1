@@ -177,7 +177,7 @@ Langkah memasang kabel:
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* dari pin `VR10K` ke pin berlabel **34** di deretan pin ESP32 atas (lihat [11.4.3](#1143-menyambungkan-kabel-jumper)).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p1_baca_potensiometer.ino`](p1_baca_potensiometer/p1_baca_potensiometer.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_baca_potensiometer.ino`](p1_baca_potensiometer/p1_baca_potensiometer.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
 4. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -275,7 +275,7 @@ Ketiganya adalah sifat ADC ESP32, bukan kerusakan. Penjelasan dan cara mengatasi
 **Cara Menjalankan:**
 
 1. Sambungkan kabel *jumper* dari pin `LDR` ke pin berlabel **35** di deretan pin ESP32 atas. Kabel potensiometer dari Program 1 boleh tetap terpasang.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p2_sensor_cahaya_ldr.ino`](p2_sensor_cahaya_ldr/p2_sensor_cahaya_ldr.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_sensor_cahaya_ldr.ino`](p2_sensor_cahaya_ldr/p2_sensor_cahaya_ldr.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**.
@@ -496,7 +496,7 @@ Makin banyak sampel, makin halus hasilnya, tetapi makin lama waktu bacanya dan m
 **Cara Menjalankan:**
 
 1. Pastikan kabel `VR10K` → **34** masih terpasang.
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p3_grafik_plotter.ino`](p3_grafik_plotter/p3_grafik_plotter.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_grafik_plotter.ino`](p3_grafik_plotter/p3_grafik_plotter.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Plotter** lewat **Tools → Serial Plotter**, atau klik ikon grafik di pojok kanan atas Arduino IDE (di sebelah ikon Serial Monitor). Serial Plotter terbuka di jendela tersendiri.
@@ -596,7 +596,7 @@ Mentah:1866,RataRata:1871
 **Cara Menjalankan:**
 
 1. Pastikan kabel `VR10K` → **34** (deretan atas) terpasang, lalu tambahkan kabel `LED1` → **4** di deretan pin ESP32 bawah (letak *header* LED ada di [BAB 8](../BAB-08/README.md)).
-2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di file [`p4_pot_kecerahan_led.ino`](p4_pot_kecerahan_led/p4_pot_kecerahan_led.ino).
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p4_pot_kecerahan_led.ino`](p4_pot_kecerahan_led/p4_pot_kecerahan_led.ino).
 3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
 4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
 5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Kalau Serial Plotter dari Program 3 masih terbuka, tutup dulu supaya tidak membingungkan.

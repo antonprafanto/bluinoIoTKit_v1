@@ -161,7 +161,7 @@ Kamu juga bisa berkontribusi langsung dengan membuka **Issue** atau **Pull Reque
 | [BAB 22](BAB-22/README.md) | UART / Serial Communication |
 | [BAB 23](BAB-23/README.md) | I2C — Inter-Integrated Circuit |
 | [BAB 24](BAB-24/README.md) | SPI — Serial Peripheral Interface |
-| [BAB 25](BAB-25/README.md) | OneWire Protocol |
+| [BAB 25](BAB-25/README.md) | OneWire & Sensor Suhu DS18B20 |
 
 ### Bagian V — Sensor
 | BAB | Topik |
@@ -188,19 +188,19 @@ Kamu juga bisa berkontribusi langsung dengan membuka **Issue** atau **Pull Reque
 | BAB | Topik |
 |-----|-------|
 | [BAB 39](BAB-39/README.md) | NVS — Non-Volatile Storage |
-| [BAB 40](BAB-40/README.md) | SPIFFS / LittleFS |
+| [BAB 40](BAB-40/README.md) | LittleFS — Sistem File di Flash ESP32 |
 | [BAB 41](BAB-41/README.md) | MicroSD Card — Data Logging |
 
 ### Bagian VIII — WiFi & Web
 | BAB | Topik |
 |-----|-------|
-| [BAB 42](BAB-42/README.md) | WiFi Station Mode |
-| [BAB 43](BAB-43/README.md) | WiFi Access Point |
-| [BAB 44](BAB-44/README.md) | WiFiManager & Captive Portal |
-| [BAB 45](BAB-45/README.md) | mDNS |
-| [BAB 46](BAB-46/README.md) | Web Server |
-| [BAB 47](BAB-47/README.md) | WebSocket — Real-time |
-| [BAB 48](BAB-48/README.md) | HTTP Client & REST API |
+| [BAB 42](BAB-42/README.md) | WiFi Station Mode — Koneksi Internet ESP32 |
+| [BAB 43](BAB-43/README.md) | WiFi Access Point — ESP32 sebagai Hotspot Mandiri |
+| [BAB 44](BAB-44/README.md) | WiFiManager & Captive Portal — Konfigurasi WiFi via Browser |
+| [BAB 45](BAB-45/README.md) | mDNS — Akses ESP32 dengan Nama Domain Lokal |
+| [BAB 46](BAB-46/README.md) | Web Server — Dashboard IoT Berbasis Browser |
+| [BAB 47](BAB-47/README.md) | WebSocket — Komunikasi Real-Time Dua Arah |
+| [BAB 48](BAB-48/README.md) | HTTP Client & REST API — ESP32 Pergi ke Internet |
 | [BAB 49](BAB-49/README.md) | HTTPS & Keamanan |
 
 ### Bagian IX — Protokol IoT
