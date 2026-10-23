@@ -267,7 +267,7 @@ MAC *address* terdiri dari 6 *byte* yang ditulis dalam heksadesimal, misalnya `2
 - Didaftarkan di *router* yang memakai penyaring MAC, atau untuk "memesan" alamat IP tetap (lihat [42.9](#429-pengaturan-tambahan-hostname-ip-statis-hemat-daya-dan-adc2)).
 - Menjadi alamat tujuan di ESP-NOW ([BAB 54](../BAB-54/README.md)).
 
-> 📌 **Catatan:** `WiFi.macAddress()` baru berisi nilai yang benar **setelah** WiFi dinyalakan (`WiFi.mode(WIFI_STA)` atau `WiFi.begin()`). Kalau dipanggil sebelumnya, hasilnya `00:00:00:00:00:00`.
+> 📌 **Catatan:** `WiFi.macAddress()` baru berisi nilai yang benar setelah radio Station **selesai** menyala. Proses itu berjalan di latar belakang, jadi kalau dipanggil sebelum `WiFi.mode(WIFI_STA)`/`WiFi.begin()` — atau bahkan tepat sesudahnya — hasilnya bisa `00:00:00:00:00:00`. Cara paling aman untuk pemula: baca MAC *address* setelah ESP32 tersambung (atau setelah menunggu koneksi beberapa detik), seperti Program 1. Kalau MAC dibutuhkan sejak awal program, misalnya untuk ESP-NOW, baca langsung dari *driver* WiFi dengan `esp_wifi_get_mac(WIFI_IF_STA, mac)` seperti di [BAB 54](../BAB-54/README.md).
 
 ---
 
@@ -331,6 +331,7 @@ void tampilkanInfoJaringan() {
   Serial.printf("  Server DNS       : %s\n", WiFi.dnsIP().toString().c_str());
   Serial.printf("  Kanal (channel)  : %ld\n", (long)WiFi.channel());
   Serial.printf("  Hostname ESP32   : %s\n", WiFi.getHostname());
+  Serial.printf("  MAC address      : %s\n", WiFi.macAddress().c_str());
   Serial.printf("  Kekuatan sinyal  : %d dBm (%s)\n", rssi, kualitasSinyal(rssi));
 }
 
@@ -344,8 +345,6 @@ void setup() {
   Serial.println("BAB 42 - Program 1: Hello WiFi");
 
   WiFi.mode(WIFI_STA);            // nyalakan WiFi sebagai Station ("tamu" di router)
-  Serial.print("MAC address ESP32: ");
-  Serial.println(WiFi.macAddress());
 
   Serial.printf("Menyambung ke \"%s\"", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);  // mulai menyambung; prosesnya berjalan di latar belakang
@@ -365,6 +364,7 @@ void setup() {
     Serial.printf("Belum tersambung setelah %lu detik (status %d).\n",
                   BATAS_TUNGGU / 1000, (int)WiFi.status());
     Serial.println("Cek nama/password WiFi dan pastikan jaringannya 2,4 GHz.");
+    Serial.printf("MAC address ESP32: %s\n", WiFi.macAddress().c_str());
     Serial.println("ESP32 tetap mencoba menyambung di latar belakang...");
   }
 }
@@ -390,7 +390,7 @@ void loop() {
 **Penjelasan Kode:**
 
 - `const char *WIFI_SSID = "...";` menyimpan teks nama dan *password* WiFi. `const` berarti nilainya tidak akan diubah program. Inilah dua baris yang **wajib** kamu ganti.
-- `WiFi.mode(WIFI_STA)` menyalakan radio WiFi dalam mode Station. Setelah baris ini, `WiFi.macAddress()` sudah berisi MAC *address* yang benar.
+- `WiFi.mode(WIFI_STA)` menyalakan radio WiFi dalam mode Station. MAC *address* sengaja baru dicetak **setelah** menunggu koneksi (berhasil maupun gagal). Tepat setelah `WiFi.mode()`, radio kadang belum selesai menyala sehingga `WiFi.macAddress()` masih berisi `00:00:00:00:00:00` (lihat [42.4.4](#4244-mac-address)).
 - `WiFi.begin(WIFI_SSID, WIFI_PASS)` memberi perintah "sambungkan ke jaringan ini". Fungsi ini langsung selesai; proses menyambung (mencari *router*, memeriksa *password*, meminta IP) berjalan di latar belakang.
 - Perulangan `while` memeriksa `WiFi.status()` setiap 0,5 detik dan mencetak titik. Perulangan berhenti karena **dua** kemungkinan: sudah tersambung, atau sudah 15 detik. Batas waktu ini penting — tanpa batas, ESP32 akan menunggu selamanya kalau *password*-nya salah.
 - Rumus `millis() - mulai < BATAS_TUNGGU` adalah pola selisih waktu dari [BAB 16](../BAB-16/README.md) yang tetap benar walaupun `millis()` *rollover*.
@@ -406,7 +406,6 @@ Kalau berhasil (MAC, alamat IP, kanal, dan RSSI-mu pasti berbeda):
 
 ```text
 BAB 42 - Program 1: Hello WiFi
-MAC address ESP32: 24:6F:28:A1:B2:C3
 Menyambung ke "NamaWiFiKamu"......
 Tersambung!
   Nama WiFi (SSID) : NamaWiFiKamu
@@ -416,6 +415,7 @@ Tersambung!
   Server DNS       : 192.168.1.1
   Kanal (channel)  : 6
   Hostname ESP32   : esp32-A1B2C3
+  MAC address      : 24:6F:28:A1:B2:C3
   Kekuatan sinyal  : -58 dBm (kuat)
 Tersambung | IP 192.168.1.105 | RSSI -57 dBm (kuat)
 Tersambung | IP 192.168.1.105 | RSSI -59 dBm (kuat)
@@ -427,10 +427,10 @@ Kalau gagal, misalnya nama WiFi salah ketik:
 
 ```text
 BAB 42 - Program 1: Hello WiFi
-MAC address ESP32: 24:6F:28:A1:B2:C3
 Menyambung ke "NamaWiFiKamu"..............................
 Belum tersambung setelah 15 detik (status 1).
 Cek nama/password WiFi dan pastikan jaringannya 2,4 GHz.
+MAC address ESP32: 24:6F:28:A1:B2:C3
 ESP32 tetap mencoba menyambung di latar belakang...
 Tidak tersambung (status 1), menunggu sambung ulang otomatis...
 ```
@@ -1719,7 +1719,7 @@ LED biru menyala selama tersambung. Data tetap tersimpan walaupun listrik dicabu
 - `WiFi.begin()` **tidak menunggu**. Periksa `WiFi.status()` sampai bernilai `WL_CONNECTED` (3), selalu dengan batas waktu. *Password* salah sering hanya terlihat sebagai `WL_DISCONNECTED` (6); kode alasan dari *event* `ARDUINO_EVENT_WIFI_STA_DISCONNECTED` jauh lebih jelas (201 = nama tidak ditemukan, 15/202/204 = biasanya *password* salah, 200 = sinyal hilang).
 - *Auto reconnect* bawaan menangani sebagian besar gangguan. Program yang tangguh menambahkan *state machine* (`MENYAMBUNG` → `TERSAMBUNG` → `ISTIRAHAT`) dengan batas waktu dan jeda bertahap, tanpa pernah memblokir `loop()`.
 - *Callback* `WiFi.onEvent()` berjalan di *task* lain: buat singkat dan pakai `volatile` untuk variabel bersama. `WiFi.disconnect(true)` **mematikan** WiFi, bukan sekadar memutus.
-- RSSI dalam dBm: makin mendekati 0 makin kuat; di atas −60 dBm bagus, di bawah −80 dBm sering gagal. `WiFi.macAddress()` baru benar setelah WiFi dinyalakan.
+- RSSI dalam dBm: makin mendekati 0 makin kuat; di atas −60 dBm bagus, di bawah −80 dBm sering gagal. `WiFi.macAddress()` baru benar setelah radio Station selesai menyala — paling aman dibaca setelah tersambung, atau dengan `esp_wifi_get_mac()` ([BAB 54](../BAB-54/README.md)).
 - Pemindaian asinkron (`scanNetworks(true)` + `scanComplete()`) adalah alat diagnosis utama; jaringan 5 GHz tidak akan pernah terlihat.
 - `WiFi.setHostname()` dipanggil sebelum WiFi dinyalakan. Utamakan reservasi DHCP atau mDNS daripada IP statis. *Modem sleep* bawaan menghemat daya tetapi menambah jeda; `WiFi.setSleep(false)` membuatnya lebih responsif. ADC2 tidak bisa membaca analog selama WiFi aktif.
 - `configTzTime("WIB-7" / "WITA-8" / "WIT-9", server...)` menyetel jam dari NTP; `getLocalTime(&waktu, 0)` membacanya tanpa menunggu. Jam hilang saat *reset* dan disinkronkan ulang otomatis setiap 3 jam.

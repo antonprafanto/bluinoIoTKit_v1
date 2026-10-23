@@ -39,6 +39,7 @@ void tampilkanInfoJaringan() {
   Serial.printf("  Server DNS       : %s\n", WiFi.dnsIP().toString().c_str());
   Serial.printf("  Kanal (channel)  : %ld\n", (long)WiFi.channel());
   Serial.printf("  Hostname ESP32   : %s\n", WiFi.getHostname());
+  Serial.printf("  MAC address      : %s\n", WiFi.macAddress().c_str());
   Serial.printf("  Kekuatan sinyal  : %d dBm (%s)\n", rssi, kualitasSinyal(rssi));
 }
 
@@ -52,8 +53,6 @@ void setup() {
   Serial.println("BAB 42 - Program 1: Hello WiFi");
 
   WiFi.mode(WIFI_STA);            // nyalakan WiFi sebagai Station ("tamu" di router)
-  Serial.print("MAC address ESP32: ");
-  Serial.println(WiFi.macAddress());
 
   Serial.printf("Menyambung ke \"%s\"", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);  // mulai menyambung; prosesnya berjalan di latar belakang
@@ -73,6 +72,7 @@ void setup() {
     Serial.printf("Belum tersambung setelah %lu detik (status %d).\n",
                   BATAS_TUNGGU / 1000, (int)WiFi.status());
     Serial.println("Cek nama/password WiFi dan pastikan jaringannya 2,4 GHz.");
+    Serial.printf("MAC address ESP32: %s\n", WiFi.macAddress().c_str());
     Serial.println("ESP32 tetap mencoba menyambung di latar belakang...");
   }
 }
