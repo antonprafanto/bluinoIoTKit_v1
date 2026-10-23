@@ -51,7 +51,9 @@ Tuliskan nama *library* **persis seperti yang muncul di Library Manager**, lengk
 | PubSubClient | Nick O'Leary | MQTT |
 | WiFiManager | tzapu | Portal konfigurasi WiFi |
 | CoAP simple library | Hirotaka Niisato | CoAP |
-| painlessMesh | Coopdis dkk. | ESP-MESH |
+| Painless Mesh (painlessMesh) | Coopdis dkk. | ESP-MESH |
+| TaskScheduler | Anatoli Arkhipenko | Dependensi Painless Mesh (ikut terpasang otomatis) |
+| Async TCP | ESP32Async | Dependensi Painless Mesh di ESP32 — **tidak** ikut terpasang otomatis, jadi pembaca harus memasangnya sendiri |
 
 *Library* bawaan core (tidak perlu diinstal): `WiFi`, `WebServer`, `HTTPClient`, `WiFiClientSecure`, `ESPmDNS`, `Preferences`, `LittleFS`, `SPIFFS`, `SD`, `SPI`, `Wire`, `BluetoothSerial`, `BLE`, `esp_now`, `Matter`.
 

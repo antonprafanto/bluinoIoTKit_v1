@@ -18,3 +18,4 @@ ESP32Servo@3.2.1
 WiFiManager@2.0.17
 TaskScheduler@4.1.1
 Painless Mesh@1.5.7
+Async TCP@3.4.10
