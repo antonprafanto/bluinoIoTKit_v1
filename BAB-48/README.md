@@ -1545,7 +1545,7 @@ Selanjutnya, di [BAB 49](../BAB-49/README.md) kamu akan mengamankan percakapan i
 
 ---
 
-[⬅️ BAB 47: WebSocket — Komunikasi Real-Time Dua Arah](../BAB-47/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 49: 🔐 BAB 49 — HTTPS & Keamanan: `WiFiClientSecure` & TLS/SSL ➡️](../BAB-49/README.md)
+[⬅️ BAB 47: WebSocket — Komunikasi Real-Time Dua Arah](../BAB-47/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 49: HTTPS & Keamanan ➡️](../BAB-49/README.md)
 
 ---
 

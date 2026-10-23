@@ -28,7 +28,7 @@ Semua kode di repositori ini ditulis dan diuji dengan:
 | Baud rate Serial | **115200** |
 | *Partition scheme* | *Default* — kecuali disebut lain (misalnya **Huge APP** untuk program besar) |
 
-> ⚠️ **Perhatian:** Banyak fungsi berubah antara core 2.x dan 3.x. Jangan menulis kode khusus core 2.x. Lihat [bagian 8](#8-aturan-kode-program) untuk daftar perubahan yang paling sering bikin *error*.
+> ⚠️ **Perhatian:** Banyak fungsi berubah antara core 2.x dan 3.x. Jangan menulis kode khusus core 2.x. Lihat [bagian 8](#8-aturan-kode-program) untuk daftar perubahan yang paling sering bikin *error*. Beberapa fitur baru ada di versi 3.3 terbaru, misalnya `useBuiltinCACertBundle()` (BAB 49) baru tersedia mulai 3.3.12 — kalau sebuah program memakai fitur seperti ini, sebutkan versi minimumnya di BAB tersebut.
 
 ### *Library* yang dipakai di kurikulum
 

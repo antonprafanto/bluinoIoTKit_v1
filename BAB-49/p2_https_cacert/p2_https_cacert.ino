@@ -1,64 +1,33 @@
 /*
- * BAB 49 - Program 2: HTTPS dengan setCACert() — Keamanan Produksi
- * ─────────────────────────────────────────────────────────────────
- * Fitur:
- *   ▶ HTTPS GET ke https://httpbin.org/get menggunakan WiFiClientSecure
- *   ▶ setCACert(HTTPBIN_ROOT_CA) — verifikasi identitas server secara kriptografis
- *   ▶ Jika sertifikat server tidak cocok → koneksi DITOLAK (anti MITM!)
- *   ▶ Parse response JSON dengan ArduinoJson (stack only, zero heap)
- *   ▶ Output ke OLED dan Serial Monitor
- *   ▶ Non-blocking: fetch tiap 60 detik
- *   ▶ Heartbeat log tiap 60 detik
+ * BAB 49 - Program 2: HTTPS Aman dengan setCACert()
+ * 1. Menyetel jam lewat NTP (BAB 42).
+ * 2. Uji A: www.howsmyssl.com dengan root CA yang BENAR (ISRG Root X1) -> diterima.
+ * 3. Uji B: www.howsmyssl.com dengan root CA yang SALAH (DigiCert Global Root G2)
+ *    -> ditolak, sama seperti saat penyerang menyodorkan sertifikat palsu.
  *
- * Root CA Certificate yang Digunakan:
- *   "ISRG Root X1" — Root CA dari Let's Encrypt (digunakan oleh httpbin.org)
- *   Diperoleh melalui: https://letsencrypt.org/certificates/
- *   Valid sampai: 2035-09-30 (cukup lama — tapi selalu siapkan OTA update!)
- *
- * Cara Mendapatkan Root CA Baru (jika expired):
- *   Opsi 1: Browser
- *     1. Buka https://httpbin.org di Chrome
- *     2. Klik gembok → Certificate is valid → Details
- *     3. Pilih sertifikat Root (paling atas) → Export as PEM
- *
- *   Opsi 2: OpenSSL (Terminal/PowerShell)
- *     openssl s_client -connect httpbin.org:443 -showcerts 2>/dev/null
- *     → Salin blok "-----BEGIN CERTIFICATE-----" yang terakhir (Root CA)
- *
- * Library yang dibutuhkan:
- *   - WiFiClientSecure.h, HTTPClient.h, WiFi.h  (bawaan ESP32 Core)
- *   - ArduinoJson >= 6.x                         (Library Manager)
- *   - Adafruit SSD1306 + Adafruit GFX            (Library Manager)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sebelum upload!
+ * Rangkaian: tidak perlu.
+ * Library  : ArduinoJson (Benoit Blanchon) versi 7.
  */
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <time.h>
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
-const char* HOSTNAME  = "bluino";
+const char* WIFI_SSID     = "NamaWiFiKamu";      // ← ganti dengan WiFi kamu
+const char* WIFI_PASSWORD = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── API Endpoint ──────────────────────────────────────────────────
-const char* GET_URL = "https://httpbin.org/get";
-const unsigned long FETCH_INTERVAL = 60000UL;
+const char* URL_CEK_TLS = "https://www.howsmyssl.com/a/check";
 
-// ── Root CA Certificate (ISRG Root X1 — Let's Encrypt) ───────────
-// Sertifikat ini memverifikasi bahwa httpbin.org adalah server yang sah.
-// Tanpa ini, ESP32 tidak bisa membedakan server asli dengan hacker!
-//
-// Cara membacanya: ESP32 memegang "KTP" penerbit sertifikat (Root CA)
-// dan mencocokkannya dengan "KTP" yang ditunjukkan oleh server saat
-// TLS handshake. Jika tidak cocok → koneksi GAGAL secara sengaja!
-static const char HTTPBIN_ROOT_CA[] PROGMEM = R"CERT(
+const char* ZONA_WAKTU   = "WIB-7";            // WITA-8 atau WIT-9 (lihat BAB 42)
+const char* SERVER_NTP_1 = "id.pool.ntp.org";
+const char* SERVER_NTP_2 = "pool.ntp.org";
+
+// Root CA yang BENAR untuk www.howsmyssl.com (sertifikatnya dari Let's Encrypt).
+// Sumber: https://letsencrypt.org/certs/isrgrootx1.pem
+// Berlaku sampai: 4 Juni 2035
+const char ROOT_CA_ISRG_X1[] = R"EOF(
 -----BEGIN CERTIFICATE-----
 MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
 TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
@@ -90,179 +59,175 @@ oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
 mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
 emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 -----END CERTIFICATE-----
-)CERT";
+)EOF";
 
-// ── OLED ──────────────────────────────────────────────────────────
-#define OLED_W    128
-#define OLED_H     64
-#define OLED_ADDR 0x3C
+// Root CA milik penerbit LAIN (DigiCert). Di program ini SENGAJA dipakai
+// sebagai "kunci yang salah" untuk Uji B. (Di Program 3 dipakai untuk ThingSpeak.)
+// Sumber: https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem
+// Berlaku sampai: 15 Januari 2038
+const char ROOT_CA_DIGICERT_G2[] = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDjjCCAnagAwIBAgIQAzrx5qcRqaC7KGSxHQn65TANBgkqhkiG9w0BAQsFADBh
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBH
+MjAeFw0xMzA4MDExMjAwMDBaFw0zODAxMTUxMjAwMDBaMGExCzAJBgNVBAYTAlVT
+MRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5j
+b20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IEcyMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzfNNNx7a8myaJCtSnX/RrohCgiN9RlUyfuI
+2/Ou8jqJkTx65qsGGmvPrC3oXgkkRLpimn7Wo6h+4FR1IAWsULecYxpsMNzaHxmx
+1x7e/dfgy5SDN67sH0NO3Xss0r0upS/kqbitOtSZpLYl6ZtrAGCSYP9PIUkY92eQ
+q2EGnI/yuum06ZIya7XzV+hdG82MHauVBJVJ8zUtluNJbd134/tJS7SsVQepj5Wz
+tCO7TG1F8PapspUwtP1MVYwnSlcUfIKdzXOS0xZKBgyMUNGPHgm+F6HmIcr9g+UQ
+vIOlCsRnKPZzFBQ9RnbDhxSJITRNrw9FDKZJobq7nMWxM4MphQIDAQABo0IwQDAP
+BgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBhjAdBgNVHQ4EFgQUTiJUIBiV
+5uNu5g/6+rkS7QYXjzkwDQYJKoZIhvcNAQELBQADggEBAGBnKJRvDkhj6zHd6mcY
+1Yl9PMWLSn/pvtsrF9+wX3N3KjITOYFnQoQj8kVnNeyIv/iPsGEMNKSuIEyExtv4
+NeF22d+mQrvHRAiGfzZ0JFrabA0UWTW98kndth/Jsw1HKj2ZL7tcu7XUIOGZX1NG
+Fdtom/DzMNU+MeKNhJ7jitralj41E6Vf8PlwUHBHQRFXGU7Aj64GxJUTFy8bJZ91
+8rGOmaFvE7FBcf6IKshPECBV1/MUReXgRPTqh5Uykw7+U0b6LJ3/iyK5S9kJRaTe
+pLiaWN0bfVKfjllDiIGknibVb63dDcY3fe0Dkhvld1927jyNxF1WW6LZZm6zNTfl
+MrY=
+-----END CERTIFICATE-----
+)EOF";
 
-Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
-bool oledReady = false;
+// Kemungkinan hasil satu uji
+const int HASIL_BERHASIL = 0;   // sertifikat diterima, server menjawab 200
+const int HASIL_DITOLAK  = 1;   // sertifikat server DITOLAK oleh ESP32
+const int HASIL_GAGAL    = 2;   // gagal karena hal lain (jaringan, server, dll.)
 
-// ── State ─────────────────────────────────────────────────────────
-uint32_t fetchCount = 0;
-char     lastOrigin[32] = "---";
+const unsigned long JEDA_UJI = 300000;  // ulangi setiap 5 menit
+unsigned long waktuUjiTerakhir = 0;
 
-// ─────────────────────────────────────────────────────────────────
-// OLED Helpers
-// ─────────────────────────────────────────────────────────────────
-void oledShowBoot() {
-  if (!oledReady) return;
-  oled.clearDisplay();
-  oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  oled.println("Bluino IoT Kit");
-  oled.println("BAB 49 - Program 2");
-  oled.println();
-  oled.println("HTTPS setCACert()");
-  oled.println("Anti-MITM Aktif!");
-  oled.display();
-}
-
-void oledShowStatus(bool ok) {
-  if (!oledReady) return;
-  oled.clearDisplay();
-  oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  oled.println("HTTPS: setCACert");
-  oled.println(ok ? "[CA VERIFIED] ✓" : "[CA ERROR] ✗");
-  oled.drawLine(0, 18, OLED_W - 1, 18, SSD1306_WHITE);
-  oled.setCursor(0, 22);
-  oled.println(ok ? "Server TERVERIFIKASI" : "Server DIBLOKIR!");
-  oled.setCursor(0, 34);
-  oled.print("GET #"); oled.println(fetchCount);
-  oled.setCursor(0, 46);
-  oled.print("IP Publik: ");
-  oled.setCursor(0, 56);
-  oled.println(lastOrigin);
-  oled.display();
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Fetch HTTPS — menggunakan setCACert() [Standar Produksi]
-// ─────────────────────────────────────────────────────────────────
-void fetchHttps() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[HTTPS] ⚠️ WiFi tidak terhubung, skip fetch.");
-    return;
-  }
-
-  Serial.printf("[HTTPS] GET %s\n", GET_URL);
-  Serial.println("[TLS] Memverifikasi sertifikat server dengan Root CA...");
-
-  WiFiClientSecure secureClient;
-  // ← Perbedaan UTAMA dari Program 1: kita menyerahkan Root CA kita
-  //   kepada mesin TLS untuk dicocokkan dengan sertifikat server
-  secureClient.setCACert(HTTPBIN_ROOT_CA);
-
-  HTTPClient http;
-  http.begin(secureClient, GET_URL);
-  http.setTimeout(10000);
-  http.addHeader("User-Agent", "Bluino-IoT/2026 (ESP32)");
-
-  int code = http.GET();
-
-  if (code != HTTP_CODE_OK) {
-    // Jika code == -1 (connection refused), kemungkinan Root CA tidak cocok!
-    Serial.printf("[HTTPS] ❌ Error: %d (%s)\n", code, http.errorToString(code).c_str());
-    if (code < 0) Serial.println("[TLS] ⚠️ Cek apakah Root CA sudah expired atau tidak sesuai!");
-    oledShowStatus(false);
-    http.end();
-    return;
-  }
-
-  fetchCount++;
-
-  // Parse: ambil hanya field "origin" dari response
-  StaticJsonDocument<32> filter;
-  filter["origin"] = true;
-
-  StaticJsonDocument<128> doc;
-  DeserializationError err = deserializeJson(doc, http.getStream(),
-                                              DeserializationOption::Filter(filter));
-  http.end();
-
-  if (err) {
-    Serial.printf("[HTTPS] ✅ %d OK — Server terverifikasi! (parse skip: %s)\n",
-                  code, err.c_str());
-    oledShowStatus(true);
-    return;
-  }
-
-  const char* origin = doc["origin"] | "?";
-  strncpy(lastOrigin, origin, sizeof(lastOrigin) - 1);
-  lastOrigin[sizeof(lastOrigin) - 1] = '\0';
-
-  Serial.printf("[HTTPS] ✅ %d OK — Server terverifikasi! | IP Publik: %s | Heap: %u B\n",
-                code, lastOrigin, ESP.getFreeHeap());
-
-  oledShowStatus(true);
-}
-
-// ─────────────────────────────────────────────────────────────────
-void setup() {
-  Serial.begin(115200);
-  Wire.begin(21, 22);
-
-  Serial.println("\n=== BAB 49 Program 2: HTTPS — setCACert() ===");
-
-  // ── OLED ──────────────────────────────────────────────────────
-  if (oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-    oledShowBoot();
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak ditemukan — lanjut tanpa OLED.");
-  }
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
+void sambungWiFi() {
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(HOSTNAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Menghubungkan ke WiFi");
 
-  uint32_t tStart = millis();
+  unsigned long mulai = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
+    if (millis() - mulai >= 20000) {  // menyerah setelah 20 detik
+      Serial.println();
+      Serial.println("Gagal terhubung! Periksa nama dan password WiFi (harus 2,4 GHz).");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
     }
-    Serial.print("."); delay(500);
+    Serial.print(".");
+    delay(500);
   }
   Serial.println();
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s | SSID: %s\n",
-                WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  Serial.println("[TLS] Mode: setCACert() — verifikasi sertifikat AKTIF ✅");
-  Serial.printf("[INFO] Fetch tiap %lu detik\n", FETCH_INTERVAL / 1000UL);
-
-  fetchHttps();
+  Serial.print("Terhubung! Alamat IP: ");
+  Serial.println(WiFi.localIP());
 }
 
-// ─────────────────────────────────────────────────────────────────
+void setelJam() {
+  configTzTime(ZONA_WAKTU, SERVER_NTP_1, SERVER_NTP_2);
+  Serial.print("Menyetel jam lewat NTP");
+
+  struct tm waktu;
+  unsigned long mulai = millis();
+  while (!getLocalTime(&waktu, 0)) {  // 0 = jangan menunggu di dalam fungsi
+    if (millis() - mulai >= 15000) {
+      Serial.println();
+      Serial.println("Jam belum tersinkron. Program tetap lanjut (lihat 49.8).");
+      return;
+    }
+    Serial.print(".");
+    delay(500);
+  }
+
+  char teksWaktu[32];
+  strftime(teksWaktu, sizeof(teksWaktu), "%Y-%m-%d %H:%M:%S %Z", &waktu);
+  Serial.println();
+  Serial.printf("Jam sekarang: %s\n", teksWaktu);
+}
+
+// Menghubungi url dan hanya memercayai rootCa. Mengembalikan HASIL_...
+int ujiHttps(const char* label, const char* url, const char* rootCa) {
+  Serial.printf("\n[%s] GET %s\n", label, url);
+
+  WiFiClientSecure klienAman;
+  klienAman.setCACert(rootCa);        // hanya percaya pada root CA ini
+  klienAman.setHandshakeTimeout(15);  // detik
+
+  HTTPClient http;
+  http.setConnectTimeout(10000);      // ms
+  http.setTimeout(10000);             // ms
+  if (!http.begin(klienAman, url)) {
+    Serial.printf("[%s] Alamat URL tidak valid.\n", label);
+    return HASIL_GAGAL;
+  }
+  http.setUserAgent("BluinoKit-BAB49/1.0");  // "nama" client kita
+
+  int kode = http.GET();
+  int hasil = HASIL_GAGAL;
+
+  if (kode == HTTP_CODE_OK) {
+    JsonDocument saringan;
+    saringan["tls_version"] = true;
+    JsonDocument doc;
+    deserializeJson(doc, http.getString(), DeserializationOption::Filter(saringan));
+    Serial.printf("[%s] BERHASIL: sertifikat server terverifikasi, HTTP %d, %s\n",
+                  label, kode, doc["tls_version"] | "TLS ?");
+    hasil = HASIL_BERHASIL;
+  } else if (kode > 0) {
+    Serial.printf("[%s] Sertifikat terverifikasi, tetapi server menjawab HTTP %d\n", label, kode);
+  } else {
+    // Koneksi gagal. Tanyakan penyebabnya ke lapisan TLS.
+    char pesanTls[128];
+    int kodeTls = klienAman.lastError(pesanTls, sizeof(pesanTls));
+    if (kodeTls == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+      Serial.printf("[%s] DITOLAK: %s (kode HTTPClient %d)\n", label, http.errorToString(kode).c_str(), kode);
+      hasil = HASIL_DITOLAK;
+    } else {
+      Serial.printf("[%s] GAGAL: %s (kode HTTPClient %d)\n", label, http.errorToString(kode).c_str(), kode);
+    }
+    Serial.printf("[%s] Pesan TLS: %s (kode %d)\n", label, pesanTls, kodeTls);
+  }
+
+  http.end();
+  return hasil;
+}
+
+void jalankanUji() {
+  int hasilA = ujiHttps("Uji A", URL_CEK_TLS, ROOT_CA_ISRG_X1);      // root CA benar
+  int hasilB = ujiHttps("Uji B", URL_CEK_TLS, ROOT_CA_DIGICERT_G2);  // root CA salah
+
+  Serial.println();
+  Serial.println("Kesimpulan:");
+  if (hasilA == HASIL_BERHASIL) {
+    Serial.println("- Root CA benar (ISRG Root X1)       : diterima");
+  } else {
+    Serial.println("- Root CA benar (ISRG Root X1)       : GAGAL, periksa jaringan atau sertifikat");
+  }
+  if (hasilB == HASIL_DITOLAK) {
+    Serial.println("- Root CA salah (DigiCert Global G2) : ditolak, sesuai harapan");
+  } else if (hasilB == HASIL_BERHASIL) {
+    Serial.println("- Root CA salah (DigiCert Global G2) : diterima?! Periksa kodenya");
+  } else {
+    Serial.println("- Root CA salah (DigiCert Global G2) : gagal karena hal lain, coba lagi");
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  Serial.println();
+  Serial.println("BAB 49 - Program 2: HTTPS Aman dengan setCACert()");
+
+  sambungWiFi();
+  setelJam();
+  jalankanUji();
+  waktuUjiTerakhir = millis();
+}
+
 void loop() {
-  static unsigned long tFetch = 0;
-  if (millis() - tFetch >= FETCH_INTERVAL) {
-    tFetch = millis();
-    fetchHttps();
-  }
-
-  static bool prevWiFi = true;
-  bool currWiFi = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFi && currWiFi) {
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n", WiFi.localIP().toString().c_str());
-    fetchHttps();
-  }
-  if (prevWiFi && !currWiFi)
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-  prevWiFi = currWiFi;
-
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Uptime: %lu s | Heap: %u B\n",
-                  millis() / 1000UL, ESP.getFreeHeap());
+  if (millis() - waktuUjiTerakhir >= JEDA_UJI) {
+    waktuUjiTerakhir = millis();
+    if (WiFi.status() == WL_CONNECTED) {
+      jalankanUji();
+    } else {
+      Serial.println("WiFi terputus, menunggu tersambung ulang...");
+    }
   }
 }

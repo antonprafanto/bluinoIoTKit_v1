@@ -1654,7 +1654,7 @@ MQTT dipakai oleh banyak platform IoT, misalnya Node-RED, Home Assistant, dan Th
 
 ---
 
-[⬅️ BAB 49: 🔐 BAB 49 — HTTPS & Keamanan: `WiFiClientSecure` & TLS/SSL](../BAB-49/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 51: 🌐 BAB 51 — CoAP: Constrained Application Protocol ➡️](../BAB-51/README.md)
+[⬅️ BAB 49: HTTPS & Keamanan](../BAB-49/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 51: CoAP ➡️](../BAB-51/README.md)
 
 ---
 
