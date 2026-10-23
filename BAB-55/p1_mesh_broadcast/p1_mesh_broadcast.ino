@@ -1,112 +1,118 @@
 /*
- * BAB 55 - Program 1: Mesh Broadcast — Semua Node Saling Berkirim Pesan
+ * BAB 55 - Program 1: Mesh Broadcast
+ * Sketch yang SAMA di-upload ke semua board (minimal 2 ESP32).
+ * Setiap 5 detik, setiap node mengirim sapaan ke semua node lain (broadcast)
+ * dan mencetak sapaan yang diterimanya. Perubahan susunan mesh juga dicetak.
  *
- * Sketch ini IDENTIK untuk semua node — upload ke semua ESP32!
- * Setiap node akan otomatis mendapat NodeID unik dari MAC address-nya.
- *
- * Fitur:
- *   ► Setiap node broadcast pesan JSON tiap 5 detik
- *   ► Setiap node terima & print pesan dari node lain
- *   ► Callback onNewConnection: log saat ada node baru masuk
- *   ► Callback onChangedConnections: log topologi & jumlah node
- *   ► Heartbeat ke Serial Monitor tiap 60 detik
- *
- * Library yang dibutuhkan:
- *   painlessMesh (install via Library Manager — lihat 55.4)
- *
- * Cara uji:
- *   1. Upload sketch ini ke ESP32 #1, #2, #3 (semua sama!)
- *   2. Buka Serial Monitor di ESP32 #1 (115200 baud)
- *   3. Amati pesan dari node lain muncul setiap 5 detik
- *   4. Matikan ESP32 #2 → amati pesan dari #3 masih diterima #1 (self-healing!)
+ * Rangkaian: tidak perlu
+ * Library  : Painless Mesh (+ TaskScheduler, ArduinoJson 7, Async TCP)
  */
 
-#include "painlessMesh.h"
+#include <painlessMesh.h>
 
-// ── Konfigurasi Mesh — HARUS SAMA di semua node! ──────────────────────
-#define MESH_PREFIX   "BluinoMesh"
-#define MESH_PASSWORD "bluino2026"
+// Pengaturan mesh: harus SAMA PERSIS di semua node
+#define MESH_PREFIX   "BluinoMesh-andi"  // ← ganti "andi" dengan nama panggilanmu
+#define MESH_PASSWORD "rahasia123"       // minimal 8 karakter
 #define MESH_PORT     5555
+#define MESH_CHANNEL  1
 
-// ── Objek Mesh ────────────────────────────────────────────────────────
-Scheduler     userScheduler;
-painlessMesh  mesh;
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── State ─────────────────────────────────────────────────────────────
-uint32_t broadcastCount = 0;
-uint32_t recvCount      = 0;
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
 
-// ── Fungsi Broadcast (dipanggil oleh Task) ────────────────────────────
-void broadcastMessage() {
-  broadcastCount++;
-  String msg = "{\"nodeId\":" + String(mesh.getNodeId()) +
-               ",\"uptime\":" + String(millis() / 1000) +
-               ",\"seq\":" + String(broadcastCount) +
-               ",\"nodes\":" + String(mesh.getNodeList().size() + 1) + "}";
-  mesh.sendBroadcast(msg);
-  Serial.printf("[MESH] Broadcast #%u: %s\n", broadcastCount, msg.c_str());
+painlessMesh mesh;
+
+Timer timerSapa = {5000, 0};      // kirim sapaan setiap 5 detik
+Timer timerLaporan = {30000, 0};  // ringkasan setiap 30 detik
+unsigned long nomorSapaan = 0;
+unsigned long jumlahDiterima = 0;
+
+// ---------- Fungsi callback (dipanggil dari dalam mesh.update()) ----------
+
+void pesanMasuk(uint32_t dari, String &pesan) {
+  jumlahDiterima = jumlahDiterima + 1;
+  Serial.printf("[TERIMA] dari %lu: %s\n", (unsigned long)dari, pesan.c_str());
 }
 
-// ── Task non-blocking: broadcast tiap 5 detik ─────────────────────────
-Task taskBroadcast(5000, TASK_FOREVER, &broadcastMessage);
-
-// ── Callback: terima pesan dari node lain ─────────────────────────────
-void receivedCallback(uint32_t from, String &msg) {
-  recvCount++;
-  Serial.printf("[MESH] Terima dari %u: %s\n", from, msg.c_str());
+void nodeBaru(uint32_t nodeId) {
+  Serial.printf("[MESH] Tersambung langsung dengan node %lu\n", (unsigned long)nodeId);
 }
 
-// ── Callback: ada node baru bergabung ─────────────────────────────────
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("[MESH] ✅ Node baru bergabung: %u | Total node: %u\n",
-    nodeId, mesh.getNodeList().size() + 1);
+void nodePutus(uint32_t nodeId) {
+  Serial.printf("[MESH] Sambungan langsung ke node %lu putus\n", (unsigned long)nodeId);
 }
 
-// ── Callback: topologi mesh berubah (node masuk/keluar) ───────────────
-void changedConnectionsCallback() {
-  Serial.printf("[MESH] 🔄 Topologi berubah! Total node aktif: %u\n",
-    mesh.getNodeList().size() + 1);
+void susunanBerubah() {
+  // getNodeList(true) = semua node yang dikenal, termasuk node ini
+  Serial.printf("[MESH] Susunan mesh berubah. Jumlah node: %u\n",
+                (unsigned)mesh.getNodeList(true).size());
+  Serial.printf("[MESH] Susunan: %s\n", mesh.subConnectionJson().c_str());
 }
 
-// ── Callback: sinkronisasi waktu mesh selesai ─────────────────────────
-void nodeTimeAdjustedCallback(int32_t offset) {
-  Serial.printf("[MESH] ⏱️ Waktu disinkronkan. Offset: %d µs\n", offset);
+void jamDisesuaikan(int32_t selisih) {
+  Serial.printf("[JAM] Jam mesh disesuaikan %ld mikrodetik\n", (long)selisih);
+}
+
+// ---------- Tugas berkala ----------
+
+void kirimSapaan() {
+  nomorSapaan = nomorSapaan + 1;
+  String pesan = "Halo dari " + String(mesh.getNodeId()) + ", sapaan ke-" + String(nomorSapaan);
+
+  if (mesh.sendBroadcast(pesan)) {
+    Serial.printf("[KIRIM] %s\n", pesan.c_str());
+  } else {
+    Serial.println("[KIRIM] Belum ada node lain, sapaan tidak terkirim");
+  }
+}
+
+void cetakLaporan() {
+  std::list<uint32_t> daftar = mesh.getNodeList();  // node lain (tanpa node ini)
+  Serial.printf("[LAPORAN] Node ini: %lu | node lain: %u | terkirim: %lu | diterima: %lu\n",
+                (unsigned long)mesh.getNodeId(), (unsigned)daftar.size(),
+                nomorSapaan, jumlahDiterima);
+  for (uint32_t id : daftar) {
+    Serial.printf("          - %lu\n", (unsigned long)id);
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== BAB 55 Program 1: Mesh Broadcast ===");
+  Serial.println("\nBAB 55 - Program 1: Mesh Broadcast");
 
-  // Set debug level (gunakan ERROR saja saat sudah stabil)
-  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
+  mesh.setDebugMsgTypes(ERROR | STARTUP);  // panggil sebelum init()
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, MESH_CHANNEL);
 
-  // Inisiasi mesh — satu baris untuk semua!
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
+  mesh.onReceive(&pesanMasuk);
+  mesh.onNewConnection(&nodeBaru);
+  mesh.onDroppedConnection(&nodePutus);
+  mesh.onChangedConnections(&susunanBerubah);
+  mesh.onNodeTimeAdjusted(&jamDisesuaikan);
 
-  // Daftarkan semua callback
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionsCallback);
-  mesh.onNodeTimeAdjusted(&nodeTimeAdjustedCallback);
-
-  // Tambahkan task broadcast ke scheduler
-  userScheduler.addTask(taskBroadcast);
-  taskBroadcast.enable();
-
-  Serial.printf("[MESH] ✅ NodeID saya: %u\n", mesh.getNodeId());
-  Serial.println("[MESH] Menunggu node lain bergabung...");
+  Serial.printf("Node ID saya: %lu\n", (unsigned long)mesh.getNodeId());
+  Serial.printf("Nama mesh   : %s (kanal %d)\n", MESH_PREFIX, MESH_CHANNEL);
+  Serial.println("Mencari node lain...");
 }
 
 void loop() {
-  mesh.update();           // WAJIB — proses semua event mesh
-  userScheduler.execute(); // WAJIB — jalankan semua task terjadwal
+  mesh.update();  // wajib, sesering mungkin
 
-  // Heartbeat (tidak pakai millis() standalone agar aman dengan mesh timing)
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] NodeID:%u | Nodes:%u | Sent:%u | Rcv:%u | Heap:%u B\n",
-      mesh.getNodeId(), mesh.getNodeList().size() + 1,
-      broadcastCount, recvCount, ESP.getFreeHeap());
+  unsigned long sekarang = millis();
+  if (timerSapa.sudahWaktunya(sekarang)) {
+    kirimSapaan();
+  }
+  if (timerLaporan.sudahWaktunya(sekarang)) {
+    cetakLaporan();
   }
 }

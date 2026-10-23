@@ -1,95 +1,90 @@
 /*
- * BAB 55 - Program 3B: Mesh LED Controller — WORKER
+ * BAB 55 - Program 3B: Node Pekerja
+ * Menunggu perintah LED dari controller (Program 3A) atau gateway MQTT
+ * (Program 4), menjalankannya, lalu membalas ke pengirim perintah.
+ * Perintah: {"jenis":"perintah","led":"ON" / "OFF" / "TOGGLE"}
  *
- * Fungsi: Terima perintah LED ON/OFF dari Controller → eksekusi → kirim ACK
- * Upload ke semua ESP32 yang akan menjadi node worker!
- *
- * Hardware: LED onboard di IO2 (built-in semua ESP32)
+ * Rangkaian: LED3 (biru) -> IO2 (opsional; LED biru bawaan board juga di IO2)
+ * Library  : Painless Mesh (+ TaskScheduler, ArduinoJson 7, Async TCP)
  */
 
-#include "painlessMesh.h"
-#include <ArduinoJson.h>
+#include <painlessMesh.h>
 
-// ── Konfigurasi Mesh ──────────────────────────────────────────────────
-#define MESH_PREFIX   "BluinoMesh"
-#define MESH_PASSWORD "bluino2026"
+// Pengaturan mesh: harus SAMA PERSIS di semua node
+#define MESH_PREFIX   "BluinoMesh-andi"  // ← ganti "andi" dengan nama panggilanmu
+#define MESH_PASSWORD "rahasia123"       // minimal 8 karakter
 #define MESH_PORT     5555
+#define MESH_CHANNEL  1                  // Program 4: samakan dengan kanal router
 
-#define LED_PIN 2  // LED onboard ESP32
+#define LED_BIRU 2  // LED3 (biru) di kit dan LED bawaan board
 
-Scheduler    userScheduler;
 painlessMesh mesh;
+bool ledNyala = false;
+unsigned long jumlahPerintah = 0;
 
-bool     ledState  = false;
-uint32_t recvCount = 0;
+void kirimBalasan(uint32_t tujuan) {
+  JsonDocument balasan;
+  balasan["jenis"] = "balasan";
+  balasan["led"] = ledNyala ? "ON" : "OFF";
+  balasan["perintah_ke"] = jumlahPerintah;
+  String teks;
+  serializeJson(balasan, teks);
 
-// ── Set LED dan log ───────────────────────────────────────────────────
-void setLED(bool on) {
-  ledState = on;
-  digitalWrite(LED_PIN, on ? HIGH : LOW);
-  Serial.printf("[WORK] LED → %s\n", on ? "ON" : "OFF");
+  if (mesh.sendSingle(tujuan, teks)) {
+    Serial.printf("[BALAS] ke %lu: %s\n", (unsigned long)tujuan, teks.c_str());
+  } else {
+    Serial.printf("[BALAS] Gagal, tidak ada jalur ke %lu\n", (unsigned long)tujuan);
+  }
 }
 
-// ── Callback: terima perintah dari Controller ─────────────────────────
-void receivedCallback(uint32_t from, String &msg) {
-  StaticJsonDocument<64> doc;
-  if (deserializeJson(doc, msg) != DeserializationError::Ok) return;
-  if (doc["type"] != "cmd" || doc["cmd"] != "LED") return;
+void pesanMasuk(uint32_t dari, String &pesan) {
+  JsonDocument doc;
+  if (deserializeJson(doc, pesan)) {
+    return;  // bukan JSON, abaikan
+  }
+  if (doc["jenis"] != "perintah") {
+    return;  // bukan perintah (misalnya data sensor), abaikan
+  }
 
-  recvCount++;
-  String stateStr = doc["state"].as<String>();
-  stateStr.toUpperCase();
-  bool newState = (stateStr == "ON");
-  Serial.printf("[WORK] Terima #%u perintah dari %u: LED=%s\n",
-    recvCount, from, stateStr.c_str());
+  const char *isi = doc["led"] | "";
+  if (strcasecmp(isi, "ON") == 0) {
+    ledNyala = true;
+  } else if (strcasecmp(isi, "OFF") == 0) {
+    ledNyala = false;
+  } else if (strcasecmp(isi, "TOGGLE") == 0) {
+    ledNyala = !ledNyala;
+  } else {
+    Serial.printf("[PERINTAH] Tidak dikenal dari %lu: %s\n", (unsigned long)dari, pesan.c_str());
+    return;
+  }
 
-  setLED(newState);
-
-  // Kirim ACK balik ke Controller
-  StaticJsonDocument<64> ack;
-  ack["type"]  = "ack";
-  ack["state"] = ledState ? "ON" : "OFF";
-  ack["seq"]   = doc["seq"] | 0;
-  String ackMsg;
-  serializeJson(ack, ackMsg);
-  mesh.sendSingle(from, ackMsg);
-  Serial.printf("[WORK] ACK → Node %u: %s\n", from, ackMsg.c_str());
+  digitalWrite(LED_BIRU, ledNyala ? HIGH : LOW);
+  jumlahPerintah = jumlahPerintah + 1;
+  Serial.printf("[PERINTAH] dari %lu: %s -> LED %s\n",
+                (unsigned long)dari, isi, ledNyala ? "ON" : "OFF");
+  kirimBalasan(dari);  // balas ke pengirim perintah
 }
 
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("[WORK] ✅ Node bergabung: %u\n", nodeId);
-}
-
-void changedConnectionsCallback() {
-  Serial.printf("[WORK] 🔄 Topologi berubah. Aktif: %u node\n",
-    mesh.getNodeList().size() + 1);
+void susunanBerubah() {
+  Serial.printf("[MESH] Susunan berubah. Jumlah node: %u\n",
+                (unsigned)mesh.getNodeList(true).size());
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  setLED(false); // Mulai dalam keadaan OFF
+  pinMode(LED_BIRU, OUTPUT);  // pinMode dulu, baru digitalWrite
+  digitalWrite(LED_BIRU, LOW);
+  Serial.println("\nBAB 55 - Program 3B: Node Pekerja");
 
-  Serial.println("\n=== BAB 55 Program 3B: Mesh LED Worker ===");
+  mesh.setDebugMsgTypes(ERROR);  // hanya pesan error dari library
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, MESH_CHANNEL);
+  mesh.onReceive(&pesanMasuk);
+  mesh.onChangedConnections(&susunanBerubah);
 
-  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionsCallback);
-
-  Serial.printf("[WORK] ✅ NodeID Worker: %u\n", mesh.getNodeId());
-  Serial.println("[WORK] Menunggu perintah dari Controller...");
+  Serial.printf("Node ID pekerja: %lu\n", (unsigned long)mesh.getNodeId());
+  Serial.println("Menunggu perintah...");
 }
 
 void loop() {
-  mesh.update();
-  userScheduler.execute();
-
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Worker:%u | LED:%s | Rcv:%u | Heap:%u B\n",
-      mesh.getNodeId(), ledState?"ON":"OFF", recvCount, ESP.getFreeHeap());
-  }
+  mesh.update();  // wajib, sesering mungkin
 }

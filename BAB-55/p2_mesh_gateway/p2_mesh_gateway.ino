@@ -1,164 +1,219 @@
 /*
- * BAB 55 - Program 2B: Mesh Sensor Network — GATEWAY NODE
+ * BAB 55 - Program 2B: Gateway OLED
+ * Menerima data JSON dari semua node sensor (Program 2A), menyimpan data
+ * terakhir setiap node, lalu menampilkannya di Serial Monitor dan OLED.
+ * OLED opsional: tanpa OLED, data tetap tampil di Serial Monitor.
  *
- * Fungsi: Terima data sensor dari semua Sensor Node → tampilkan di OLED & Serial
- * Upload sketch ini ke ESP32 Gateway (dengan OLED, tanpa DHT11)
- *
- * Fitur:
- *   ► Terima & parse JSON dari semua sensor node
- *   ► Lacak suhu & kelembaban dari NodeID yang berbeda (max 4 node)
- *   ► Tampilkan laporan ringkasan di OLED tiap 5 detik
- *   ► Log suhu tertinggi dari seluruh jaringan
- *
- * Hardware: OLED → SDA=IO21, SCL=IO22
+ * Rangkaian: OLED lewat jumper cap JP (SDA IO21, SCL IO22) - hanya di kit
+ * Library  : Painless Mesh (+ TaskScheduler, ArduinoJson 7, Async TCP),
+ *            Adafruit SSD1306 + Adafruit GFX Library
  */
 
-#include "painlessMesh.h"
+#include <painlessMesh.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <ArduinoJson.h>
 
-// ── Konfigurasi Mesh ──────────────────────────────────────────────────
-#define MESH_PREFIX   "BluinoMesh"
-#define MESH_PASSWORD "bluino2026"
+// Pengaturan mesh: harus SAMA PERSIS di semua node
+#define MESH_PREFIX   "BluinoMesh-andi"  // ← ganti "andi" dengan nama panggilanmu
+#define MESH_PASSWORD "rahasia123"       // minimal 8 karakter
 #define MESH_PORT     5555
+#define MESH_CHANNEL  1
 
-// ── Hardware ──────────────────────────────────────────────────────────
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
+#define ALAMAT_OLED     0x3C
+#define MAKS_NODE       4         // jumlah node sensor yang dicatat
+#define BATAS_DATA_LAMA 30000UL   // data lebih tua dari 30 detik = "hilang"
 
-// ── Objek Mesh ────────────────────────────────────────────────────────
-Scheduler    userScheduler;
-painlessMesh mesh;
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── Struktur untuk menyimpan data tiap sensor node (max 4) ────────────
-struct SensorRecord {
-  uint32_t nodeId;
-  float    temp;
-  float    hum;
-  uint32_t lastSeen; // millis()
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
 };
 
-const int MAX_NODES = 4;
-SensorRecord knownNodes[MAX_NODES];
-int nodeCount = 0;
-uint32_t totalRecv = 0;
+// Data terakhir dari satu node sensor
+struct DataNode {
+  uint32_t nodeId;
+  float suhu;
+  float kelembapan;
+  bool dhtOk;
+  bool simulasi;
+  unsigned long waktuTerima;  // millis() saat data terakhir diterima
+};
 
-// ── Simpan / update data dari sensor node ─────────────────────────────
-void updateNodeData(uint32_t nodeId, float t, float h) {
-  // Cari apakah nodeId sudah ada
-  for (int i = 0; i < nodeCount; i++) {
-    if (knownNodes[i].nodeId == nodeId) {
-      knownNodes[i].temp     = t;
-      knownNodes[i].hum      = h;
-      knownNodes[i].lastSeen = millis();
-      return;
+painlessMesh mesh;
+Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+bool adaOled = false;
+
+DataNode daftarNode[MAKS_NODE];
+int jumlahNode = 0;
+unsigned long jumlahData = 0;
+
+Timer timerLayar = {2000, 0};       // perbarui OLED setiap 2 detik
+Timer timerRingkasan = {30000, 0};  // ringkasan Serial setiap 30 detik
+
+// Cari posisi node di daftar; tambahkan kalau belum ada. Hasil -1 kalau penuh.
+int cariAtauTambahNode(uint32_t nodeId) {
+  for (int i = 0; i < jumlahNode; i++) {
+    if (daftarNode[i].nodeId == nodeId) {
+      return i;
     }
   }
-  // Node baru — tambahkan jika masih ada slot
-  if (nodeCount < MAX_NODES) {
-    knownNodes[nodeCount] = {nodeId, t, h, millis()};
-    nodeCount++;
-    Serial.printf("[GW] Node baru terdaftar: %u (total: %d)\n", nodeId, nodeCount);
+  if (jumlahNode >= MAKS_NODE) {
+    return -1;
+  }
+  daftarNode[jumlahNode].nodeId = nodeId;
+  jumlahNode = jumlahNode + 1;
+  Serial.printf("[GATEWAY] Node sensor baru: %lu (total %d)\n", (unsigned long)nodeId, jumlahNode);
+  return jumlahNode - 1;
+}
+
+bool dataMasihBaru(const DataNode &d) {
+  return millis() - d.waktuTerima < BATAS_DATA_LAMA;
+}
+
+// Dipanggil setiap ada pesan dari node lain
+void pesanMasuk(uint32_t dari, String &pesan) {
+  JsonDocument doc;
+  DeserializationError galat = deserializeJson(doc, pesan);
+  if (galat) {
+    Serial.printf("[GATEWAY] Bukan JSON dari %lu: %s\n", (unsigned long)dari, pesan.c_str());
+    return;
+  }
+  if (doc["jenis"] != "sensor") {
+    return;  // bukan data sensor, abaikan
+  }
+
+  int i = cariAtauTambahNode(dari);
+  if (i < 0) {
+    Serial.printf("[GATEWAY] Daftar penuh, data node %lu diabaikan\n", (unsigned long)dari);
+    return;
+  }
+
+  DataNode &d = daftarNode[i];
+  d.suhu = doc["suhu"] | NAN;  // null -> NAN
+  d.kelembapan = doc["kelembapan"] | NAN;
+  d.dhtOk = (doc["dht_ok"] | false) && !isnan(d.suhu) && !isnan(d.kelembapan);
+  d.simulasi = doc["simulasi"] | false;
+  d.waktuTerima = millis();
+  jumlahData = jumlahData + 1;
+
+  if (d.dhtOk) {
+    Serial.printf("[DATA] Node %lu: suhu %.1f °C, kelembapan %.0f %%%s\n",
+                  (unsigned long)dari, d.suhu, d.kelembapan, d.simulasi ? " (simulasi)" : "");
+  } else {
+    Serial.printf("[DATA] Node %lu: DHT11 gagal dibaca\n", (unsigned long)dari);
   }
 }
 
-// ── Update tampilan OLED ──────────────────────────────────────────────
-void refreshOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-  oled.setCursor(0, 0);
-  oled.printf("Mesh Gateway [%d node]", nodeCount);
-  oled.drawLine(0, 10, 127, 10, WHITE);
+void susunanBerubah() {
+  Serial.printf("[MESH] Susunan berubah. Jumlah node: %u\n",
+                (unsigned)mesh.getNodeList(true).size());
+}
 
-  float maxTemp = -999;
-  int   yPos    = 14;
-  for (int i = 0; i < nodeCount && i < 3; i++) {
-    oled.setCursor(0, yPos);
-    // Tampilkan 6 digit terakhir NodeID saja agar muat layar
-    oled.printf("N%06lu %.1fC %.0f%%",
-      knownNodes[i].nodeId % 1000000UL,
-      knownNodes[i].temp, knownNodes[i].hum);
-    if (knownNodes[i].temp > maxTemp) maxTemp = knownNodes[i].temp;
-    yPos += 10;
+void perbaruiLayar() {
+  if (!adaOled) {
+    return;
   }
-  oled.setCursor(0, 54);
-  oled.printf("Max:%.1fC Rcv:%u", maxTemp, totalRecv);
+  oled.clearDisplay();
+  oled.setCursor(0, 0);
+  oled.printf("Gateway Mesh  node:%u", (unsigned)mesh.getNodeList(true).size());
+  oled.drawLine(0, 10, 127, 10, SSD1306_WHITE);
+
+  float suhuMaks = NAN;
+  for (int i = 0; i < jumlahNode; i++) {
+    DataNode &d = daftarNode[i];
+    oled.setCursor(0, 14 + i * 10);
+    oled.printf("%04lu ", (unsigned long)(d.nodeId % 10000));  // 4 angka terakhir Node ID
+    if (!dataMasihBaru(d)) {
+      oled.print("hilang");
+    } else if (!d.dhtOk) {
+      oled.print("DHT gagal");
+    } else {
+      oled.printf("%.1f", d.suhu);
+      oled.write(248);  // simbol derajat (cp437)
+      oled.printf("C %.0f%%", d.kelembapan);
+      if (d.simulasi) {
+        oled.print(" S");
+      }
+      if (isnan(suhuMaks) || d.suhu > suhuMaks) {
+        suhuMaks = d.suhu;
+      }
+    }
+  }
+  if (jumlahNode == 0) {
+    oled.setCursor(0, 14);
+    oled.print("Menunggu data...");
+  }
+
+  oled.setCursor(0, 56);
+  if (isnan(suhuMaks)) {
+    oled.print("Maks: -");
+  } else {
+    oled.printf("Maks: %.1f", suhuMaks);
+    oled.write(248);
+    oled.print("C");
+  }
   oled.display();
 }
 
-// ── Task: refresh OLED tiap 5 detik ──────────────────────────────────
-Task taskRefreshOLED(5000, TASK_FOREVER, &refreshOLED);
-
-// ── Callback: terima pesan dari sensor node ───────────────────────────
-void receivedCallback(uint32_t from, String &msg) {
-  StaticJsonDocument<128> doc;
-  if (deserializeJson(doc, msg) != DeserializationError::Ok) return;
-  if (doc["type"] != "sensor") return;
-
-  float t = doc["temp"] | 0.0f;
-  float h = doc["hum"]  | 0.0f;
-  totalRecv++;
-  updateNodeData(from, t, h);
-  Serial.printf("[GW] Terima #%u dari Node %u: %.1f°C | %.0f%%\n",
-    totalRecv, from, t, h);
-
-  // Log suhu tertinggi
-  static float maxTempEver = 0;
-  if (t > maxTempEver) {
-    maxTempEver = t;
-    Serial.printf("[GW] 🌡️ Suhu tertinggi baru: %.1f°C dari Node %u\n", t, from);
+void cetakRingkasan() {
+  Serial.printf("[RINGKASAN] Node di mesh: %u | node sensor tercatat: %d | data diterima: %lu\n",
+                (unsigned)mesh.getNodeList(true).size(), jumlahNode, jumlahData);
+  for (int i = 0; i < jumlahNode; i++) {
+    DataNode &d = daftarNode[i];
+    if (!dataMasihBaru(d)) {
+      Serial.printf("  %lu: tidak ada data 30 detik terakhir\n", (unsigned long)d.nodeId);
+    } else if (!d.dhtOk) {
+      Serial.printf("  %lu: DHT11 gagal dibaca\n", (unsigned long)d.nodeId);
+    } else {
+      Serial.printf("  %lu: %.1f °C, %.0f %%\n", (unsigned long)d.nodeId, d.suhu, d.kelembapan);
+    }
   }
-}
-
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("[GW] ✅ Node bergabung: %u | Total: %u\n",
-    nodeId, mesh.getNodeList().size() + 1);
-}
-
-void changedConnectionsCallback() {
-  Serial.printf("[GW] 🔄 Topologi berubah. Aktif: %u node\n",
-    mesh.getNodeList().size() + 1);
 }
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(21, 22);
-  Serial.println("\n=== BAB 55 Program 2B: Mesh Gateway Node ===");
+  Serial.println("\nBAB 55 - Program 2B: Gateway OLED");
 
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-    oled.clearDisplay(); oled.setTextColor(WHITE);
-    oled.setCursor(0, 0); oled.print("Mesh Gateway");
-    oled.setCursor(0, 16); oled.print("Menunggu sensor...");
-    oled.display();
+  // OLED opsional: periksa dulu apakah ada yang menjawab di 0x3C
+  Wire.begin(21, 22);
+  Wire.beginTransmission(ALAMAT_OLED);
+  if (Wire.endTransmission() == 0 && oled.begin(SSD1306_SWITCHCAPVCC, ALAMAT_OLED)) {
+    adaOled = true;
+    oled.cp437(true);  // supaya write(248) = simbol derajat
+    oled.setTextSize(1);
+    oled.setTextColor(SSD1306_WHITE);
+    Serial.println("OLED ditemukan di 0x3C.");
   } else {
-    Serial.println("[OLED] ⚠️ Display tidak terdeteksi.");
+    Serial.println("OLED tidak ditemukan, data hanya tampil di Serial Monitor.");
   }
 
-  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionsCallback);
+  mesh.setDebugMsgTypes(ERROR);  // hanya pesan error dari library
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, MESH_CHANNEL);
+  mesh.onReceive(&pesanMasuk);
+  mesh.onChangedConnections(&susunanBerubah);
 
-  userScheduler.addTask(taskRefreshOLED);
-  taskRefreshOLED.enable();
-
-  Serial.printf("[GW] ✅ NodeID Gateway: %u\n", mesh.getNodeId());
-  Serial.println("[GW] Siap menerima data dari Sensor Node...");
+  Serial.printf("Node ID gateway: %lu\n", (unsigned long)mesh.getNodeId());
+  Serial.println("Menunggu data dari node sensor...");
+  perbaruiLayar();
 }
 
 void loop() {
-  mesh.update();
-  userScheduler.execute();
+  mesh.update();  // wajib, sesering mungkin
 
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] GW NodeID:%u | KnownNodes:%d | Rcv:%u | Heap:%u B\n",
-      mesh.getNodeId(), nodeCount, totalRecv, ESP.getFreeHeap());
+  unsigned long sekarang = millis();
+  if (timerLayar.sudahWaktunya(sekarang)) {
+    perbaruiLayar();
+  }
+  if (timerRingkasan.sudahWaktunya(sekarang)) {
+    cetakRingkasan();
   }
 }

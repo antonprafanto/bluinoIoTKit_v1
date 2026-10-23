@@ -1,118 +1,113 @@
 /*
- * BAB 55 - Program 2A: Mesh Sensor Network — SENSOR NODE
+ * BAB 55 - Program 2A: Node Sensor (DHT11)
+ * Setiap 10 detik membaca DHT11 lalu menyiarkan hasilnya (JSON) ke semua
+ * node di mesh. Gateway (Program 2B atau 4) yang mengolah datanya.
  *
- * Fungsi: Baca DHT11 → kirim data JSON ke seluruh mesh tiap 10 detik
- * Upload sketch ini ke SEMUA ESP32 yang ada sensor DHT11!
- *
- * Setiap node terima data dari sensor node lain juga (mesh sifatnya broadcast)
- *
- * Hardware: DHT11 → IO27
- * Library:  painlessMesh, DHT sensor library (Adafruit)
+ * Rangkaian: DHT (header hijau) -> IO27 (board kit)
+ * Board tanpa DHT11: ubah MODE_SIMULASI menjadi true (angka buatan)
+ * Library  : Painless Mesh (+ TaskScheduler, ArduinoJson 7, Async TCP),
+ *            DHT sensor library + Adafruit Unified Sensor
  */
 
-#include "painlessMesh.h"
+#include <painlessMesh.h>
 #include <DHT.h>
-#include <ArduinoJson.h>
 
-// ── Konfigurasi Mesh ──────────────────────────────────────────────────
-#define MESH_PREFIX   "BluinoMesh"
-#define MESH_PASSWORD "bluino2026"
+// Pengaturan mesh: harus SAMA PERSIS di semua node
+#define MESH_PREFIX   "BluinoMesh-andi"  // ← ganti "andi" dengan nama panggilanmu
+#define MESH_PASSWORD "rahasia123"       // minimal 8 karakter
 #define MESH_PORT     5555
+#define MESH_CHANNEL  1                  // Program 4: samakan dengan kanal router
 
-// ── Hardware ──────────────────────────────────────────────────────────
-#define DHT_PIN 27
-DHT dht(DHT_PIN, DHT11);
+#define PIN_DHT  27
+#define TIPE_DHT DHT11
+#define MODE_SIMULASI false  // true = kirim angka buatan (untuk board tanpa DHT11)
 
-// ── Objek Mesh ────────────────────────────────────────────────────────
-Scheduler    userScheduler;
-painlessMesh mesh;
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── State ─────────────────────────────────────────────────────────────
-float    lastT     = NAN;
-float    lastH     = NAN;
-uint32_t sendCount = 0;
-
-// ── Fungsi: kirim data sensor ke mesh ─────────────────────────────────
-void sendSensorData() {
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (isnan(t) || isnan(h)) {
-    Serial.println("[DHT] ⚠️ Gagal baca sensor, skip kirim.");
-    return;
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
   }
-  lastT = t; lastH = h;
-  sendCount++;
+};
 
-  // Buat JSON payload
-  StaticJsonDocument<128> doc;
-  doc["type"]   = "sensor";
-  doc["nodeId"] = mesh.getNodeId();
-  doc["temp"]   = round(t * 10) / 10.0;
-  doc["hum"]    = round(h);
-  doc["seq"]    = sendCount;
-  doc["uptime"] = millis() / 1000;
+painlessMesh mesh;
+DHT dht(PIN_DHT, TIPE_DHT);
 
-  String msg;
-  serializeJson(doc, msg);
-  mesh.sendBroadcast(msg);
-  Serial.printf("[MESH] → Kirim #%u: %s\n", sendCount, msg.c_str());
+Timer timerKirim = {10000, 0};  // kirim data setiap 10 detik
+unsigned long nomorKirim = 0;
+
+void kirimDataSensor() {
+  float suhu;
+  float kelembapan;
+  if (MODE_SIMULASI) {
+    suhu = 25.0 + random(0, 51) / 10.0;  // angka buatan 25,0 - 30,0
+    kelembapan = random(60, 81);         // angka buatan 60 - 80
+  } else {
+    kelembapan = dht.readHumidity();
+    suhu = dht.readTemperature();
+  }
+  bool dhtOk = !isnan(suhu) && !isnan(kelembapan);
+  nomorKirim = nomorKirim + 1;
+
+  // Susun pesan JSON dengan ArduinoJson 7
+  JsonDocument doc;
+  doc["jenis"] = "sensor";
+  if (dhtOk) {
+    doc["suhu"] = suhu;              // °C
+    doc["kelembapan"] = kelembapan;  // %RH
+  } else {
+    doc["suhu"] = nullptr;  // null = tidak ada data valid
+    doc["kelembapan"] = nullptr;
+    Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["simulasi"] = MODE_SIMULASI;
+  doc["urutan"] = nomorKirim;
+
+  String pesan;
+  serializeJson(doc, pesan);
+
+  if (mesh.sendBroadcast(pesan)) {
+    Serial.printf("[KIRIM] %s\n", pesan.c_str());
+  } else {
+    Serial.printf("[KIRIM] Belum ada node lain, tidak terkirim: %s\n", pesan.c_str());
+  }
 }
 
-// ── Task: kirim sensor tiap 10 detik ─────────────────────────────────
-Task taskSendSensor(10000, TASK_FOREVER, &sendSensorData);
-
-// ── Callback: terima data dari node lain ─────────────────────────────
-void receivedCallback(uint32_t from, String &msg) {
-  StaticJsonDocument<128> doc;
-  if (deserializeJson(doc, msg) != DeserializationError::Ok) return;
-  if (doc["type"] != "sensor") return;
-
-  float t = doc["temp"] | 0.0f;
-  float h = doc["hum"]  | 0.0f;
-  Serial.printf("[MESH] ← Dari Node %u: %.1f°C | %.0f%%\n", from, t, h);
+// Node sensor ikut menerima siaran node lain; cukup dicetak
+void pesanMasuk(uint32_t dari, String &pesan) {
+  Serial.printf("[TERIMA] dari %lu: %s\n", (unsigned long)dari, pesan.c_str());
 }
 
-void newConnectionCallback(uint32_t nodeId) {
-  Serial.printf("[MESH] ✅ Node baru: %u | Total: %u\n",
-    nodeId, mesh.getNodeList().size() + 1);
-}
-
-void changedConnectionsCallback() {
-  Serial.printf("[MESH] 🔄 Topologi berubah. Aktif: %u node\n",
-    mesh.getNodeList().size() + 1);
+void susunanBerubah() {
+  Serial.printf("[MESH] Susunan berubah. Jumlah node: %u\n",
+                (unsigned)mesh.getNodeList(true).size());
 }
 
 void setup() {
   Serial.begin(115200);
+  Serial.println("\nBAB 55 - Program 2A: Node Sensor");
   dht.begin();
-  Serial.println("\n=== BAB 55 Program 2A: Mesh Sensor Node ===");
 
-  mesh.setDebugMsgTypes(ERROR | STARTUP | CONNECTION);
-  mesh.init(MESH_PREFIX, MESH_PASSWORD, &userScheduler, MESH_PORT);
-  mesh.onReceive(&receivedCallback);
-  mesh.onNewConnection(&newConnectionCallback);
-  mesh.onChangedConnections(&changedConnectionsCallback);
+  mesh.setDebugMsgTypes(ERROR);  // hanya pesan error dari library
+  mesh.init(MESH_PREFIX, MESH_PASSWORD, MESH_PORT, WIFI_AP_STA, MESH_CHANNEL);
+  mesh.onReceive(&pesanMasuk);
+  mesh.onChangedConnections(&susunanBerubah);
 
-  userScheduler.addTask(taskSendSensor);
-  taskSendSensor.enable();
-
-  Serial.printf("[MESH] ✅ NodeID: %u\n", mesh.getNodeId());
-
-  // Baca sensor awal
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastT = t; lastH = h;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", t, h);
-  }
+  Serial.printf("Node ID saya: %lu\n", (unsigned long)mesh.getNodeId());
+  Serial.printf("Mode simulasi: %s\n", MODE_SIMULASI ? "YA (angka buatan)" : "tidak (DHT11 asli)");
 }
 
 void loop() {
-  mesh.update();
-  userScheduler.execute();
+  mesh.update();  // wajib, sesering mungkin
 
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Node:%u | Sent:%u | T:%.1f H:%.0f | Heap:%u B\n",
-      mesh.getNodeId(), sendCount, lastT, lastH, ESP.getFreeHeap());
+  if (timerKirim.sudahWaktunya(millis())) {
+    kirimDataSensor();
   }
 }

@@ -2165,7 +2165,7 @@ Aturan yang perlu diingat:
 
 ---
 
-[⬅️ BAB 53: 📡 BAB 53 — BLE (Bluetooth Low Energy): Sensor Nirkabel Hemat Daya](../BAB-53/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 55: 🕸️ BAB 55 — ESP-MESH: Jaringan Mesh Self-Healing Antar ESP32 ➡️](../BAB-55/README.md)
+[⬅️ BAB 53: BLE — Bluetooth Low Energy](../BAB-53/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 55: ESP-MESH ➡️](../BAB-55/README.md)
 
 ---
 
