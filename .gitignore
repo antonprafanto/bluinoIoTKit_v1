@@ -1,2 +1,14 @@
 information.md
 *.bin
+
+# Lingkungan Python lokal
+.venv/
+__pycache__/
+*.pyc
+
+# Berkas administrasi kelas (data mahasiswa & anggaran) — jangan dipublikasikan
+UAS/
+generate_rab.py
+RAB_*.xlsx
+generate_ppt.py
+Template_Presentasi_*.pptx

@@ -1,0 +1,50 @@
+name: Cek Materi
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  dokumen:
+    name: Cek tautan, format, dan sinkronisasi kode
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cek tautan, anchor, dan gambar
+        run: python tools/check_links.py
+      - name: Cek file .ino sinkron dengan README
+        run: python tools/sketch_tool.py check
+      - name: Cek format BAB dan EYD
+        run: python tools/check_style.py --ringkas
+      - name: Cek footer BAB seragam
+        run: python tools/normalize_chapters.py --cek
+
+  compile:
+    name: Compile program (${{ matrix.bagian }}x)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bagian: ["BAB-0", "BAB-1", "BAB-2", "BAB-3", "BAB-4", "BAB-5"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Instal core ESP32 3.3.12 dan library
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+          grep -v '^\s*#' tools/libraries.txt | grep -v '^\s*$' | while IFS= read -r lib; do
+            arduino-cli lib install "$lib"
+          done
+      - name: Compile semua program
+        run: python tools/sketch_tool.py compile $(ls -d ${{ matrix.bagian }}*/ | tr -d '/')

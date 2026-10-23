@@ -1,238 +1,242 @@
 # 📘 ESP32 IoT Mastery — Kit Bluino
 
 <p align="center">
-  <img src="Produk1.jpeg" alt="Bluino ESP32 IoT Starter Shield Top View" width="800"><br>
-  <img src="Produk2.jpeg" alt="Bluino ESP32 IoT Starter Shield Angled Left" width="395">
-  <img src="Produk3.jpeg" alt="Bluino ESP32 IoT Starter Shield Angled Right" width="395">
+  <img src="Produk1.jpeg" alt="Bluino ESP32 IoT Starter Shield tampak atas" width="800"><br>
+  <img src="Produk2.jpeg" alt="Bluino ESP32 IoT Starter Shield tampak serong kiri" width="395">
+  <img src="Produk3.jpeg" alt="Bluino ESP32 IoT Starter Shield tampak serong kanan" width="395">
 </p>
 
-## 📋 Tentang Repository Ini
+## 📋 Tentang Repositori Ini
 
-Repository ini berisi **materi pembelajaran ESP32 IoT lengkap** berbasis **Bluino ESP32 IoT Starter Shield v3.2**. Materi disusun dalam format BAB (chapter) sehingga bisa digunakan secara fleksibel — baik untuk kursus terstruktur maupun belajar mandiri.
+Repositori ini berisi **materi belajar ESP32 dan IoT (*Internet of Things*) berbahasa Indonesia** yang memakai kit **Bluino ESP32 IoT Starter Shield v3.2**. Materinya dibagi menjadi BAB-BAB berurutan, mulai dari "apa itu IoT" sampai protokol modern seperti MQTT, BLE, ESP-NOW, dan Matter. Kamu bisa memakainya untuk kuliah/kursus terstruktur maupun belajar mandiri.
 
-> ⏳ **Status Pengembangan:** Saat ini materi kurikulum telah lulus **audit teknis tingkat rekayasa industri (Gold Standard)** dan rampung 100% hingga **BAB 50: MQTT**. Sisa materi (BAB 51 dan seterusnya) sedang dalam tahap pengembangan dan antrean audit mendalam.
+Setiap BAB ditulis untuk **pemula total**: ada daftar alat yang perlu disiapkan, langkah demi langkah menjalankan program, contoh hasil yang seharusnya muncul, dan tips kalau ada yang belum berhasil.
+
+> ⏳ **Status pengembangan:** BAB 1–56 sudah tersedia dan sedang diseragamkan supaya makin ramah pemula. Semua programnya sedang diuji ulang dengan **esp32 core 3.3.12**. BAB 57–80 dan Lampiran sedang disusun.
+
+## 🚀 Mulai dari Sini
+
+**1. Siapkan perlengkapan**
+
+- Kit Bluino ESP32 IoT Starter Shield (sudah termasuk ESP32 DEVKIT V1 dan kabel *jumper*).
+- Laptop/komputer (Windows, macOS, atau Linux) dan koneksi internet.
+- Kabel USB **data** (bukan kabel yang hanya untuk mengisi daya).
+
+**2. Pasang software** — ikuti [BAB 5: Setup Lingkungan Pengembangan](BAB-05/README.md):
+
+| Software | Versi yang dipakai di materi ini |
+|---|---|
+| Arduino IDE | 2.x (versi terbaru) |
+| *Board package* **esp32 by Espressif Systems** | **3.3.x** (diuji dengan 3.3.12) |
+| *Board* yang dipilih | **ESP32 Dev Module** |
+
+> ⚠️ **Perhatian:** Kode di materi ini memakai API esp32 core **3.x**. Banyak contoh lama di internet masih memakai core 2.x sehingga bisa *error* kalau dicampur.
+
+**3. Unduh materi ini.** Klik tombol hijau **Code → Download ZIP** di bagian atas halaman GitHub, lalu ekstrak. Setiap BAB punya:
+
+- `BAB-XX/README.md` — materi yang kamu baca (bisa langsung dibaca di GitHub);
+- `BAB-XX/pK_nama/pK_nama.ino` — program siap buka di Arduino IDE (**File → Open**).
+
+**4. Belajar berurutan.** Mulai dari [BAB 1](BAB-01/README.md). Setiap BAB menyebutkan prasyaratnya di bagian paling atas.
 
 ## ☕ Dukung Proyek Ini
 
-Kurikulum *engineering-grade* ini dikembangkan dengan dedikasi penuh untuk mendukung kemajuan talenta IoT di Indonesia. Jika repositori ini memberikan manfaat bagi proses belajar, menjadi referensi riset, atau sekadar membantu kelancaran proyek Anda, dukungan Anda akan sangat berarti untuk keberlanjutan pengembangan bab-bab selanjutnya. 
+Kurikulum ini dikembangkan dengan dedikasi penuh untuk mendukung kemajuan talenta IoT di Indonesia. Kalau repositori ini bermanfaat untuk proses belajar, menjadi referensi riset, atau sekadar membantu kelancaran proyekmu, dukunganmu akan sangat berarti untuk keberlanjutan penulisan bab-bab berikutnya.
 
-Anda dapat memberikan apresiasi dan semangat dengan mentraktir penulis secangkir kopi melalui tautan berikut:
+Kamu bisa memberi apresiasi dan semangat dengan mentraktir penulis secangkir kopi melalui tautan berikut:
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
 **💬 Kontak Penulis (Kritik & Saran):**
-Bagi instansi atau individu yang membutuhkan pendampingan teknis, kerja sama riset, pelatihan khusus seputar IoT & ESP32, maupun ingin memberikan **kritik, saran, dan masukan** untuk perbaikan kurikulum ini, silakan hubungi:
+Bagi instansi atau individu yang membutuhkan pendampingan teknis, kerja sama riset, pelatihan khusus seputar IoT & ESP32, atau ingin memberikan **kritik, saran, dan masukan** untuk perbaikan kurikulum ini, silakan hubungi:
 - ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
 - 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)
 
-Anda juga dapat berkontribusi secara langsung dengan membuka **Issue** atau **Pull Request** di repository ini jika menemukan *bug* pada kode atau kesalahan penulisan (*typo*).
+Kamu juga bisa berkontribusi langsung dengan membuka **Issue** atau **Pull Request** kalau menemukan *bug* pada kode atau kesalahan penulisan (*typo*). Baca dulu [Panduan Kontribusi & Gaya Penulisan](CONTRIBUTING.md).
 
 ## 🔧 Komponen Kit
 
 | # | Komponen | Koneksi | Protokol |
 |---|----------|---------|----------|
 | 1 | ESP32 DEVKIT V1 | — | — |
-| 2 | OLED 0.96" 128×64 | SDA=IO21, SCL=IO22 | I2C |
-| 3 | DHT11 (Suhu & Kelembaban) | IO27 + pull-up 4K7Ω | Digital |
-| 4 | DS18B20 (Suhu Presisi) | IO14 + pull-up 4K7Ω | OneWire |
-| 5 | BMP180/BME280 (Barometrik) | SDA=IO21, SCL=IO22 | I2C |
-| 6 | MPU-6050 (Akselerometer/Giroskop) | SDA=IO21, SCL=IO22 | I2C |
-| 7 | RGB LED WS2812 (NeoPixel) | IO12 | Data (RMT) |
-| 8 | Micro SD Adapter | CS=IO5, MOSI=IO23, CLK=IO18, MISO=IO19 | SPI |
-| 9 | Touch Pad | Custom (rek: IO33) | Capacitive |
-| 10 | 4× LED (Merah, Kuning, Hijau, Biru) | Custom + resistor 330Ω | Digital |
-| 11 | 2× Push Button | Custom + pull-down 10KΩ | Digital |
-| 12 | Active Buzzer | Custom | Digital |
-| 13 | Potensiometer 10K | Custom | Analog (ADC) |
-| 14 | LDR (Sensor Cahaya) | Custom + resistor 10KΩ | Analog (ADC) |
-| 15 | PIR AM312 (Sensor Gerak) | Custom | Digital |
-| 16 | Relay 5V + driver BC547 | Custom | Digital |
-| 17 | HC-SR04 Connector (Ultrasonik) | Custom (Trig + Echo) | Digital |
-| 18 | Servo Connector | Custom | PWM |
+| 2 | OLED 0,96" 128×64 | SDA = IO21, SCL = IO22 | I2C |
+| 3 | DHT11 (suhu & kelembapan) | IO27 + *pull-up* 4,7 kΩ | Digital |
+| 4 | DS18B20 (suhu presisi) | IO14 + *pull-up* 4,7 kΩ | OneWire |
+| 5 | BMP180 (tekanan udara) | SDA = IO21, SCL = IO22 | I2C |
+| 6 | MPU-6050 (akselerometer & giroskop) | SDA = IO21, SCL = IO22 | I2C |
+| 7 | RGB LED WS2812 (NeoPixel) | IO12 | Data satu kabel |
+| 8 | Adaptor microSD | CS = IO5, MOSI = IO23, CLK = IO18, MISO = IO19 | SPI |
+| 9 | *Touch pad* | Custom → IO33 (T8) | Kapasitif |
+| 10 | 4 LED (merah, kuning, hijau, biru) | Custom → IO4, IO16, IO17, IO2 (+ resistor 330 Ω) | Digital |
+| 11 | 2 tombol (S1, S2) | Custom → IO15, IO25 (+ *pull-down* 10 kΩ) | Digital |
+| 12 | *Buzzer* aktif | Custom → IO13 | Digital |
+| 13 | Potensiometer 10 kΩ | Custom → IO34 | Analog (ADC1) |
+| 14 | LDR (sensor cahaya) | Custom → IO35 (+ resistor 10 kΩ) | Analog (ADC1) |
+| 15 | PIR AM312 (sensor gerak) | Custom → IO33 | Digital |
+| 16 | *Relay* 5 V + *driver* BC547 | Custom → IO26 | Digital |
+| 17 | Konektor HC-SR04 (ultrasonik) | Custom → Trig IO25, Echo IO36 (wajib pembagi tegangan) | Digital |
+| 18 | Konektor servo | Custom → IO32 | PWM |
 
-> **"Custom"** berarti komponen terhubung ke pin header — pengguna menghubungkan ke GPIO ESP32 yang sesuai menggunakan kabel jumper Dupont.
+> 📌 **Catatan:** **"Custom"** berarti komponen berakhir di pin header bertanda Custom. Kamu menyambungkannya sendiri ke pin ESP32 dengan kabel *jumper* *female-female*. Pin yang tertulis di tabel adalah **pin standar** yang dipakai di seluruh materi — lihat [BAB 6](BAB-06/README.md) untuk penjelasan lengkapnya.
 
-## 📌 Pin Mapping — Koneksi Tetap (Hardwired)
+> 🛒 **Tidak termasuk kit:** sensor HC-SR04 (hanya konektornya), motor servo, kartu microSD, dan ESP32 tambahan untuk BAB yang membutuhkan dua *board* (misalnya ESP-NOW dan ESP-MESH).
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    I2C Bus (Shared)                      │
-│  IO21 (SDA) ──── OLED + BMP180 + MPU-6050               │
-│  IO22 (SCL) ──── OLED + BMP180 + MPU-6050               │
-├─────────────────────────────────────────────────────────┤
-│                    SPI Bus                               │
-│  IO5  (CS)   ──── MicroSD                                │
-│  IO23 (MOSI) ──── MicroSD                                │
-│  IO18 (CLK)  ──── MicroSD                                │
-│  IO19 (MISO) ──── MicroSD                                │
-├─────────────────────────────────────────────────────────┤
-│                   Sensor Digital                         │
-│  IO27 ──── DHT11 (+ pull-up 4K7Ω)                       │
-│  Custom ── Touch Pad (Pilih pin T4-T9 yang tersedia)    │
-│            digunakan bersamaan dalam satu program         │
-│  IO14 ──── DS18B20 (+ pull-up 4K7Ω)                     │
-│  IO12 ──── RGB LED WS2812                                │
-└─────────────────────────────────────────────────────────┘
-```
+## 📌 Peta Pin Standar
 
-## ⚠️ Restricsi GPIO ESP32
+### Sudah terpasang di PCB (tidak perlu kabel)
+
+| Pin ESP32 | Komponen |
+|---|---|
+| IO21 (SDA), IO22 (SCL) | Bus I2C bersama: OLED (`0x3C`), MPU-6050 (`0x68`), BMP180 (`0x77`) |
+| IO5 (CS), IO23 (MOSI), IO18 (CLK), IO19 (MISO) | Bus SPI: adaptor microSD |
+| IO27 | DHT11 |
+| IO14 | DS18B20 |
+| IO12 | RGB LED WS2812 |
+
+### Pin Custom (disambung dengan kabel *jumper*)
+
+| Pin ESP32 | Komponen | Catatan |
+|---|---|---|
+| IO4 / IO16 / IO17 / IO2 | LED merah / kuning / hijau / biru | IO2 juga terhubung ke LED biru bawaan *board* |
+| IO13 | *Buzzer* aktif | |
+| IO26 | *Relay* | |
+| IO15 / IO25 | Tombol S1 / S2 | Ditekan = HIGH |
+| IO33 | PIR **atau** *touch pad* | Pasang salah satu saja |
+| IO34 / IO35 | Potensiometer / LDR | ADC1, aman dipakai bersama WiFi |
+| IO32 | Servo | |
+| IO25 / IO36 | HC-SR04 Trig / Echo | Trig bergantian dengan S2; Echo **wajib** lewat pembagi tegangan |
+
+## ⚠️ Restriksi GPIO ESP32
 
 | GPIO | Status | Keterangan |
 |------|--------|------------|
-| IO0 | ⚠️ Strapping | Boot mode — hindari untuk I/O umum |
-| IO1 | ❌ TX0 | Serial Monitor output — jangan dipakai |
-| IO2 | ⚠️ Strapping | Harus LOW saat boot — bisa dipakai dengan hati-hati |
-| IO3 | ❌ RX0 | Serial Monitor input — jangan dipakai |
-| IO6–IO11 | 🚫 Dilarang | Terhubung ke flash SPI internal |
-| IO12 | ⚠️ Strapping | MTDI pin — harus LOW saat boot. Sudah dipakai WS2812 pada kit ini |
-| IO15 | ⚠️ Strapping | Boot log — bisa dipakai dengan hati-hati |
-| IO34–IO39 | ℹ️ Input Only | Tidak ada internal pull-up, hanya bisa input |
+| IO0 | ⚠️ *Strapping* | Terhubung ke tombol BOOT; LOW saat *reset* = mode unggah program. Hindari untuk I/O umum |
+| IO1, IO3 | ❌ TX0/RX0 | Dipakai Serial Monitor — jangan dipakai |
+| IO2 | ⚠️ *Strapping* | Harus LOW/mengambang saat masuk mode unggah. Aman dipakai untuk LED |
+| IO5 | ⚠️ *Strapping* | Dipakai CS microSD pada kit ini |
+| IO6–IO11 | 🚫 Dilarang | Terhubung ke *flash* SPI internal |
+| IO12 | ⚠️ *Strapping* | Menentukan tegangan *flash* saat *boot* (harus LOW). Dipakai WS2812 pada kit ini |
+| IO15 | ⚠️ *Strapping* | LOW saat *boot* hanya mematikan log *boot*; aman untuk tombol S1 |
+| IO34–IO39 | ℹ️ Hanya input | Tanpa *pull-up/pull-down* internal; IO36/IO39 jangan dipakai untuk *interrupt* |
+| ADC2 (IO0, 2, 4, 12–15, 25–27) | ⚠️ ADC2 | Tidak bisa membaca analog saat WiFi aktif — pakai ADC1 (IO32–IO39) |
 
 ## 📚 Daftar BAB
 
 ### Bagian I — Fondasi & Persiapan
 | BAB | Topik |
 |-----|-------|
-| [BAB 01](BAB-01/) | Apa itu IoT & Embedded Systems |
-| [BAB 02](BAB-02/) | Pengenalan ESP32 |
-| [BAB 03](BAB-03/) | Dasar Elektronika untuk Mikrokontroler |
-| [BAB 04](BAB-04/) | Membaca Schematic & Datasheet |
-| [BAB 05](BAB-05/) | Setup Lingkungan Pengembangan |
-| [BAB 06](BAB-06/) | Pin Mapping Kit Bluino & Restricsi GPIO |
-| [BAB 07](BAB-07/) | Program Pertama — Hello World |
+| [BAB 01](BAB-01/README.md) | Apa itu IoT & Embedded Systems |
+| [BAB 02](BAB-02/README.md) | Pengenalan ESP32 |
+| [BAB 03](BAB-03/README.md) | Dasar Elektronika untuk Mikrokontroler |
+| [BAB 04](BAB-04/README.md) | Membaca Skematik & *Datasheet* |
+| [BAB 05](BAB-05/README.md) | Setup Lingkungan Pengembangan |
+| [BAB 06](BAB-06/README.md) | Pin Mapping Kit Bluino & Restriksi GPIO |
+| [BAB 07](BAB-07/README.md) | Program Pertama — Hello World |
 
 ### Bagian II — GPIO & Sinyal
 | BAB | Topik |
 |-----|-------|
-| [BAB 08](BAB-08/) | Digital Output — LED & Buzzer |
-| [BAB 09](BAB-09/) | Digital Input — Push Button |
-| [BAB 10](BAB-10/) | Interrupt & ISR |
-| [BAB 11](BAB-11/) | Analog Input & ADC |
-| [BAB 12](BAB-12/) | PWM dengan LEDC |
-| [BAB 13](BAB-13/) | DAC — Output Analog Asli |
-| [BAB 14](BAB-14/) | Capacitive Touch |
-| [BAB 15](BAB-15/) | Timer Hardware |
+| [BAB 08](BAB-08/README.md) | Digital Output — LED & *Buzzer* |
+| [BAB 09](BAB-09/README.md) | Digital Input — Push Button |
+| [BAB 10](BAB-10/README.md) | Interrupt & ISR |
+| [BAB 11](BAB-11/README.md) | Analog Input & ADC |
+| [BAB 12](BAB-12/README.md) | PWM dengan LEDC |
+| [BAB 13](BAB-13/README.md) | DAC — Output Analog Asli |
+| [BAB 14](BAB-14/README.md) | Capacitive Touch |
+| [BAB 15](BAB-15/README.md) | Timer Hardware |
 
 ### Bagian III — Pemrograman Embedded Profesional
 | BAB | Topik |
 |-----|-------|
-| [BAB 16](BAB-16/) | Non-Blocking Programming |
-| [BAB 17](BAB-17/) | State Machine |
-| [BAB 18](BAB-18/) | Callback & Event-Driven Programming |
-| [BAB 19](BAB-19/) | Kode Terstruktur — Multi-File |
-| [BAB 20](BAB-20/) | Memory Management |
-| [BAB 21](BAB-21/) | Debugging & Troubleshooting |
+| [BAB 16](BAB-16/README.md) | Non-Blocking Programming |
+| [BAB 17](BAB-17/README.md) | State Machine |
+| [BAB 18](BAB-18/README.md) | Callback & Event-Driven Programming |
+| [BAB 19](BAB-19/README.md) | Kode Terstruktur — Multi-File |
+| [BAB 20](BAB-20/README.md) | Memory Management |
+| [BAB 21](BAB-21/README.md) | Debugging & Troubleshooting |
 
 ### Bagian IV — Protokol Komunikasi
 | BAB | Topik |
 |-----|-------|
-| [BAB 22](BAB-22/) | UART / Serial Communication |
-| [BAB 23](BAB-23/) | I2C — Inter-Integrated Circuit |
-| [BAB 24](BAB-24/) | SPI — Serial Peripheral Interface |
-| [BAB 25](BAB-25/) | OneWire Protocol |
+| [BAB 22](BAB-22/README.md) | UART / Serial Communication |
+| [BAB 23](BAB-23/README.md) | I2C — Inter-Integrated Circuit |
+| [BAB 24](BAB-24/README.md) | SPI — Serial Peripheral Interface |
+| [BAB 25](BAB-25/README.md) | OneWire Protocol |
 
 ### Bagian V — Sensor
 | BAB | Topik |
 |-----|-------|
-| [BAB 26](BAB-26/) | DHT11 — Suhu & Kelembaban |
-| [BAB 27](BAB-27/) | DS18B20 Lanjutan — Deep Sleep, Parasitic Power & Data Filter |
-| [BAB 28](BAB-28/) | BMP180 — Tekanan Udara & Altitude |
-| [BAB 29](BAB-29/) | MPU-6050 — Akselerometer, Giroskop & Filter Orientasi |
-| [BAB 30](BAB-30/) | HC-SR04 — Sensor Jarak Ultrasonik & Deteksi Objek |
-| [BAB 31](BAB-31/) | PIR AM312 — Deteksi Gerakan |
-| [BAB 32](BAB-32/) | LDR — Sensor Cahaya |
-| [BAB 33](BAB-33/) | Sensor Internal ESP32 |
-| [BAB 34](BAB-34/) | Pemrosesan Data Sensor |
+| [BAB 26](BAB-26/README.md) | DHT11 — Suhu & Kelembapan |
+| [BAB 27](BAB-27/README.md) | DS18B20 Lanjutan — Deep Sleep, Parasitic Power & Data Filter |
+| [BAB 28](BAB-28/README.md) | BMP180 — Tekanan Udara & Ketinggian |
+| [BAB 29](BAB-29/README.md) | MPU-6050 — Akselerometer, Giroskop & Filter Orientasi |
+| [BAB 30](BAB-30/README.md) | HC-SR04 — Sensor Jarak Ultrasonik & Deteksi Objek |
+| [BAB 31](BAB-31/README.md) | PIR AM312 — Deteksi Gerakan |
+| [BAB 32](BAB-32/README.md) | LDR — Sensor Cahaya |
+| [BAB 33](BAB-33/README.md) | Sensor Internal ESP32 |
+| [BAB 34](BAB-34/README.md) | Pemrosesan Data Sensor |
 
 ### Bagian VI — Aktuator & Tampilan
 | BAB | Topik |
 |-----|-------|
-| [BAB 35](BAB-35/) | OLED Display 128×64 |
-| [BAB 36](BAB-36/) | RGB LED WS2812 (NeoPixel) |
-| [BAB 37](BAB-37/) | Relay — Kontrol AC/DC |
-| [BAB 38](BAB-38/) | Servo Motor |
+| [BAB 35](BAB-35/README.md) | OLED Display 128×64 |
+| [BAB 36](BAB-36/README.md) | RGB LED WS2812 (NeoPixel) |
+| [BAB 37](BAB-37/README.md) | *Relay* — Kontrol AC/DC |
+| [BAB 38](BAB-38/README.md) | Motor Servo |
 
 ### Bagian VII — Penyimpanan Data
 | BAB | Topik |
 |-----|-------|
-| [BAB 39](BAB-39/) | NVS — Non-Volatile Storage |
-| [BAB 40](BAB-40/) | SPIFFS / LittleFS |
-| [BAB 41](BAB-41/) | MicroSD Card — Data Logging |
+| [BAB 39](BAB-39/README.md) | NVS — Non-Volatile Storage |
+| [BAB 40](BAB-40/README.md) | SPIFFS / LittleFS |
+| [BAB 41](BAB-41/README.md) | MicroSD Card — Data Logging |
 
 ### Bagian VIII — WiFi & Web
 | BAB | Topik |
 |-----|-------|
-| [BAB 42](BAB-42/) | WiFi Station Mode |
-| [BAB 43](BAB-43/) | WiFi Access Point |
-| [BAB 44](BAB-44/) | WiFiManager & Captive Portal |
-| [BAB 45](BAB-45/) | mDNS |
-| [BAB 46](BAB-46/) | Web Server |
-| [BAB 47](BAB-47/) | WebSocket — Real-time |
-| [BAB 48](BAB-48/) | HTTP Client & REST API |
-| [BAB 49](BAB-49/) | HTTPS & Keamanan |
+| [BAB 42](BAB-42/README.md) | WiFi Station Mode |
+| [BAB 43](BAB-43/README.md) | WiFi Access Point |
+| [BAB 44](BAB-44/README.md) | WiFiManager & Captive Portal |
+| [BAB 45](BAB-45/README.md) | mDNS |
+| [BAB 46](BAB-46/README.md) | Web Server |
+| [BAB 47](BAB-47/README.md) | WebSocket — Real-time |
+| [BAB 48](BAB-48/README.md) | HTTP Client & REST API |
+| [BAB 49](BAB-49/README.md) | HTTPS & Keamanan |
 
 ### Bagian IX — Protokol IoT
 | BAB | Topik |
 |-----|-------|
-| [BAB 50](BAB-50/) | MQTT |
-| [BAB 51](BAB-51/) | CoAP |
-| [BAB 52](BAB-52/) | Bluetooth Classic |
-| [BAB 53](BAB-53/) | BLE — Bluetooth Low Energy |
-| [BAB 54](BAB-54/) | ESP-NOW |
-| [BAB 55](BAB-55/) | ESP-MESH |
-| [BAB 56](BAB-56/) | Protokol Modern — Matter & Thread |
+| [BAB 50](BAB-50/README.md) | MQTT |
+| [BAB 51](BAB-51/README.md) | CoAP |
+| [BAB 52](BAB-52/README.md) | Bluetooth Classic |
+| [BAB 53](BAB-53/README.md) | BLE — Bluetooth Low Energy |
+| [BAB 54](BAB-54/README.md) | ESP-NOW |
+| [BAB 55](BAB-55/README.md) | ESP-MESH |
+| [BAB 56](BAB-56/README.md) | Protokol Modern — Matter & Thread |
 
-### Bagian X — IoT Platform & Integrasi
-| BAB | Topik |
-|-----|-------|
-| [BAB 57](BAB-57/) | Blynk |
-| [BAB 58](BAB-58/) | Firebase |
-| [BAB 59](BAB-59/) | ThingsBoard / ThingSpeak |
-| [BAB 60](BAB-60/) | Node-RED |
-| [BAB 61](BAB-61/) | Telegram Bot |
-| [BAB 62](BAB-62/) | Google Sheets Integration |
-| [BAB 63](BAB-63/) | IFTTT |
-| [BAB 64](BAB-64/) | Home Assistant & ESPHome |
-| [BAB 65](BAB-65/) | Cloud IoT Enterprise |
+### 🚧 Segera Hadir
 
-### Bagian XI — Teknik Lanjutan
-| BAB | Topik |
-|-----|-------|
-| [BAB 66](BAB-66/) | FreeRTOS — Multi-Tasking |
-| [BAB 67](BAB-67/) | Dual-Core Programming |
-| [BAB 68](BAB-68/) | Deep Sleep & ULP |
-| [BAB 69](BAB-69/) | OTA Update & Partition Table |
-| [BAB 70](BAB-70/) | Watchdog Timer |
-| [BAB 71](BAB-71/) | Flash Encryption & Secure Boot |
-| [BAB 72](BAB-72/) | Edge Computing & Offline Buffering |
-| [BAB 73](BAB-73/) | Peripheral Lanjutan (I2S, CAN, DMA) |
-| [BAB 74](BAB-74/) | Pengenalan ESP-IDF |
-| [BAB 75](BAB-75/) | Pengenalan MicroPython |
+Bagian berikut sedang disusun dan belum tersedia:
 
-### Bagian XII — Proyek Terpadu
-| BAB | Topik |
-|-----|-------|
-| [BAB 76](BAB-76/) | Smart Home Mini |
-| [BAB 77](BAB-77/) | Weather Station IoT |
-| [BAB 78](BAB-78/) | Security System |
-| [BAB 79](BAB-79/) | Data Logger Portable |
-| [BAB 80](BAB-80/) | Proyek Mandiri |
+| Bagian | BAB |
+|--------|-----|
+| X — IoT Platform & Integrasi | 57 Blynk · 58 Firebase · 59 ThingsBoard/ThingSpeak · 60 Node-RED · 61 Telegram Bot · 62 Google Sheets · 63 IFTTT · 64 Home Assistant & ESPHome · 65 Cloud IoT Enterprise |
+| XI — Teknik Lanjutan | 66 FreeRTOS · 67 Dual-Core · 68 Deep Sleep & ULP · 69 OTA & Partition Table · 70 Watchdog Timer · 71 Flash Encryption & Secure Boot · 72 Edge Computing & Offline Buffering · 73 Peripheral Lanjutan (I2S, CAN, DMA) · 74 Pengenalan ESP-IDF · 75 Pengenalan MicroPython |
+| XII — Proyek Terpadu | 76 Smart Home Mini · 77 Weather Station IoT · 78 Security System · 79 Data Logger Portable · 80 Proyek Mandiri |
+| Lampiran | A Pin Mapping Lengkap · B Daftar Library · C Troubleshooting & FAQ · D Keamanan Hardware · E Git untuk Firmware · F Referensi & Sumber Belajar |
 
-### Lampiran
-| ID | Topik |
-|----|-------|
-| [Lampiran A](Lampiran-A/) | Pin Mapping Lengkap |
-| [Lampiran B](Lampiran-B/) | Daftar Library |
-| [Lampiran C](Lampiran-C/) | Troubleshooting & FAQ |
-| [Lampiran D](Lampiran-D/) | Keamanan Hardware |
-| [Lampiran E](Lampiran-E/) | Git untuk Firmware |
-| [Lampiran F](Lampiran-F/) | Referensi & Sumber Belajar |
+## 🛠️ Untuk Kontributor
+
+- [Panduan Kontribusi & Gaya Penulisan](CONTRIBUTING.md) — template BAB, aturan EYD, peta pin, dan aturan kode.
+- [Sumber Gambar](SUMBER_GAMBAR.md) — daftar semua gambar beserta sumber dan lisensinya.
+- Kode di README adalah sumber utama; file `.ino` dibuat otomatis dengan `python tools/sketch_tool.py extract`.
+- Setiap perubahan dicek otomatis oleh GitHub Actions: tautan, format, sinkronisasi kode, dan *compile* semua program.
 
 ## 📝 Lisensi
 
 Materi ini dibuat untuk tujuan edukasi.
 
-## 🔗 Link
+## 🔗 Tautan
 
 - [Tokopedia — Bluino ESP32 IoT Starter Kit](https://www.tokopedia.com/bluino/esp32-starter-shield-modul-belajar-iot-kit-wifi-bluetooth-1731230521580291235)
 - [Bluino Official](http://www.bluino.com)
