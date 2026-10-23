@@ -1,576 +1,695 @@
 # BAB 45: mDNS — Akses ESP32 dengan Nama Domain Lokal
 
-> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** dan **BAB 44 (WiFiManager & Captive Portal)**. ESP32 harus sudah bisa terhubung ke WiFi router dan mendapatkan alamat IP.
+> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** — ESP32 kamu sudah bisa terhubung ke WiFi dan menampilkan alamat IP-nya di Serial Monitor. Program 3 juga memakai `Preferences` dari **BAB 39 (NVS — Non-Volatile Storage)**.
 
----
+Di BAB 42, setiap kali ESP32 tersambung ke WiFi, kamu harus membuka Serial Monitor dulu untuk tahu alamat IP-nya — deretan angka seperti `192.168.1.105` yang bisa berubah sewaktu-waktu. Di BAB ini kamu akan memberi ESP32 sebuah **nama**, misalnya `bluino.local`, dengan **mDNS** (*Multicast DNS*). Ibaratnya seperti menelepon teman: kamu cukup memilih nama "Budi" di daftar kontak, tidak perlu menghafal nomor HP-nya. Bedanya, dengan mDNS "daftar kontak" itu selalu diperbarui otomatis — ESP32 sendiri yang mengumumkan alamatnya yang terbaru, sehingga laptop dan HP bisa membuka `http://bluino.local` tanpa perlu tahu alamat IP-nya.
 
 ## 📌 Tujuan Pembelajaran
 
-Setelah mempelajari bab ini, kamu akan mampu:
-- Memahami **masalah fundamental IP dinamis** pada perangkat IoT dalam jaringan lokal.
-- Menjelaskan mekanisme teknis **mDNS (Multicast DNS / Zero-configuration Networking)**.
-- Menggunakan library `ESPmDNS` bawaan Arduino Core untuk mengakses ESP32 via nama `bluino.local`.
-- Menggabungkan mDNS dengan **Service Discovery** agar jaringan dapat menemukan kapabilitas perangkat secara otomatis.
-- Membangun sistem **mDNS + Web Server** yang dapat dibuka tanpa mengetahui IP secara langsung.
+Setelah mempelajari BAB ini, kamu bisa:
+
+- Menjelaskan kenapa alamat IP ESP32 bisa berubah (DHCP) dan pilihan cara mengatasinya.
+- Menjelaskan cara kerja mDNS, nama `.local`, dan aturan memberi nama perangkat.
+- Mengetahui laptop dan HP mana yang bisa membuka nama `.local`, serta cara lain kalau tidak bisa.
+- Memberi ESP32 nama `.local` dengan *library* `ESPmDNS` dan mengujinya dengan perintah `ping` dari Command Prompt atau Terminal.
+- Membuka halaman web ESP32 lewat `http://bluino.local` dan mengumumkan layanan web dengan DNS-SD.
+- Mengganti nama mDNS lewat Serial Monitor serta mencari perangkat lain di jaringan dengan `MDNS.queryHost()` dan `MDNS.queryService()`.
+
+## 🧰 Yang Perlu Disiapkan
+
+| Kebutuhan | Keterangan |
+|---|---|
+| *Hardware* | Kit Bluino ESP32 IoT Starter Shield + kabel USB **data** |
+| Kabel *jumper* | Tidak wajib — program memakai LED biru bawaan *board* di IO2. Opsional: 1 kabel *female-female* dari LED3 (biru) ke IO2 supaya LED biru di kit ikut menyala |
+| Komponen tambahan | Tidak ada. Opsional: kit/ESP32 kedua untuk mencoba nama kembar dan pencarian perangkat (Latihan) |
+| *Software* | Arduino IDE 2.x + *board package* **esp32** versi 3.3.x (lihat [BAB 5](../BAB-05/README.md)) |
+| *Library* | Tidak perlu *library* tambahan — `WiFi`, `ESPmDNS`, `WebServer`, dan `Preferences` sudah bawaan *board package* esp32 |
+| Alat uji | **Serial Monitor** Arduino IDE (baud 115200); **Command Prompt** (Windows) atau **Terminal** (macOS/Linux) untuk perintah `ping`; *browser* di laptop atau HP |
+| Jaringan | WiFi **2,4 GHz** (ESP32 tidak mendukung 5 GHz). Laptop/HP harus terhubung ke WiFi yang **sama** dengan ESP32. Hindari WiFi tamu dan WiFi kampus/kantor yang memblokir komunikasi antarperangkat. Internet tidak wajib |
+
+## 📑 Daftar Isi
+
+- [45.1 Kenapa Alamat IP ESP32 Bisa Berubah?](#451-kenapa-alamat-ip-esp32-bisa-berubah)
+- [45.2 Mengenal mDNS dan Nama .local](#452-mengenal-mdns-dan-nama-local)
+- [45.3 Laptop dan HP Mana yang Bisa Membuka .local?](#453-laptop-dan-hp-mana-yang-bisa-membuka-local)
+- [45.4 Library ESPmDNS](#454-library-espmdns)
+- [45.5 Program 1: Memberi Nama ESP32](#455-program-1-memberi-nama-esp32)
+- [45.6 Menguji Nama .local dengan ping](#456-menguji-nama-local-dengan-ping)
+- [45.7 Program 2: Halaman Web di bluino.local](#457-program-2-halaman-web-di-bluinolocal)
+- [45.8 Program 3: Ganti Nama dan Cari Perangkat Lain](#458-program-3-ganti-nama-dan-cari-perangkat-lain)
+- [45.9 Keterbatasan mDNS dan Tips Pemakaian](#459-keterbatasan-mdns-dan-tips-pemakaian)
+- [45.10 Troubleshooting](#4510-troubleshooting)
+- [📝 Rangkuman](#-rangkuman)
+- [💪 Latihan](#-latihan)
+- [📚 Referensi](#-referensi)
 
 ---
 
-## 45.1 Masalah: "Tadi IP-nya berapa ya?"
+## 45.1 Kenapa Alamat IP ESP32 Bisa Berubah?
 
-```
-SKENARIO NYATA DALAM PROYEK IoT:
+Setiap perangkat di jaringan WiFi punya **alamat IP** (*Internet Protocol address*) — semacam nomor rumah supaya data sampai ke perangkat yang benar (lihat [BAB 42](../BAB-42/README.md)). Di jaringan rumah, alamat ini biasanya berbentuk `192.168.x.x`.
 
-  Hari Pertama — Setup:
-  ┌──────────────────────────────────────────────────────┐
-  │  ESP32 terhubung ke WiFi → Router memberi IP:        │
-  │  192.168.1.105                                       │
-  │                                                      │
-  │  Kamu buka browser: http://192.168.1.105 → ✅ Jalan │
-  └──────────────────────────────────────────────────────┘
+Alamat itu diberikan oleh **router** WiFi lewat layanan bernama **DHCP** (*Dynamic Host Configuration Protocol*). Cara kerjanya mirip resepsionis hotel: setiap tamu yang datang diberi nomor kamar yang sedang kosong, dengan masa inap tertentu. Di DHCP, masa pinjam alamat ini disebut ***lease*** — misalnya 24 jam, tergantung pengaturan *router*. Setelah *lease* habis, alamat itu boleh diberikan ke perangkat lain.
 
-  Hari Kedua — Masalah:
-  ┌──────────────────────────────────────────────────────┐
-  │  ESP32 restart/listrik mati → Router memberi IP:     │
-  │  192.168.1.117  (IP BEDA!)                           │
-  │                                                      │
-  │  http://192.168.1.105 → ❌ Tidak ditemukan!         │
-  │  Harus buka Serial Monitor dulu untuk cari IP baru.  │
-  └──────────────────────────────────────────────────────┘
+*Router* biasanya berusaha memberi alamat yang sama ke perangkat yang sama, tetapi **tidak ada jaminan**. Alamat IP ESP32 bisa berubah, misalnya ketika:
 
-MENGAPA IP BISA BERUBAH?
-  
-  Router menggunakan protokol DHCP (Dynamic Host Configuration Protocol).
-  Setiap perangkat yang join jaringan diberi IP dari "kolam" (pool) yang tersedia.
-  IP yang diberikan sifatnya SEMENTARA (lease time biasanya 24 jam).
-  Setelah restart, tidak ada jaminan router akan memberi IP yang sama!
+- ESP32 lama dimatikan, *lease*-nya habis, lalu alamatnya dipakai perangkat lain;
+- *router* di-*restart* atau dikembalikan ke pengaturan pabrik;
+- kit dibawa ke jaringan lain (dari rumah ke kampus atau kos) — di jaringan baru alamatnya pasti berbeda.
 
-SOLUSI 1: Static IP (Pendekatan Primitif)
-  → Tetapkan IP tetap di kode ESP32
-  → Bekerja, TAPI: Bisa konflik IP dengan perangkat lain
-  → Beda subnet di rumah berbeda = harus ganti kode
-  → Bukan cara yang elegan dan portabel
+Contoh yang sering dialami:
 
-SOLUSI 2: mDNS (Cara Modern & Profesional)
-  → ESP32 mengumumkan dirinya dengan nama: "bluino.local"
-  → Semua perangkat di jaringan bisa menemukannya via nama
-  → IP bisa berubah-ubah, nama tetap SAMA selamanya
-  → Tidak perlu server DNS pusat
-```
+| | Hari pertama | Hari berikutnya (ESP32 dan *router* sempat mati) |
+|---|---|---|
+| Alamat IP ESP32 | `192.168.1.105` | `192.168.1.117` |
+| Membuka `http://192.168.1.105` | Berhasil | Gagal — alamatnya sudah pindah |
+| Membuka `http://bluino.local` (mDNS) | Berhasil | Tetap berhasil |
+
+Ada tiga cara umum supaya ESP32 tetap mudah ditemukan:
+
+| Cara | Cara kerja | Kelebihan | Kekurangan |
+|---|---|---|---|
+| IP statis | Alamat IP ditulis tetap di kode ESP32 (`WiFi.config()`) | Tidak butuh dukungan apa pun dari laptop/HP | Bisa bentrok dengan alamat perangkat lain; kode harus diubah kalau pindah jaringan |
+| Reservasi DHCP | Di halaman pengaturan *router*, satu alamat "dipesan" khusus untuk ESP32 berdasarkan alamat MAC-nya | Alamat tetap tanpa mengubah kode | Butuh akses admin *router*; biasanya tidak bisa di jaringan kampus/kantor |
+| mDNS | ESP32 mengumumkan namanya sendiri, misalnya `bluino.local` | Tanpa server dan tanpa mengatur *router*; nama tetap sama di jaringan mana pun | Hanya berlaku di jaringan lokal yang sama; laptop/HP harus mendukung mDNS |
+
+Alamat **MAC** (*Media Access Control*) adalah nomor identitas unik milik perangkat keras WiFi ESP32, seperti nomor rangka pada motor. BAB ini membahas cara ketiga, mDNS. Kamu tetap boleh menggabungkannya dengan reservasi DHCP kalau punya akses ke *router*.
 
 ---
 
-## 45.2 Apa itu mDNS? Protokol "Nama Lokal" Tanpa Server Terpusat
+## 45.2 Mengenal mDNS dan Nama `.local`
 
+### 45.2.1 DNS: Buku Telepon Internet
+
+Saat kamu mengetik `google.com` di *browser*, komputer tidak langsung tahu alamat IP-nya. Komputer bertanya dulu ke **server DNS** (*Domain Name System*), semacam buku telepon raksasa di internet: "`google.com` alamatnya berapa?" Setelah mendapat jawaban, barulah *browser* menghubungi alamat itu.
+
+Masalahnya, server DNS di internet tidak tahu apa-apa tentang ESP32 di kamarmu. Tidak ada yang mencatat bahwa `bluino` sedang memakai alamat `192.168.1.105`.
+
+### 45.2.2 mDNS: Bertanya ke Seluruh Ruangan
+
+**mDNS** (*Multicast DNS*) memecahkan masalah itu **tanpa server**. Bayangkan kamu masuk ke ruang kelas dan berseru, "Yang namanya Budi, angkat tangan!" Budi menjawab dari kursinya — di mana pun ia duduk hari itu. Orang lain cukup diam.
+
+Itulah *multicast*: satu pesan dikirim sekaligus ke sekelompok perangkat di jaringan yang sama, bukan hanya ke satu perangkat (*unicast*). Perangkat yang merasa memiliki nama itu menjawab dengan alamat IP-nya.
+
+```mermaid
+sequenceDiagram
+    participant L as Laptop
+    participant P as Printer
+    participant E as ESP32 (bluino)
+    L-)P: Siapa yang bernama bluino.local?
+    L-)E: Siapa yang bernama bluino.local?
+    Note over P: Bukan saya, diam saja
+    E--)L: Saya! Alamat IP saya 192.168.1.105
+    L->>E: Buka halaman web di 192.168.1.105
 ```
-ARSITEKTUR DNS TRADISIONAL (Yang Biasa Dikenal):
 
-  Kamu              Browser           Server DNS           Server Web
-  ───              ───────           ──────────           ──────────
-   │                  │                   │                    │
-   │ Buka "google.com"│                   │                    │
-   │─────────────────►│                   │                    │
-   │                  │  "google.com ada  │                    │
-   │                  │   di IP berapa?"  │                    │
-   │                  │──────────────────►│                    │
-   │                  │    "216.58.x.x"   │                    │
-   │                  │◄──────────────────│                    │
-   │                  │  HTTP GET ke 216.58.x.x               │
-   │                  │───────────────────────────────────────►│
-   │                  │        Halaman Web                      │
-   │                  │◄───────────────────────────────────────│
+*Gambar 45.1 — Laptop mencari `bluino.local` dengan pesan multicast; hanya ESP32 bernama `bluino` yang menjawab. Sumber: dibuat untuk materi ini.*
 
-  MASALAH: Butuh server DNS terpusat yang selalu online!
-  Di jaringan LOKAL (rumah/lab), tidak ada server publik.
+Jawaban ESP32 sebenarnya juga dikirim secara *multicast*, sehingga perangkat lain ikut mencatatnya. Selain itu, setiap kali tersambung ke WiFi, ESP32 lebih dulu memeriksa apakah namanya sudah dipakai perangkat lain, lalu **mengumumkan** namanya beberapa kali tanpa ditanya supaya perangkat lain cepat tahu (detailnya ada di bagian Pendalaman [45.9](#459-keterbatasan-mdns-dan-tips-pemakaian)).
 
+Beberapa fakta teknis yang perlu kamu tahu:
 
-ARSITEKTUR mDNS (Multicast DNS — RFC 6762):
+| Hal | Keterangan |
+|---|---|
+| Domain | `.local` — khusus jaringan lokal, tidak berlaku di internet |
+| Alamat *multicast* | `224.0.0.251` (IPv4) dan `ff02::fb` (IPv6) |
+| *Port* | UDP 5353 — UDP (*User Datagram Protocol*) adalah cara kirim data yang ringan tanpa "jabat tangan" dulu; *port* adalah nomor "pintu" layanan di sebuah perangkat |
+| Jangkauan | Hanya satu jaringan lokal (satu *subnet*). *Router* tidak meneruskan pesan mDNS ke jaringan lain atau ke internet |
+| Standar | RFC 6762 (mDNS) dan RFC 6763 (DNS-SD) |
+| Nama lain | Bonjour (Apple), Avahi (Linux), Zeroconf (*zero-configuration networking*) |
 
-  Kamu              Browser           Jaringan WiFi         ESP32
-  ───              ───────           ─────────────         ─────
-   │                  │                   │                    │
-   │ Buka "bluino.local"                  │                    │
-   │─────────────────►│                   │                    │
-   │                  │  MULTICAST:       │                    │
-   │                  │  "Siapa yang      │                    │
-   │                  │   punya nama      │                    │
-   │                  │   bluino.local?" ►│────────────────────│
-   │                  │                   │   ESP32: "Saya!    │
-   │                  │                   │   IP saya:         │
-   │                  │                   │◄── 192.168.1.105"  │
-   │                  │◄───────────────────────────────────────│
-   │                  │  HTTP GET ke 192.168.1.105             │
-   │                  │───────────────────────────────────────►│
-   │                  │        Halaman Web                      │
-   │                  │◄───────────────────────────────────────│
+### 45.2.3 DNS-SD: Mengumumkan Layanan
 
-  KEUNGGULAN mDNS:
-  ✅ Tidak butuh server DNS terpusat
-  ✅ Perangkat saling "mengumumkan" keberadaannya via Multicast
-  ✅ IP bisa berubah-ubah, nama tetap sama
-  ✅ Zero-configuration: Plug & Play jaringan lokal
-  ✅ Terintegrasi di macOS (Bonjour), Linux (Avahi), Windows 10+
+Selain nama, mDNS juga bisa mengumumkan **layanan** apa saja yang dimiliki sebuah perangkat. Fitur ini disebut **DNS-SD** (*DNS Service Discovery*). Ibaratnya papan pengumuman di jaringan: "Di `bluino.local` ada *web server* di *port* 80."
 
+Jenis layanan ditulis dengan format `_layanan._protokol`, misalnya:
 
-KOMPONEN TEKNIS mDNS:
+| Jenis layanan | Artinya |
+|---|---|
+| `_http._tcp` | *Web server* (halaman web) |
+| `_ipp._tcp` | Printer jaringan |
+| `_arduino._tcp` | Papan Arduino/ESP32 yang siap menerima *upload* lewat WiFi (OTA) — inilah yang membuat *port* jaringan muncul di menu **Tools → Port** Arduino IDE |
 
-  1. Hostname (Nama Perangkat):
-     bluino.local → Resolusi ke IP perangkat
-     Format: [nama].local (akhiran .local = mDNS domain)
-  
-  2. Service Discovery (DNS-SD, RFC 6763):
-     _http._tcp → "Perangkat ini punya web server HTTP!"
-     _mqtt._tcp → "Perangkat ini bisa dilayani MQTT!"
-     Alat seperti nmap, avahi-browse bisa menemukan layanannya.
-  
-  3. Multicast Address:
-     IPv4: 224.0.0.251 (port 5353)
-     IPv6: ff02::fb    (port 5353)
-     Bukan unicast! Paket dikirim ke SEMUA perangkat di subnet.
-```
+Setiap layanan boleh membawa **catatan TXT**, yaitu informasi tambahan berbentuk `kunci=nilai`, misalnya `board=ESP32 DEVKIT V1`. Aplikasi pencari layanan bisa membaca catatan ini tanpa perlu membuka halaman webnya.
+
+### 45.2.4 Aturan Memberi Nama
+
+Nama mDNS (sering disebut ***hostname***) sebaiknya mengikuti aturan berikut supaya bisa dibuka dari semua perangkat:
+
+- Pakai **huruf kecil** `a`–`z`, **angka** `0`–`9`, dan **tanda hubung** `-` saja.
+- Jangan pakai spasi, garis bawah `_`, titik, atau huruf beraksen.
+- Jangan diawali atau diakhiri tanda hubung.
+- Standarnya membolehkan sampai 63 karakter, tetapi di BAB ini kita batasi **maksimal 31 karakter**, karena `WiFi.setHostname()` di esp32 core hanya menyimpan 31 karakter.
+- Di kode, tulis nama **tanpa** `.local`: `MDNS.begin("bluino")` menghasilkan `bluino.local`.
+- Nama harus **unik** di satu jaringan. Di kelas atau lab yang berisi banyak kit, tambahkan nama atau nomormu, misalnya `bluino-andi` atau `bluino-07`.
+
+| Contoh nama di kode | Boleh? | Alasan |
+|---|---|---|
+| `bluino` | ✅ | Huruf kecil saja |
+| `bluino-andi` | ✅ | Huruf kecil dan tanda hubung |
+| `sensor-dapur-2` | ✅ | Huruf kecil, angka, dan tanda hubung |
+| `Bluino Kit` | ❌ | Ada spasi (dan huruf besar) |
+| `bluino_kit` | ❌ | Garis bawah tidak sah untuk *hostname*, sebagian perangkat menolaknya |
+| `-bluino` | ❌ | Diawali tanda hubung |
+| `bluino.local` | ❌ | Jangan tulis `.local` di kode — ditambahkan otomatis |
+
+> 💡 **Tips:** mDNS tidak membedakan huruf besar dan kecil — `BLUINO.local` sama dengan `bluino.local`. Meski begitu, biasakan selalu menulis huruf kecil supaya tidak membingungkan.
 
 ---
 
-## 45.3 Instalasi Library
+## 45.3 Laptop dan HP Mana yang Bisa Membuka `.local`?
 
-mDNS untuk ESP32 sudah tersedia **sebagai bawaan** dari ESP32 Arduino Core. Tidak perlu instalasi library tambahan apapun:
+ESP32 hanya **mengumumkan** nama. Laptop atau HP yang ingin membuka `bluino.local` juga harus bisa **bertanya** lewat mDNS. *Browser* seperti Chrome dan Edge menyerahkan urusan nama `.local` ke sistem operasi, jadi yang menentukan adalah sistem operasinya.
 
-```
-ESPmDNS.h    → Sudah bawaan ESP32 Arduino Core (tidak perlu download)
-WiFi.h       → Sudah bawaan ESP32 Arduino Core
-WebServer.h  → Sudah bawaan ESP32 Arduino Core (dibutuhkan Program 2 & 3)
-```
+| Perangkat | Bisa membuka `.local`? | Catatan |
+|---|---|---|
+| Windows 11 dan Windows 10 versi 1903 (2019) ke atas | Ya, bawaan | `ping` dan *browser* bisa langsung memakai nama `.local` |
+| Windows 7/8 atau Windows 10 versi lama | Tidak bawaan | Pasang **Bonjour Print Services for Windows** dari Apple (gratis, lihat [📚 Referensi](#-referensi)), lalu *restart* komputer |
+| macOS, iPhone, iPad | Ya, bawaan | Apple menyebutnya **Bonjour**, sudah ada sejak Mac OS X 10.2 (2002) |
+| Linux desktop (Ubuntu, Debian, Fedora, dan lain-lain) | Ya, umumnya bawaan | Butuh layanan **Avahi** dan **nss-mdns**. Kalau belum ada (Ubuntu/Debian): `sudo apt install avahi-daemon libnss-mdns` |
+| Android 12 ke atas | Umumnya ya | Didukung sejak pembaruan sistem Google Play November 2021. **Tidak** berlaku saat VPN aktif atau saat memakai data seluler |
+| Android 11 ke bawah | Umumnya tidak | Pakai alamat IP atau aplikasi bantu (lihat di bawah) |
 
-> ⚠️ **Kompatibilitas OS:**
-> - **macOS:** Native support via Bonjour (sejak macOS 10.2)
-> - **Linux:** Butuh `avahi-daemon` (`sudo apt install avahi-daemon`)
-> - **Windows:** Support native sejak Windows 10 Build 1703 (April 2017)
-> - **Android:** Chrome 90+ dan beberapa browser mendukung `.local`
-> - **iOS/Safari:** Support penuh
+> 📌 **Catatan:** Cara mengecek versi: Windows → tombol Start → ketik `winver` → Enter. Android → **Pengaturan → Tentang ponsel → Versi Android** (letak menunya bisa sedikit berbeda di tiap merek HP).
+
+Kalau perangkatmu tidak bisa membuka nama `.local`, jangan khawatir — ESP32-nya tetap bisa diakses dengan cara lain:
+
+1. **Pakai alamat IP** yang tampil di Serial Monitor. Semua program di BAB ini selalu mencetaknya, misalnya `http://192.168.1.105`.
+2. **Lihat daftar perangkat di halaman admin *router*.** ESP32 muncul dengan nama `bluino` karena program memanggil `WiFi.setHostname()`.
+3. **Pakai aplikasi di HP**, misalnya aplikasi pemindai jaringan seperti **Fing** (Android/iOS) yang menampilkan semua perangkat beserta IP-nya, atau aplikasi pencari layanan mDNS seperti **Service Browser** (Android) yang menampilkan perangkat yang mengumumkan layanan `_http._tcp`.
 
 ---
 
-## 45.4 Program 1: mDNS Minimal — "Nama Mudah untuk ESP32"
+## 45.4 Library ESPmDNS
 
-Program paling sederhana: daftarkan nama `bluino.local` agar ESP32 bisa ditemukan tanpa harus ingat nomor IP.
+*Library* `ESPmDNS` sudah termasuk dalam *board package* esp32, jadi tidak perlu diinstal. Cukup tulis `#include <ESPmDNS.h>` di awal program. *Library* ini menyediakan objek siap pakai bernama `MDNS`.
+
+Urutan pemakaiannya (potongan kode di dalam `setup()`):
 
 ```cpp
+WiFi.setHostname("bluino");          // 1. nama DHCP — panggil SEBELUM WiFi.mode()
+WiFi.mode(WIFI_STA);
+WiFi.begin("NamaWiFiKamu", "PasswordWiFiKamu");  // ← ganti dengan WiFi kamu
+// ... 2. tunggu sampai WiFi.status() == WL_CONNECTED ...
+
+MDNS.begin("bluino");                // 3. mulai mDNS → bluino.local
+MDNS.addService("http", "tcp", 80);  // 4. (opsional) umumkan layanan web di port 80
+```
+
+Fungsi-fungsi yang dipakai di BAB ini:
+
+| Fungsi | Kegunaan | Contoh |
+|---|---|---|
+| `MDNS.begin(nama)` | Mulai mDNS dengan nama tertentu (tanpa `.local`). Menghasilkan `true` kalau berhasil | `MDNS.begin("bluino")` |
+| `MDNS.end()` | Hentikan mDNS. Semua layanan yang sudah diumumkan ikut terhapus | `MDNS.end()` |
+| `MDNS.setInstanceName(teks)` | Nama "ramah" (boleh berspasi) yang tampil di aplikasi pencari layanan | `MDNS.setInstanceName("Kit Bluino Andi")` |
+| `MDNS.addService(layanan, protokol, port)` | Umumkan layanan DNS-SD. Garis bawah `_` di depan ditambahkan otomatis | `MDNS.addService("http", "tcp", 80)` |
+| `MDNS.addServiceTxt(layanan, protokol, kunci, nilai)` | Tambahkan catatan TXT ke layanan yang sudah diumumkan | `MDNS.addServiceTxt("http", "tcp", "path", "/")` |
+| `MDNS.queryHost(nama, waktuTunggu)` | Cari alamat IP perangkat lain dari namanya (**tanpa** `.local`). Menunggu paling lama `waktuTunggu` milidetik (bawaan 2000). Hasil `0.0.0.0` berarti tidak ketemu | `IPAddress ip = MDNS.queryHost("bluino-dapur");` |
+| `MDNS.queryService(layanan, protokol)` | Cari semua perangkat yang mengumumkan layanan tertentu (menunggu ±3 detik). Menghasilkan jumlah perangkat yang ditemukan | `int n = MDNS.queryService("http", "tcp");` |
+| `MDNS.hostname(i)`, `MDNS.address(i)`, `MDNS.port(i)` | Membaca nama (tanpa `.local`), alamat IP, dan *port* hasil ke-`i` dari `queryService()` | `MDNS.address(0)` |
+
+> 📌 **Catatan:** Panggil `MDNS.begin()` **setelah** WiFi terhubung — urutan ini juga dipakai contoh resmi Espressif. Kamu **tidak perlu** memanggil `MDNS.update()` di `loop()`; fungsi itu hanya ada di *library* ESP8266. Di ESP32, mDNS berjalan sendiri di latar belakang. Kalau WiFi terputus lalu tersambung lagi (bahkan dengan alamat IP baru), mDNS otomatis mengumumkan alamat barunya, jadi `MDNS.begin()` tidak perlu dipanggil ulang.
+
+> ⚠️ **Perhatian:** Di esp32 core 3.3.x, `WiFi.setHostname()` hanya berpengaruh kalau dipanggil **sebelum** `WiFi.mode()` atau `WiFi.begin()`. Kalau dipanggil sesudahnya, *router* tetap melihat nama bawaan seperti `esp32-A1B2C3`. Nama DHCP ini berbeda dari nama mDNS: nama DHCP tampil di daftar perangkat pada halaman admin *router*, sedangkan nama mDNS dipakai laptop/HP untuk membuka `bluino.local`. Supaya tidak bingung, samakan keduanya.
+
+---
+
+## 45.5 Program 1: Memberi Nama ESP32
+
+**Tujuan:** ESP32 terhubung ke WiFi, lalu memakai mDNS untuk mengumumkan nama `bluino.local`. LED biru menyala saat mDNS siap, dan setiap 10 detik Serial Monitor menampilkan nama serta alamat IP yang sedang dipakai.
+
+**Rangkaian:**
+
+*Tidak perlu merangkai — program memakai LED biru bawaan board ESP32 di IO2.* Kalau ingin LED biru di kit juga ikut menyala, pasang satu kabel *jumper*:
+
+| Pin **Custom** di kit | Sambungkan ke pin ESP32 |
+|---|---|
+| LED3 (LED biru) — opsional | IO2 |
+
+**Cara Menjalankan:**
+
+1. (Opsional) Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas.
+2. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_nama_mdns.ino`](p1_nama_mdns/p1_nama_mdns.ino).
+3. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan nama dan kata sandi WiFi kamu. Keduanya peka huruf besar-kecil, dan WiFi-nya harus 2,4 GHz.
+4. Kalau ada beberapa kit di WiFi yang sama (misalnya di kelas atau lab), ganti juga `NAMA_MDNS` dengan nama unik, misalnya `"bluino-andi"` (aturan nama ada di [45.2.4](#4524-aturan-memberi-nama)).
+5. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
+6. Klik tombol **Upload** (ikon panah →) dan tunggu sampai muncul tulisan **Done uploading**.
+7. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Kalau tulisan awal terlewat, tekan tombol **EN** di *board* ESP32.
+8. Uji namanya dari laptop dengan perintah `ping` seperti dijelaskan di [45.6](#456-menguji-nama-local-dengan-ping).
+
+**Kode Program:**
+
+<!-- sketch: p1_nama_mdns -->
+```cpp
 /*
- * BAB 45 - Program 1: mDNS Minimal
+ * BAB 45 - Program 1: Memberi Nama ESP32 dengan mDNS
+ * ESP32 terhubung ke WiFi, lalu mengumumkan nama "bluino.local".
+ * Uji dari laptop di WiFi yang sama: ping bluino.local
  *
- * Tujuan: Daftarkan mDNS hostname agar ESP32 bisa diakses via "bluino.local"
- *         tanpa perlu mengetahui nomor IP DHCP yang selalu berubah.
- *
- * Cara Uji:
- *   1. Upload program, buka Serial Monitor (115200 baud)
- *   2. Catat IP yang muncul di Serial
- *   3. Buka Terminal / Command Prompt di PC/Mac:
- *        ping bluino.local        (uji resolusi nama)
- *        ping <nomor IP>          (bandingkan: harusnya sama)
- *   4. Di browser: ketik "bluino.local"
- *      PENTING: Browser akan menampilkan "Koneksi Ditolak / Connection Refused".
- *      MENGAPA? Karena mDNS hanya memberikan NAMA. ESP32 kita belum
- *      diajarkan cara melayani halaman Web (materi ini ada di Program 2).
- *   - Satu nama hanya untuk SATU perangkat di satu jaringan
- *   - Jika ada 2 ESP32 dengan nama sama, gunakan nama berbeda
- *     (misal: bluino-sensor.local, bluino-aktuator.local)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * Rangkaian: tidak perlu (LED biru bawaan board di IO2).
+ *   Opsional: LED3 (biru) → IO2 supaya LED biru di kit ikut menyala.
  */
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";    // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";    // ← Ganti!
+const char* WIFI_SSID     = "NamaWiFiKamu";      // ← ganti dengan WiFi kamu
+const char* WIFI_PASSWORD = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Konfigurasi mDNS ──────────────────────────────────────────────
-const char* MDNS_HOSTNAME = "bluino";      // Akan jadi "bluino.local"
+// Nama mDNS TANPA ".local": huruf kecil, angka, tanda hubung (maks. 31 karakter)
+const char* NAMA_MDNS = "bluino";
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN 2
+#define LED_BIRU 2  // LED biru bawaan board (dan LED3 kit) → IO2
 
-// ── State ─────────────────────────────────────────────────────────
-bool mdnsStarted = false;
+bool mdnsAktif = false;
+unsigned long waktuLaporan = 0;
 
-// ─────────────────────────────────────────────────────────────────
+// Nama yang benar-benar dipakai mDNS saat ini. Bisa berbeda dari NAMA_MDNS
+// kalau nama itu sudah dipakai perangkat lain (misalnya menjadi "bluino-2").
+String namaMdnsAktif() {
+  char nama[MDNS_NAME_BUF_LEN];
+  if (mdns_hostname_get(nama) == ESP_OK) {
+    return String(nama);
+  }
+  return String("");  // mDNS belum berjalan
+}
+
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  pinMode(LED_BIRU, OUTPUT);
+  digitalWrite(LED_BIRU, LOW);
   delay(500);
+  Serial.println();
+  Serial.println("BAB 45 - Program 1: Memberi Nama ESP32 dengan mDNS");
 
-  Serial.println("\n=== BAB 45 Program 1: mDNS Minimal ===");
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
+  // 1. Sambungkan ke WiFi
+  WiFi.setHostname(NAMA_MDNS);  // nama di daftar perangkat router — SEBELUM WiFi.mode()
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_HOSTNAME); // DHCP hostname (berbeda tapi terkait mDNS)
-  WiFi.setAutoReconnect(true);     // Opsional tapi penting agar bisa pulih
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Menghubungkan ke WiFi");
 
-  uint32_t tStart = millis();
+  unsigned long mulai = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Koneksi WiFi timeout. Restart...");
-      delay(2000);
+    if (millis() - mulai >= 20000) {  // menyerah setelah 20 detik
+      Serial.println();
+      Serial.println("Gagal terhubung! Periksa nama dan password WiFi (harus 2,4 GHz).");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
       ESP.restart();
     }
     Serial.print(".");
     delay(500);
   }
   Serial.println();
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("[WiFi] SSID         : %s\n", WiFi.SSID().c_str());
-  Serial.printf("[WiFi] RSSI         : %d dBm\n", WiFi.RSSI());
+  Serial.print("Terhubung! Alamat IP: ");
+  Serial.println(WiFi.localIP());
 
-  // ── Inisialisasi mDNS ─────────────────────────────────────────
-  // WAJIB: mDNS.begin() dipanggil SETELAH WiFi terhubung dan mendapat IP!
-  // Jika dipanggil sebelum WiFi siap, mDNS tidak akan berjalan.
-  if (MDNS.begin(MDNS_HOSTNAME)) {
-    mdnsStarted = true;
-    Serial.println("\n[mDNS] ✅ mDNS aktif!");
-    Serial.printf("[mDNS] Nama Lokal   : http://%s.local\n", MDNS_HOSTNAME);
-    Serial.printf("[mDNS] Alias ke IP  : %s\n", WiFi.localIP().toString().c_str());
-    Serial.println("\n[mDNS] 👇 CARA MENGUJI (LAKUKAN 2 HAL INI):");
-    Serial.println("[mDNS] 1. Terminal / CMD : ping bluino.local");
-    Serial.println("[mDNS] 2. Di Browser Web : http://bluino.local");
-    Serial.println("       (Browser AKAN ERROR 'Connection Refused' karena ESP32");
-    Serial.println("        hanya memberikan Nama, namun belum memiliki pelayan WebServer)");
+  // 2. Mulai mDNS (setelah WiFi terhubung)
+  mdnsAktif = MDNS.begin(NAMA_MDNS);
+  if (mdnsAktif) {
+    Serial.printf("mDNS aktif: %s.local\n", NAMA_MDNS);
+    Serial.printf("Uji dari laptop di WiFi yang sama: ping %s.local\n", NAMA_MDNS);
   } else {
-    Serial.println("[ERR] Gagal memulai mDNS! Cek koneksi WiFi.");
+    Serial.println("Gagal memulai mDNS! Periksa isi NAMA_MDNS.");
   }
-
-  digitalWrite(LED_PIN, mdnsStarted ? HIGH : LOW);
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  // mDNS library ESP32 menangani permintaan multicast secara internal.
-  // Perubahan IP (saat DHCP reconnect) ditangani otomatis oleh 
-  // event listener internal ESPmDNS di background tanpa perlu MDNS.update()
-  // atau me-restart MDNS secara manual.
+  // Tidak perlu MDNS.update(): mDNS berjalan sendiri di latar belakang dan
+  // otomatis mengumumkan alamat IP baru setelah WiFi tersambung ulang.
 
-  // ── Heartbeat Log (Tiap 15 Detik) ──────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 15000UL) {
-    tHb = millis();
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("[Heartbeat] IP: %s | RSSI: %d dBm | Uptime: %lu s\n",
-        WiFi.localIP().toString().c_str(), WiFi.RSSI(), millis() / 1000UL);
-      digitalWrite(LED_PIN, mdnsStarted ? HIGH : LOW);
+  bool wifiTerhubung = (WiFi.status() == WL_CONNECTED);
+  digitalWrite(LED_BIRU, (wifiTerhubung && mdnsAktif) ? HIGH : LOW);  // menyala = siap
+
+  // Laporan status setiap 10 detik (tanpa delay, lihat BAB 16)
+  if (millis() - waktuLaporan >= 10000) {
+    waktuLaporan = millis();
+    if (!wifiTerhubung) {
+      Serial.println("WiFi terputus, menunggu tersambung ulang...");
+    } else if (mdnsAktif) {
+      Serial.printf("Nama: %s.local | IP: %s\n",
+                    namaMdnsAktif().c_str(), WiFi.localIP().toString().c_str());
     } else {
-      Serial.println("[WiFi] ⚠️ Menunggu koneksi...");
-      digitalWrite(LED_PIN, LOW);
+      Serial.printf("mDNS tidak aktif | IP: %s\n", WiFi.localIP().toString().c_str());
     }
   }
 }
 ```
 
-**Cara Menguji di PC/Mac/Linux:**
+**Penjelasan Kode:**
+
+- `#include <ESPmDNS.h>` memuat *library* mDNS bawaan *board package* esp32. Objek `MDNS` langsung bisa dipakai tanpa perlu dibuat sendiri.
+- `WiFi.setHostname(NAMA_MDNS)` memberi nama DHCP, yaitu nama yang tampil di daftar perangkat pada halaman admin *router*. Baris ini harus ada **sebelum** `WiFi.mode()` (lihat [45.4](#454-library-espmdns)).
+- *Loop* `while` menunggu WiFi terhubung paling lama 20 detik. Kalau gagal, ESP32 menampilkan pesan lalu *restart* untuk mencoba lagi. `delay()` di sini tidak masalah karena program memang belum bisa bekerja tanpa WiFi.
+- `MDNS.begin(NAMA_MDNS)` menjalankan mDNS dengan nama `bluino`, sehingga perangkat lain bisa mencarinya sebagai `bluino.local`. Hasilnya (`true`/`false`) disimpan di `mdnsAktif`. `MDNS.begin()` gagal kalau namanya kosong atau terlalu panjang.
+- Fungsi `namaMdnsAktif()` membaca nama yang **benar-benar** dipakai lewat fungsi ESP-IDF `mdns_hostname_get()`. Kalau ternyata sudah ada perangkat lain bernama `bluino` di jaringan, mDNS ESP32 bisa otomatis mengganti namanya menjadi `bluino-2`. Laporan setiap 10 detik akan memperlihatkannya.
+- Di `loop()` tidak ada perintah mDNS sama sekali: mDNS berjalan sendiri di latar belakang. LED biru diperbarui setiap putaran `loop()`: menyala selama WiFi terhubung dan mDNS aktif.
+- Laporan berkala memakai pola `millis()` dari [BAB 16](../BAB-16/README.md), sehingga `loop()` tidak pernah berhenti menunggu.
+
+**Contoh Output:**
+
+```text
+BAB 45 - Program 1: Memberi Nama ESP32 dengan mDNS
+Menghubungkan ke WiFi.....
+Terhubung! Alamat IP: 192.168.1.105
+mDNS aktif: bluino.local
+Uji dari laptop di WiFi yang sama: ping bluino.local
+Nama: bluino.local | IP: 192.168.1.105
+Nama: bluino.local | IP: 192.168.1.105
 ```
-# Di Terminal / Command Prompt:
 
-ping bluino.local
-# Output: Reply from 192.168.1.105 (IP akan menyesuaikan)
+Alamat IP-mu hampir pasti berbeda — itu wajar. Di kit, LED biru menyala begitu mDNS siap dan padam kalau WiFi terputus. Kalau ada perangkat lain yang sudah memakai nama `bluino` di jaringan yang sama, laporan berkala bisa menampilkan `Nama: bluino-2.local | ...`. Artinya, ESP32 kamu sekarang harus dibuka dengan nama `bluino-2.local` (lebih baik: ganti `NAMA_MDNS` dengan nama unik).
 
-# Di browser — cukup ketik:
-http://bluino.local
-# (Belum ada web server, tapi nama sudah resolve ke IP)
+Membuka `http://bluino.local` di *browser* sekarang akan gagal (misalnya muncul tulisan *refused to connect*). Itu normal: Program 1 baru memberi **nama**, belum punya *web server*. Halaman web dibuat di Program 2.
 
-# Di Linux — daftar semua perangkat mDNS di jaringan:
-avahi-browse -a -t
-```
+**Kalau Belum Berhasil:**
+
+- **Titik-titik terus bertambah, lalu muncul `Gagal terhubung!`** → nama/kata sandi WiFi salah (perhatikan huruf besar-kecil) atau WiFi-nya 5 GHz. Pakai WiFi 2,4 GHz, misalnya *hotspot* HP yang diatur ke 2,4 GHz.
+- **Muncul `Gagal memulai mDNS!`** → isi `NAMA_MDNS` kosong atau terlalu panjang. Pakai nama pendek sesuai [45.2.4](#4524-aturan-memberi-nama).
+- **Serial Monitor normal, tetapi `ping bluino.local` gagal** → lihat bagian berikutnya ([45.6](#456-menguji-nama-local-dengan-ping)) dan tabel [45.10 Troubleshooting](#4510-troubleshooting).
+- **Serial Monitor hanya menampilkan huruf acak** → baud Serial Monitor belum 115200.
 
 ---
 
-## 45.5 Program 2: mDNS + Service Discovery + Web Server
+## 45.6 Menguji Nama `.local` dengan `ping`
 
-Program ini menggabungkan mDNS dengan **DNS-SD (Service Discovery)** dan sebuah Web Server sederhana. Membuka `http://bluino.local` dari browser akan langsung menampilkan halaman status ESP32.
+`ping` adalah perintah bawaan Windows, macOS, dan Linux untuk mengecek apakah sebuah perangkat bisa dihubungi. `ping` mengirim beberapa paket kecil dan menunggu balasannya. Kalau nama `bluino.local` berhasil diterjemahkan menjadi alamat IP **dan** ESP32 membalas, berarti mDNS bekerja.
 
+Sebelum mulai, pastikan Program 1 sedang berjalan dan laptopmu terhubung ke WiFi yang **sama** dengan ESP32.
+
+### 45.6.1 Windows (Command Prompt)
+
+1. Klik tombol **Start**, ketik `cmd`, lalu tekan Enter. Jendela **Command Prompt** berlatar hitam akan terbuka.
+2. Ketik perintah berikut, lalu tekan Enter:
+
+```bash
+ping bluino.local
+```
+
+Contoh hasilnya (angkamu bisa berbeda; kalau Windows-mu berbahasa Indonesia, tulisannya juga berbahasa Indonesia):
+
+```text
+Pinging bluino.local [192.168.1.105] with 32 bytes of data:
+Reply from 192.168.1.105: bytes=32 time=48ms TTL=64
+Reply from 192.168.1.105: bytes=32 time=12ms TTL=64
+Reply from 192.168.1.105: bytes=32 time=95ms TTL=64
+Reply from 192.168.1.105: bytes=32 time=33ms TTL=64
+
+Ping statistics for 192.168.1.105:
+    Packets: Sent = 4, Received = 4, Lost = 0 (0% loss),
+Approximate round trip times in milli-seconds:
+    Minimum = 12ms, Maximum = 95ms, Average = 47ms
+```
+
+Cara membacanya:
+
+- Alamat di dalam kurung siku `[192.168.1.105]` adalah hasil pencarian mDNS. Alamat ini harus **sama** dengan alamat IP di Serial Monitor.
+- Baris `Reply from ...` berarti ESP32 membalas. Waktu balasan (`time=`) yang naik-turun puluhan milidetik itu wajar, karena WiFi ESP32 memakai mode hemat daya secara *default*.
+- Kalau muncul `Ping request could not find host bluino.local`, berarti nama `.local` tidak ditemukan. Kalau muncul `Request timed out`, berarti namanya ditemukan, tetapi ESP32 tidak membalas. Cari penyebabnya di [45.10 Troubleshooting](#4510-troubleshooting).
+
+### 45.6.2 macOS dan Linux (Terminal)
+
+1. Buka **Terminal**. Di macOS: tekan **Command + Spasi**, ketik `Terminal`, lalu Enter. Di Ubuntu: tekan **Ctrl + Alt + T**.
+2. Ketik perintah berikut, lalu tekan Enter. Opsi `-c 4` artinya kirim 4 kali saja; tanpa opsi itu `ping` berjalan terus sampai kamu menekan **Ctrl + C**.
+
+```bash
+ping -c 4 bluino.local
+```
+
+Contoh hasilnya di macOS (tampilan di Linux sedikit berbeda, angkamu juga bisa berbeda):
+
+```text
+PING bluino.local (192.168.1.105): 56 data bytes
+64 bytes from 192.168.1.105: icmp_seq=0 ttl=64 time=41.200 ms
+64 bytes from 192.168.1.105: icmp_seq=1 ttl=64 time=10.800 ms
+64 bytes from 192.168.1.105: icmp_seq=2 ttl=64 time=87.400 ms
+64 bytes from 192.168.1.105: icmp_seq=3 ttl=64 time=24.600 ms
+
+--- bluino.local ping statistics ---
+4 packets transmitted, 4 packets received, 0.0% packet loss
+round-trip min/avg/max/stddev = 10.800/41.000/87.400/28.870 ms
+```
+
+Di Linux, kamu juga bisa menanyakan alamat sebuah nama `.local` tanpa mengirim `ping`. Perintah ini butuh paket `avahi-utils` (di Ubuntu/Debian: `sudo apt install avahi-utils`):
+
+```bash
+avahi-resolve -n bluino.local
+```
+
+Hasilnya berupa nama dan alamat IP, misalnya `bluino.local    192.168.1.105`.
+
+### 45.6.3 Di HP
+
+HP tidak punya perintah `ping` bawaan. Cara paling mudah menguji nama `.local` dari HP adalah membuka halaman web ESP32 di Program 2 berikut. Ingat, HP harus tersambung ke WiFi yang sama (bukan data seluler), dan VPN di HP sebaiknya dimatikan dulu.
+
+---
+
+## 45.7 Program 2: Halaman Web di `bluino.local`
+
+**Tujuan:** ESP32 menjalankan *web server* kecil sehingga `http://bluino.local` bisa dibuka dari *browser* laptop atau HP. ESP32 juga mengumumkan layanan web-nya (`_http._tcp`) dengan DNS-SD, sehingga aplikasi pencari layanan bisa menemukannya.
+
+Program ini sengaja dibuat sederhana: halamannya hanya berisi teks. Cara membuat halaman web yang lebih lengkap (tombol, formulir, *dashboard*) dibahas di [BAB 46](../BAB-46/README.md).
+
+**Rangkaian:**
+
+*Tidak perlu merangkai — program memakai LED biru bawaan board ESP32 di IO2.* Opsional: LED3 (LED biru) → IO2, sama seperti Program 1.
+
+**Cara Menjalankan:**
+
+1. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_web_mdns.ino`](p2_web_mdns/p2_web_mdns.ino).
+2. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan WiFi kamu (2,4 GHz, peka huruf besar-kecil). Kalau ada beberapa kit di WiFi yang sama, ganti juga `NAMA_MDNS` dengan nama unik.
+3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu.
+4. Klik **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
+5. Buka **Serial Monitor** (baud **115200**) dan catat alamat IP yang tampil sebagai cadangan.
+6. Di laptop atau HP yang tersambung ke WiFi yang **sama**, buka *browser* (Chrome, Edge, Safari, atau Firefox), lalu ketik alamat lengkap **beserta `http://`** di kolom alamat:
+
+```text
+http://bluino.local
+```
+
+**Kode Program:**
+
+<!-- sketch: p2_web_mdns -->
 ```cpp
 /*
- * BAB 45 - Program 2: mDNS + Service Discovery + Web Server
+ * BAB 45 - Program 2: Halaman Web di bluino.local
+ * ESP32 menjalankan web server kecil dan mengumumkan layanan _http._tcp.
+ * Buka dari browser di WiFi yang sama: http://bluino.local
  *
- * Fitur:
- *   ▶ mDNS Hostname: http://bluino.local
- *   ▶ DNS-SD Service Discovery: mengumumkan layanan _http._tcp
- *   ▶ Web Server: halaman status perangkat (IP, RSSI, Uptime)
- *
- * Cara Uji:
- *   1. Upload & buka Serial Monitor
- *   2. Buka browser → http://bluino.local (tanpa perlu tahu IP!)
- *   3. Di Mac: Finder > Go > Network → perangkat "bluino" akan terlihat
- *   4. Di Linux: avahi-browse _http._tcp
- *   5. Di Windows: File Explorer > Network
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * Rangkaian: tidak perlu (LED biru bawaan board di IO2).
+ *   Opsional: LED3 (biru) → IO2.
  */
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID    = "NamaWiFiKamu";   // ← Ganti!
-const char* WIFI_PASS    = "PasswordWiFi";   // ← Ganti!
-const char* MDNS_NAME    = "bluino";         // Akses via bluino.local
-const char* DEVICE_MODEL = "Bluino IoT Kit v3.2";
+const char* WIFI_SSID     = "NamaWiFiKamu";      // ← ganti dengan WiFi kamu
+const char* WIFI_PASSWORD = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN 2
+const char* NAMA_MDNS = "bluino";  // → http://bluino.local
 
-// ── Objek Utama ───────────────────────────────────────────────────
-WebServer server(80);
+#define LED_BIRU 2  // LED biru bawaan board (dan LED3 kit) → IO2
 
-// ─────────────────────────────────────────────────────────────────
-// HTML: Halaman Status Perangkat
-// ─────────────────────────────────────────────────────────────────
-String buildStatusPage() {
-  String uptime;
-  uint32_t s = millis() / 1000;
-  uint32_t h = s / 3600; s %= 3600;
-  uint32_t m = s / 60;   s %= 60;
-  uptime.reserve(20);
-  uptime += h; uptime += "j "; uptime += m; uptime += "m "; uptime += s; uptime += "d";
+WebServer server(80);  // web server di port 80 (port standar HTTP)
 
-  // Single-Shot Memory Allocation - Praktik terbaik menghindari heap fragmentation 
-  // dengan memesan total keseluruhan ukuran buffer di awal secara absolut.
-  String html;
-  html.reserve(3500); 
-  
-  // Gunakan += (Append) untuk menggunakan memori yang sudah dialokasikan sepenuhnya
-  html += R"rawhtml(
-<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="10">
-  <title>Bluino IoT — Status</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; background: #0f0f1a;
-           color: #e0e0e0; min-height: 100vh;
-           display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #1a1a2e; border-radius: 16px; padding: 32px;
-            width: 100%; max-width: 420px;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
-    h2 { color: #4fc3f7; margin-bottom: 4px; display: flex; align-items: center; gap: 10px; }
-    .subtitle { color: #666; font-size: 0.82rem; margin-bottom: 24px; }
-    .row { display: flex; justify-content: space-between; align-items: center;
-           padding: 10px 0; border-bottom: 1px solid #1e2a3a; }
-    .row:last-child { border-bottom: none; }
-    .label { color: #888; font-size: 0.88rem; }
-    .value { color: #e0e0e0; font-size: 0.9rem; font-weight: bold; text-align: right; }
-    .online { color: #81c784; }
-    .chip   { background: #0f3460; color: #4fc3f7; padding: 2px 8px;
-              border-radius: 6px; font-size: 0.75rem; }
-    .footer { text-align: center; color: #444; font-size: 0.75rem; margin-top: 20px; }
-  </style>
-</head>
-<body>
-<div class="card">
-  <h2>⚡ Bluino IoT Kit</h2>
-  <p class="subtitle">Status Perangkat Real-Time (Auto-refresh 10s)</p>
-
-  <div class="row">
-    <span class="label">Status Jaringan</span>
-    <span class="value online">🟢 Online</span>
-  </div>
-  <div class="row">
-    <span class="label">Hostname mDNS</span>
-    <span class="value"><span class="chip">bluino.local</span></span>
-  </div>
-)rawhtml";
-
-  // Sanitasi Khusus XSS DOM Injection untuk SSID
-  String safeSSID = WiFi.SSID();
-  safeSSID.replace("&", "&amp;");
-  safeSSID.replace("<", "&lt;");
-  safeSSID.replace(">", "&gt;");
-
-  html += "  <div class=\"row\"><span class=\"label\">Alamat IP</span>";
-  html += "<span class=\"value\">";
-  html += WiFi.localIP().toString();
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">SSID WiFi</span>";
-  html += "<span class=\"value\">";
-  html += safeSSID;
-  html += "</span></div>\n";
-
-  int rssi = WiFi.RSSI();
-  String rssiIcon = (rssi >= -65) ? "🟢" : (rssi >= -80) ? "🟡" : "🔴";
-  html += "  <div class=\"row\"><span class=\"label\">Kekuatan Sinyal</span>";
-  html += "<span class=\"value\">";
-  html += rssiIcon;
-  html += " ";
-  html += rssi;
-  html += " dBm</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Model Perangkat</span>";
-  html += "<span class=\"value\">";
-  html += DEVICE_MODEL;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Uptime</span>";
-  html += "<span class=\"value\">";
-  html += uptime;
-  html += "</span></div>\n";
-
-  uint32_t freeHeap = ESP.getFreeHeap();
-  html += "  <div class=\"row\"><span class=\"label\">Heap Bebas</span>";
-  html += "<span class=\"value\">";
-  html += (freeHeap / 1024);
-  html += " KB</span></div>\n";
-
-  html += R"rawhtml(
-  <p class="footer">Halaman ini otomatis refresh tiap 10 detik.</p>
-</div>
-</body>
-</html>
-)rawhtml";
-
-  return html;
+// Nama yang benar-benar dipakai mDNS (bisa menjadi "bluino-2" kalau namanya kembar)
+String namaMdnsAktif() {
+  char nama[MDNS_NAME_BUF_LEN];
+  if (mdns_hostname_get(nama) == ESP_OK) {
+    return String(nama);
+  }
+  return String(NAMA_MDNS);
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Handler Web Server
-// ─────────────────────────────────────────────────────────────────
+// Dipanggil setiap kali ada yang membuka http://bluino.local/
 void handleRoot() {
-  digitalWrite(LED_PIN, LOW); // Indikator fisik (Lampu redup mendadak)
-  Serial.printf("[HTTP] GET / dari %s\n",
-    server.client().remoteIP().toString().c_str());
-  server.send(200, "text/html", buildStatusPage());
-  digitalWrite(LED_PIN, HIGH); // Menyala penuh kembali
+  String html;
+  html += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>ESP32 Bluino</title></head>";
+  html += "<body style=\"font-family:sans-serif;max-width:480px;margin:auto;padding:16px\">";
+  html += "<h1>Halo dari ESP32!</h1>";
+  html += "<p>Nama mDNS: <b>http://" + namaMdnsAktif() + ".local</b></p>";
+  html += "<p>Alamat IP: <b>" + WiFi.localIP().toString() + "</b></p>";
+  html += "<p>Kekuatan sinyal WiFi: <b>" + String(WiFi.RSSI()) + " dBm</b></p>";
+  html += "<p>Menyala sejak: <b>" + String(millis() / 1000) + " detik</b> yang lalu</p>";
+  html += "<p>Muat ulang halaman ini untuk memperbarui angka.</p>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+
+  Serial.printf("Halaman dibuka dari %s\n", server.client().remoteIP().toString().c_str());
 }
 
+// Dipanggil kalau alamat yang diminta tidak dikenal, misalnya /abc
 void handleNotFound() {
-  server.sendHeader("Location", "http://bluino.local/", true);
-  server.send(302, "text/plain", "");
+  server.send(404, "text/plain", "Halaman tidak ditemukan");
 }
 
-// ─────────────────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  pinMode(LED_BIRU, OUTPUT);
+  digitalWrite(LED_BIRU, LOW);
   delay(500);
+  Serial.println();
+  Serial.println("BAB 45 - Program 2: Halaman Web di bluino.local");
 
-  Serial.println("\n=== BAB 45 Program 2: mDNS + Service Discovery ===");
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
+  // 1. Sambungkan ke WiFi
+  WiFi.setHostname(NAMA_MDNS);  // SEBELUM WiFi.mode()
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Menghubungkan ke WiFi");
 
-  uint32_t tStart = millis();
+  unsigned long mulai = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout. Restart...");
-      delay(2000);
+    if (millis() - mulai >= 20000) {  // menyerah setelah 20 detik
+      Serial.println();
+      Serial.println("Gagal terhubung! Periksa nama dan password WiFi (harus 2,4 GHz).");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
       ESP.restart();
     }
     Serial.print(".");
     delay(500);
   }
   Serial.println();
-  Serial.printf("[WiFi] ✅ IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.print("Terhubung! Alamat IP: ");
+  Serial.println(WiFi.localIP());
 
-  // ── Inisialisasi mDNS ─────────────────────────────────────────
-  if (!MDNS.begin(MDNS_NAME)) {
-    Serial.println("[ERR] Gagal memulai mDNS!");
-    // Tidak fatal — Web Server tetap bisa diakses via IP
+  // 2. Mulai mDNS dan umumkan layanan web (DNS-SD)
+  bool mdnsAktif = MDNS.begin(NAMA_MDNS);
+  if (mdnsAktif) {
+    MDNS.setInstanceName("Kit Bluino ESP32");                       // nama ramah di aplikasi pencari layanan
+    MDNS.addService("http", "tcp", 80);                             // layanan _http._tcp di port 80
+    MDNS.addServiceTxt("http", "tcp", "path", "/");                 // catatan TXT: halaman utama
+    MDNS.addServiceTxt("http", "tcp", "board", "ESP32 DEVKIT V1");  // catatan TXT: info papan
+    Serial.printf("mDNS aktif: %s.local\n", NAMA_MDNS);
+    Serial.println("Layanan _http._tcp diumumkan di port 80");
   } else {
-    Serial.printf("[mDNS] ✅ Hostname: http://%s.local\n", MDNS_NAME);
-
-    // Daftarkan layanan HTTP ke DNS-SD agar bisa di-discover oleh tools
-    // Format: MDNS.addService(protokol, transport, port)
-    // Ini memberitahu jaringan: "Hei, perangkat ini punya Web Server di port 80!"
-    MDNS.addService("http", "tcp", 80);
-    Serial.println("[mDNS] Service '_http._tcp' terdaftar di port 80.");
-
-    // Tambahkan TXT record untuk metadata perangkat (opsional tapi berguna)
-    // Tools seperti avahi-browse akan menampilkan info ini
-    MDNS.addServiceTxt("http", "tcp", "model", DEVICE_MODEL);
-    MDNS.addServiceTxt("http", "tcp", "version", "1.0");
-    Serial.println("[mDNS] TXT Records: model, version.");
+    Serial.println("Gagal memulai mDNS! Halaman tetap bisa dibuka lewat alamat IP.");
   }
 
-  // ── Web Server ────────────────────────────────────────────────
-  server.on("/", HTTP_GET, handleRoot);
+  // 3. Jalankan web server
+  server.on("/", handleRoot);
   server.onNotFound(handleNotFound);
   server.begin();
-  Serial.println("[HTTP] Web Server aktif di port 80.");
-
-  Serial.println("\n[INFO] Siap! Buka browser dan ketik: http://bluino.local");
-  
-  digitalWrite(LED_PIN, HIGH);
-}
-
-// ─────────────────────────────────────────────────────────────────
-void loop() {
-  server.handleClient();
-
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 15000UL) {
-    tHb = millis();
-    Serial.printf("[Heartbeat] IP: %s | RSSI: %d dBm | Heap: %u B | Uptime: %lu s\n",
-      WiFi.localIP().toString().c_str(),
-      WiFi.RSSI(),
-      ESP.getFreeHeap(),
-      millis() / 1000UL);
+  if (mdnsAktif) {
+    Serial.printf("Web server berjalan. Buka di browser: http://%s.local\n", NAMA_MDNS);
   }
+  Serial.print("Kalau nama .local tidak bisa dibuka, pakai: http://");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  server.handleClient();  // layani browser yang membuka halaman
+
+  // LED biru menyala selama WiFi terhubung (halaman siap dibuka)
+  digitalWrite(LED_BIRU, (WiFi.status() == WL_CONNECTED) ? HIGH : LOW);
 }
 ```
 
-**Output Serial Monitor yang Diharapkan:**
-```
-=== BAB 45 Program 2: mDNS + Service Discovery ===
-[WiFi] Menghubungkan ke 'WiFiRumah'...
-.....
-[WiFi] ✅ IP: 192.168.1.105
-[mDNS] ✅ Hostname: http://bluino.local
-[mDNS] Service '_http._tcp' terdaftar di port 80.
-[mDNS] TXT Records: model, version.
-[HTTP] Web Server aktif di port 80.
+**Penjelasan Kode:**
 
-[INFO] Siap! Buka browser dan ketik: http://bluino.local
-[HTTP] GET / dari 192.168.1.101
-[Heartbeat] IP: 192.168.1.105 | RSSI: -58 dBm | Heap: 218240 B | ...
+- `WebServer server(80);` membuat *web server* di *port* 80, *port* standar untuk HTTP. Karena itu, alamatnya cukup ditulis `http://bluino.local` tanpa nomor *port*.
+- `handleRoot()` menyusun halaman HTML sederhana berisi nama mDNS, alamat IP, kekuatan sinyal WiFi (RSSI, makin mendekati 0 makin kuat — lihat [BAB 42](../BAB-42/README.md)), dan lama ESP32 menyala, lalu mengirimkannya dengan `server.send(200, "text/html", html)`. Kode `200` artinya "berhasil". Baris `<meta name="viewport" ...>` membuat halaman tetap terbaca di layar HP.
+- `handleNotFound()` menjawab alamat yang tidak dikenal (misalnya `http://bluino.local/abc`) dengan kode `404` (tidak ditemukan).
+- `MDNS.setInstanceName()` memberi nama ramah yang tampil di aplikasi pencari layanan. Nama ini boleh berspasi karena bukan *hostname*.
+- `MDNS.addService("http", "tcp", 80)` mengumumkan "di perangkat ini ada *web server* di *port* 80". `addServiceTxt()` menambahkan catatan TXT: `path=/` (alamat halaman utama — kunci ini juga dipakai di contoh layanan web pada RFC 6763) dan `board=ESP32 DEVKIT V1`. Semua `addService...()` dipanggil **setelah** `MDNS.begin()` berhasil.
+- `server.handleClient()` di `loop()` wajib dipanggil terus-menerus supaya permintaan dari *browser* dilayani. Jangan beri `delay()` panjang di `loop()`.
+- Halaman ini tidak memuat *file* apa pun dari internet (misalnya dari CDN, *Content Delivery Network*), jadi tetap tampil walaupun WiFi-mu tidak tersambung ke internet.
+
+**Contoh Output:**
+
+Serial Monitor:
+
+```text
+BAB 45 - Program 2: Halaman Web di bluino.local
+Menghubungkan ke WiFi.....
+Terhubung! Alamat IP: 192.168.1.105
+mDNS aktif: bluino.local
+Layanan _http._tcp diumumkan di port 80
+Web server berjalan. Buka di browser: http://bluino.local
+Kalau nama .local tidak bisa dibuka, pakai: http://192.168.1.105
+Halaman dibuka dari 192.168.1.101
 ```
+
+Baris terakhir muncul setiap kali halaman dibuka atau dimuat ulang; `192.168.1.101` adalah alamat laptop/HP yang membukanya.
+
+Tampilan di *browser* (angkamu bisa berbeda):
+
+```text
+Halo dari ESP32!
+
+Nama mDNS: http://bluino.local
+Alamat IP: 192.168.1.105
+Kekuatan sinyal WiFi: -58 dBm
+Menyala sejak: 42 detik yang lalu
+
+Muat ulang halaman ini untuk memperbarui angka.
+```
+
+LED biru menyala selama ESP32 terhubung ke WiFi.
+
+> 💡 **Tips:** Selalu ketik `http://` di depan nama. Kalau hanya mengetik `bluino.local`, sebagian *browser* menganggapnya kata kunci pencarian, atau mencoba `https://` lebih dulu. Kalau *browser* memperingatkan bahwa situs tidak mendukung koneksi aman, pilih tombol untuk tetap melanjutkan — halaman ESP32 di BAB ini memang memakai HTTP biasa (HTTPS dibahas di [BAB 49](../BAB-49/README.md)).
+
+> 🧪 **Coba Sendiri:** Tekan tombol **EN** di ESP32 untuk me-*restart*-nya, tunggu LED biru menyala lagi, lalu muat ulang halaman di *browser*. Kamu tidak perlu melihat Serial Monitor sama sekali — inilah gunanya mDNS.
+
+**Melihat pengumuman layanan (opsional):**
+
+Layanan `_http._tcp` yang diumumkan ESP32 bisa dilihat dengan alat berikut. Perintah macOS berjalan terus sampai kamu menekan **Ctrl + C**; perintah Linux dengan opsi `-t` berhenti sendiri.
+
+| Perangkat | Alat dan perintah | Yang seharusnya muncul |
+|---|---|---|
+| macOS | Terminal: `dns-sd -B _http._tcp` | Baris berisi `Kit Bluino ESP32` |
+| Linux | Terminal: `avahi-browse -rt _http._tcp` (paket `avahi-utils`) | `Kit Bluino ESP32`, *hostname* `bluino.local`, alamat IP, *port* 80, dan catatan TXT `board=...` serta `path=/` |
+| Android | Aplikasi pencari layanan mDNS, misalnya **Service Browser** | Kategori `_http._tcp` berisi `Kit Bluino ESP32` |
+| Windows | Tidak ada alat bawaan yang praktis | Pakai HP, atau coba perintah `cari` di Program 3 dari kit kedua |
+
+**Kalau Belum Berhasil:**
+
+- ***Browser* malah menampilkan hasil pencarian Google/Bing** → kamu mengetik tanpa `http://`. Ketik lengkap: `http://bluino.local`.
+- **Muncul "Situs tidak dapat dijangkau" (*This site can't be reached*), tetapi alamat IP dari Serial Monitor bisa dibuka** → perangkatmu belum bisa membuka nama `.local` (misalnya Android 11 ke bawah, VPN aktif, atau HP memakai data seluler, bukan WiFi). Pakai alamat IP, atau lihat [45.3](#453-laptop-dan-hp-mana-yang-bisa-membuka-local).
+- **Nama `.local` maupun alamat IP sama-sama tidak bisa dibuka** → laptop/HP tidak berada di jaringan yang sama dengan ESP32, atau WiFi memakai isolasi klien (WiFi tamu, WiFi kampus). Lihat [45.10 Troubleshooting](#4510-troubleshooting).
+- **Halaman menampilkan `bluino-2.local`** → ada perangkat lain yang sudah memakai nama `bluino`. Ganti `NAMA_MDNS` dengan nama unik.
 
 ---
 
-## 45.6 Program 3: mDNS Dinamis + Multi-Hostname + Serial CLI
+## 45.8 Program 3: Ganti Nama dan Cari Perangkat Lain
 
-Program tingkat lanjut yang menggabungkan semua konsep mDNS dan menambahkan kontrol via Serial Monitor serta kemampuan mengubah nama mDNS secara dinamis saat runtime menggunakan `Preferences` (NVS).
+**Tujuan:** Nama mDNS bisa diganti lewat Serial Monitor tanpa *upload* ulang, lalu disimpan di NVS supaya tetap ada setelah ESP32 *restart*. ESP32 juga bisa berperan sebagai **pencari**: menemukan perangkat lain yang punya *web server* (`MDNS.queryService()`) dan mencari alamat IP dari sebuah nama `.local` (`MDNS.queryHost()`).
 
+Program ini berguna di kelas atau lab: setiap kit cukup di-*upload* program yang sama, lalu setiap orang memberi nama kitnya sendiri lewat Serial Monitor.
+
+**Rangkaian:**
+
+*Tidak perlu merangkai — program memakai LED biru bawaan board ESP32 di IO2.* Opsional: LED3 (LED biru) → IO2.
+
+**Cara Menjalankan:**
+
+1. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_ganti_nama_cari.ino`](p3_ganti_nama_cari/p3_ganti_nama_cari.ino).
+2. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan WiFi kamu (2,4 GHz, peka huruf besar-kecil).
+3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu, lalu klik **Upload**.
+4. Buka **Serial Monitor**, pilih baud **115200**, dan atur *line ending* (menu di sebelah kiri pilihan baud) ke **New Line** (atau **Both NL & CR**).
+5. Ketik perintah di kolom pesan bagian atas Serial Monitor, lalu tekan Enter. Mulailah dengan `bantuan`, kemudian coba `nama bluino-namamu` (ganti `namamu` dengan namamu, huruf kecil).
+6. Buka `http://bluino-namamu.local` di *browser* untuk memastikan nama barunya bekerja.
+7. Untuk mencoba `cari` dan `ip`, perlu ada perangkat lain di jaringan yang sama — misalnya kit temanmu yang menjalankan Program 2 atau 3. Kalau tidak ada, hasilnya `Tidak ditemukan` (itu bukan *error*).
+
+**Kode Program:**
+
+<!-- sketch: p3_ganti_nama_cari -->
 ```cpp
 /*
- * BAB 45 - Program 3: mDNS Dinamis + Multi-Hostname + Serial CLI
+ * BAB 45 - Program 3: Ganti Nama dan Cari Perangkat Lain
+ * Perintah lewat Serial Monitor (line ending: New Line):
+ *   bantuan          -> daftar perintah
+ *   status           -> nama, alamat IP, status WiFi
+ *   nama <nama-baru> -> ganti nama mDNS (disimpan di NVS)
+ *   cari             -> cari perangkat yang punya web server (_http._tcp)
+ *   ip <nama>        -> cari alamat IP dari sebuah nama .local
  *
- * Fitur:
- *   ▶ Hostname mDNS disimpan di NVS (persistent, bertahan restart)
- *   ▶ Serial CLI untuk mengubah hostname tanpa upload ulang
- *   ▶ Daftarkan multiple TXT record sebagai "kartu identitas" perangkat
- *   ▶ Auto-restart mDNS jika WiFi reconnect (robustness production-grade)
- *   ▶ Web Server dengan info lengkap dan CLI reference
- *
- * Serial CLI Commands:
- *   hostname <nama>  → Ganti hostname mDNS (disimpan ke NVS)
- *   status           → Tampilkan status jaringan & mDNS
- *   restart          → Restart ESP32
- *   help             → Tampilkan daftar perintah
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * Rangkaian: tidak perlu (LED biru bawaan board di IO2).
+ *   Opsional: LED3 (biru) → IO2.
  */
 
 #include <WiFi.h>
@@ -578,601 +697,457 @@ Program tingkat lanjut yang menggabungkan semua konsep mDNS dan menambahkan kont
 #include <WebServer.h>
 #include <Preferences.h>
 
-// ── Konfigurasi WiFi (di sini masih hardcode — lihat BAB 44 untuk WiFiManager) ──
-const char* WIFI_SSID = "NamaWiFiKamu";   // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
+const char* WIFI_SSID     = "NamaWiFiKamu";      // ← ganti dengan WiFi kamu
+const char* WIFI_PASSWORD = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN 2
+const char* NAMA_BAWAAN = "bluino";  // dipakai kalau belum ada nama tersimpan
 
-// ── Default Konfigurasi ───────────────────────────────────────────
-const char* DEFAULT_HOSTNAME = "bluino";
-const char* NVS_NAMESPACE    = "mdns-cfg";
-const char* NVS_KEY_HOSTNAME = "hostname";
+#define LED_BIRU 2  // LED biru bawaan board (dan LED3 kit) → IO2
 
-// ── Objek Global ─────────────────────────────────────────────────
-WebServer   server(80);
+WebServer server(80);
 Preferences prefs;
 
-// ── State ─────────────────────────────────────────────────────────
-String  currentHostname = DEFAULT_HOSTNAME;
-bool    mdnsActive      = false;
-String  inputBuffer;
+String namaMdns;          // nama yang diminta (tersimpan di NVS)
+bool mdnsAktif = false;
+String bufferPerintah;    // menampung huruf dari Serial Monitor sampai Enter
 
-// ─────────────────────────────────────────────────────────────────
-// NVS: Muat hostname tersimpan
-// ─────────────────────────────────────────────────────────────────
-void loadHostname() {
-  prefs.begin(NVS_NAMESPACE, true); // read-only
-  currentHostname = prefs.getString(NVS_KEY_HOSTNAME, DEFAULT_HOSTNAME);
-  prefs.end();
-
-  // Pengaman Korupsi Memori Fisik NVS: Potong memori garbage yang overbox!
-  if (currentHostname.length() > 64) {
-      currentHostname = currentHostname.substring(0, 64); 
+// Nama yang benar-benar dipakai mDNS (bisa "...-2" kalau namanya kembar)
+String namaMdnsAktif() {
+  char nama[MDNS_NAME_BUF_LEN];
+  if (mdns_hostname_get(nama) == ESP_OK) {
+    return String(nama);
   }
-
-  // Validasi: hostname mDNS hanya boleh huruf kecil, angka, dan tanda hubung
-  // Panjang 1-63 karakter, tidak boleh mulai/akhir dengan tanda hubung
-  currentHostname.toLowerCase();
-  currentHostname.replace(" ", "-");
-  currentHostname.replace("_", "-");
-
-  // Hapus karakter non-valid (hanya izinkan a-z, 0-9, -)
-  String sanitized = "";
-  sanitized.reserve(currentHostname.length() + 2); // Mencegah Boot-Time Heap Fragmentation!
-  for (int i = 0; i < (int)currentHostname.length(); i++) {
-    char c = currentHostname[i];
-    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
-      sanitized += c;
-    }
-  }
-  // Hapus tanda hubung di awal/akhir
-  while (sanitized.startsWith("-")) sanitized.remove(0, 1);
-  while (sanitized.endsWith("-"))   sanitized.remove(sanitized.length() - 1, 1);
-
-  if (sanitized.length() == 0) sanitized = DEFAULT_HOSTNAME;
-  if (sanitized.length() > 63) sanitized = sanitized.substring(0, 63);
-
-  currentHostname = sanitized;
+  return namaMdns;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// NVS: Simpan hostname baru
-// ─────────────────────────────────────────────────────────────────
-void saveHostname(const String& name) {
-  prefs.begin(NVS_NAMESPACE, false); // read-write
-  size_t bytesWritten = prefs.putString(NVS_KEY_HOSTNAME, name);
-  prefs.end();
-  
-  if (bytesWritten > 0) {
-    Serial.printf("[NVS] Hostname disimpan: '%s'\n", name.c_str());
-  } else {
-    Serial.println("[NVS] ❌ GAGAL! Sektor Flash Memory Penuh/Rusak.");
+// Aturan nama: 1-31 karakter, hanya a-z, 0-9, dan '-',
+// tidak boleh diawali atau diakhiri '-'
+bool namaValid(const String& nama) {
+  if (nama.length() < 1 || nama.length() > 31) return false;
+  if (nama.startsWith("-") || nama.endsWith("-")) return false;
+  for (unsigned int i = 0; i < nama.length(); i++) {
+    char c = nama[i];
+    bool boleh = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+    if (!boleh) return false;
   }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// mDNS: Mulai / Restart mDNS dengan hostname saat ini
-// ─────────────────────────────────────────────────────────────────
-bool startMDNS() {
-  // Hentikan instance lama sebelum mulai ulang
-  MDNS.end();
-  delay(100); // Beri waktu kernel bersih-bersih
-
-  if (!MDNS.begin(currentHostname.c_str())) {
-    Serial.println("[mDNS] ❌ Gagal memulai!");
-    mdnsActive = false;
-    return false;
-  }
-
-  // ── Daftarkan Layanan HTTP ────────────────────────────────────
-  MDNS.addService("http", "tcp", 80);
-
-  // ── TXT Records: Kartu Identitas Perangkat ────────────────────
-  // Semua tools network discovery (Bonjour Browser, avahi-browse)
-  // dapat membaca metadata ini tanpa perlu terhubung ke web server.
-  MDNS.addServiceTxt("http", "tcp", "board",   "ESP32 DEVKIT V1");
-  MDNS.addServiceTxt("http", "tcp", "kit",     "Bluino IoT Kit v3.2");
-  MDNS.addServiceTxt("http", "tcp", "bab",     "BAB-45-mDNS");
-  MDNS.addServiceTxt("http", "tcp", "sdk",     ESP.getSdkVersion());
-
-  // Kalkulasi Chip ID utuh (48-bit MAC Address) tanpa pemotongan bit
-  uint64_t chipId = ESP.getEfuseMac();
-  char cidBuf[13];
-  snprintf(cidBuf, 13, "%04X%08X", (uint16_t)(chipId >> 32), (uint32_t)chipId);
-  MDNS.addServiceTxt("http", "tcp", "chip_id", cidBuf);
-
-  mdnsActive = true;
-  Serial.printf("[mDNS] ✅ Aktif — http://%s.local\n", currentHostname.c_str());
   return true;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// HTML: Halaman Status Lengkap
-// ─────────────────────────────────────────────────────────────────
-String buildStatusPage() {
-  uint32_t sec = millis() / 1000;
-  uint32_t h = sec/3600; sec%=3600; uint32_t m = sec/60; sec%=60;
-
-  // Single-Shot Memory Allocation: Pesan kapasitas penuh dari awal
-  String html;
-  html.reserve(3000);
-
-  html += "<!DOCTYPE html><html lang=\"id\"><head>\n";
-  html += "<meta charset=\"UTF-8\">";
-  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
-  html += "<meta http-equiv=\"refresh\" content=\"10\">";
-  html += "<title>";
-  html += currentHostname;
-  html += ".local — Status</title>\n";
-  html += "<style>";
-  html += "* { box-sizing: border-box; margin: 0; padding: 0; }";
-  html += "body { font-family: Arial, sans-serif; background: #0a0a14;";
-  html += "       color: #ddd; min-height:100vh; display:flex;";
-  html += "       align-items:center; justify-content:center; padding:20px; }";
-  html += ".card { background:#14142a; border-radius:16px; padding:30px;";
-  html += "        width:100%; max-width:460px; box-shadow:0 12px 48px rgba(0,0,0,.6); }";
-  html += "h2 { color:#4fc3f7; margin-bottom:4px; }";
-  html += ".sub { color:#555; font-size:.8rem; margin-bottom:22px; }";
-  html += "table { width:100%; border-collapse:collapse; }";
-  html += "td { padding:9px 4px; border-bottom:1px solid #1a1a2e; font-size:.88rem; }";
-  html += "td:first-child { color:#777; width:44%; }";
-  html += "td:last-child { color:#eee; font-weight:bold; text-align:right; }";
-  html += ".badge { background:#0f3460; color:#4fc3f7; padding:2px 8px;";
-  html += "         border-radius:6px; font-size:.76rem; }";
-  html += ".cli { background:#0a0a14; border-radius:10px; padding:14px; margin-top:20px; }";
-  html += ".cli code { display:block; color:#81c784; font-size:.8rem; margin:3px 0; }";
-  html += ".cli h4 { color:#aaa; font-size:.82rem; margin-bottom:8px; }";
-  html += ".footer { text-align:center; color:#333; font-size:.72rem; margin-top:16px; }";
-  html += "</style>";
-  html += "</head><body><div class=\"card\">";
-
-  html += "<h2>⚡ ";
-  html += currentHostname;
-  html += ".local</h2>";
-  html += "<p class=\"sub\">Bluino IoT Kit — Halaman Status (auto-refresh 10s)</p>";
-  html += "<table>";
-
-  // Sanitasi DOM XSS Security
-  String safeSSID = WiFi.SSID();
-  safeSSID.replace("&", "&amp;");
-  safeSSID.replace("<", "&lt;");
-  safeSSID.replace(">", "&gt;");
-
-  html += "<tr><td>Status</td><td>🟢 Online</td></tr>";
-  html += "<tr><td>Hostname mDNS</td><td><span class=\"badge\">";
-  html += currentHostname;
-  html += ".local</span></td></tr>";
-  html += "<tr><td>Alamat IP</td><td>";
-  html += WiFi.localIP().toString();
-  html += "</td></tr>";
-  html += "<tr><td>SSID WiFi</td><td>";
-  html += safeSSID;
-  html += "</td></tr>";
-
-  int rssi = WiFi.RSSI();
-  String ri = (rssi >= -65) ? "🟢" : (rssi >= -80) ? "🟡" : "🔴";
-  html += "<tr><td>Sinyal WiFi</td><td>";
-  html += ri;
-  html += " ";
-  html += rssi;
-  html += " dBm</td></tr>";
-
-  html += "<tr><td>Uptime</td><td>";
-  html += h;
-  html += "j ";
-  html += m;
-  html += "m ";
-  html += sec;
-  html += "d</td></tr>";
-  html += "<tr><td>Heap Bebas</td><td>";
-  html += (ESP.getFreeHeap() / 1024);
-  html += " KB</td></tr>";
-  html += "<tr><td>CPU Freq.</td><td>";
-  html += ESP.getCpuFreqMHz();
-  html += " MHz</td></tr>";
-  html += "<tr><td>Flash Size</td><td>";
-  html += (ESP.getFlashChipSize() / 1024 / 1024);
-  html += " MB</td></tr>";
-  html += "<tr><td>SDK Version</td><td>";
-  html += ESP.getSdkVersion();
-  html += "</td></tr>";
-
-  // Chip_ID utuh (48-bit MAC Address Murni)
-  uint64_t chipId = ESP.getEfuseMac();
-  char cidBuf[13];
-  snprintf(cidBuf, 13, "%04X%08X", (uint16_t)(chipId >> 32), (uint32_t)chipId);
-  html += "<tr><td>Chip ID</td><td>";
-  html += cidBuf;
-  html += "</td></tr>";
-
-  html += "</table>";
-
-  html += "<div class=\"cli\">"
-          "<h4>🖥️  Serial CLI (115200 baud):</h4>"
-          "<code>hostname &lt;nama&gt; → Ganti hostname mDNS</code>"
-          "<code>status            → Tampilkan status</code>"
-          "<code>restart           → Restart ESP32</code>"
-          "<code>help              → Bantuan</code>"
-          "</div>";
-
-  html += "<p class=\"footer\">Bluino IoT Kit 2026 — BAB 45: mDNS</p>";
-  html += "</div></body></html>";
-
-  return html;
+// Rapikan masukan: buang spasi di tepi, jadikan huruf kecil, buang ".local"
+String rapikanNama(String nama) {
+  nama.trim();
+  nama.toLowerCase();
+  if (nama.endsWith(".local")) {
+    nama.remove(nama.length() - 6);
+  }
+  return nama;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Serial CLI: Proses Perintah dari Input Pengguna
-// ─────────────────────────────────────────────────────────────────
-void processSerialCommand(const String& raw) {
-  String cmd = raw;
-  cmd.trim();
+// (Ulang) jalankan mDNS dengan nama di variabel namaMdns
+bool mulaiMdns() {
+  MDNS.end();  // hentikan dulu kalau sudah berjalan (aman walau belum pernah dimulai)
+  if (!MDNS.begin(namaMdns.c_str())) {
+    return false;
+  }
+  MDNS.addService("http", "tcp", 80);  // layanan harus diumumkan ulang setelah end()
+  MDNS.addServiceTxt("http", "tcp", "path", "/");
+  return true;
+}
 
-  if (cmd.length() == 0) return;
+// Halaman web sederhana (detail web server ada di BAB 46)
+void handleRoot() {
+  String html;
+  html += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>ESP32 Bluino</title></head>";
+  html += "<body style=\"font-family:sans-serif;max-width:480px;margin:auto;padding:16px\">";
+  html += "<h1>Halo dari " + namaMdnsAktif() + ".local!</h1>";
+  html += "<p>Alamat IP: <b>" + WiFi.localIP().toString() + "</b></p>";
+  html += "<p>Nama ini bisa diganti lewat Serial Monitor dengan perintah <code>nama</code>.</p>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
 
-  Serial.println("[CLI] > " + cmd);
+void tampilkanBantuan() {
+  Serial.println("Perintah yang tersedia:");
+  Serial.println("  bantuan          -> tampilkan daftar perintah ini");
+  Serial.println("  status           -> tampilkan nama, alamat IP, dan status WiFi");
+  Serial.println("  nama <nama-baru> -> ganti nama mDNS, contoh: nama bluino-andi");
+  Serial.println("  cari             -> cari perangkat yang punya web server (_http._tcp)");
+  Serial.println("  ip <nama>        -> cari alamat IP sebuah nama, contoh: ip bluino-budi");
+}
 
-  String lowerCmd = cmd;
-  lowerCmd.toLowerCase();
-
-  if (lowerCmd == "help" || lowerCmd == "?") {
-    Serial.println("┌──────────────────────────────────────────────┐");
-    Serial.println("│           Bluino mDNS — Serial CLI           │");
-    Serial.println("├──────────────────────────────────────────────┤");
-    Serial.println("│ hostname <nama>  Ganti hostname mDNS         │");
-    Serial.println("│                 (disimpan ke NVS permanen)   │");
-    Serial.println("│ status           Tampilkan info jaringan      │");
-    Serial.println("│ restart          Restart ESP32                │");
-    Serial.println("│ help / ?         Tampilkan bantuan ini        │");
-    Serial.println("└──────────────────────────────────────────────┘");
-
-  } else if (lowerCmd == "status") {
-    Serial.println("── Status Jaringan ──────────────────────────");
-    Serial.printf ("  Hostname mDNS : %s.local\n", currentHostname.c_str());
-    Serial.printf ("  mDNS Aktif    : %s\n", mdnsActive ? "Ya" : "Tidak");
-    Serial.printf ("  WiFi Status   : %s\n", (WiFi.status() == WL_CONNECTED) ? "Terhubung" : "Terputus");
-    Serial.printf ("  IP Address    : %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf ("  SSID          : %s\n", WiFi.SSID().c_str());
-    Serial.printf ("  RSSI          : %d dBm\n", WiFi.RSSI());
-    Serial.printf ("  Uptime        : %lu s\n", millis() / 1000UL);
-    Serial.printf ("  Free Heap     : %u bytes\n", ESP.getFreeHeap());
-    Serial.println("─────────────────────────────────────────────");
-
-  } else if (lowerCmd == "restart") {
-    Serial.println("[CLI] Restart dalam 2 detik...");
-    MDNS.end(); // Graceful shutdown memutus advertise mDNS secara elegan ke network
-    delay(2000);
-    ESP.restart();
-
-  } else if (lowerCmd == "hostname") {
-    Serial.printf("[CLI] Hostname saat ini: '%s.local'\n", currentHostname.c_str());
-    Serial.println("[CLI] Gunakan 'hostname <nama_baru>' untuk mengubah.");
-
-  } else if (lowerCmd.startsWith("hostname ")) {
-    String newName = cmd.substring(9);
-    newName.trim();
-    newName.toLowerCase();
-    
-    // Mencegah UX fail jika pengguna keliru menginput: "hostname perangkat.local"
-    if (newName.endsWith(".local")) {
-      newName = newName.substring(0, newName.length() - 6);
-    }
-    
-    newName.replace(" ", "-");
-    newName.replace("_", "-");
-
-    // Validasi: hanya karakter valid RFC-1034
-    String validated = "";
-    validated.reserve(newName.length() + 2); // Hindari 60x Loop Reallocation!
-    for (int i = 0; i < (int)newName.length(); i++) {
-      char c = newName[i];
-      if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')
-        validated += c;
-    }
-    while (validated.startsWith("-")) validated.remove(0, 1);
-    while (validated.endsWith("-"))   validated.remove(validated.length()-1, 1);
-
-    if (validated.length() < 1 || validated.length() > 63) {
-      Serial.println("[CLI] ❌ Nama tidak valid! Gunakan huruf kecil, angka, atau tanda hubung (1-63 karakter).");
-      return;
-    }
-
-    currentHostname = validated;
-    saveHostname(currentHostname);
-
-    // Restart mDNS dengan hostname baru TANPA restart ESP32!
-    Serial.printf("[CLI] Mengganti hostname ke '%s.local'...\n", currentHostname.c_str());
-    WiFi.setHostname(currentHostname.c_str());
-    if (startMDNS()) {
-      Serial.printf("[CLI] ✅ Berhasil! Sekarang akses via: http://%s.local\n", currentHostname.c_str());
-    } else {
-      Serial.println("[CLI] ❌ Gagal restart mDNS. Coba perintah 'restart'.");
-    }
-
+void tampilkanStatus() {
+  Serial.printf("Nama tersimpan : %s.local\n", namaMdns.c_str());
+  if (mdnsAktif) {
+    Serial.printf("Nama aktif     : %s.local\n", namaMdnsAktif().c_str());
   } else {
-    Serial.printf("[CLI] ❓ Perintah tidak dikenal: '%s'. Ketik 'help' untuk bantuan.\n", cmd.c_str());
+    Serial.println("Nama aktif     : (mDNS tidak aktif)");
+  }
+  Serial.printf("WiFi           : %s\n", (WiFi.status() == WL_CONNECTED) ? "terhubung" : "terputus");
+  Serial.printf("Alamat IP      : %s\n", WiFi.localIP().toString().c_str());
+}
+
+void gantiNama(const String& masukan) {
+  String namaBaru = rapikanNama(masukan);
+  if (namaBaru.length() == 0) {
+    Serial.printf("Nama sekarang: %s.local. Untuk mengganti: nama <nama-baru>\n", namaMdns.c_str());
+    return;
+  }
+  if (!namaValid(namaBaru)) {
+    Serial.println("Nama tidak valid! Pakai 1-31 huruf kecil, angka, atau tanda hubung (-),");
+    Serial.println("dan jangan diawali/diakhiri tanda hubung. Contoh: nama bluino-andi");
+    return;
+  }
+
+  namaMdns = namaBaru;
+  prefs.putString("nama", namaMdns);  // simpan ke NVS supaya tetap ada setelah restart
+  mdnsAktif = mulaiMdns();
+  if (mdnsAktif) {
+    Serial.printf("Nama diganti dan disimpan. Sekarang buka: http://%s.local\n", namaMdns.c_str());
+    Serial.println("(Nama di daftar perangkat router baru ikut berubah setelah ESP32 restart.)");
+  } else {
+    Serial.println("Gagal memulai mDNS dengan nama baru!");
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+void cariLayanan() {
+  if (!mdnsAktif) {
+    Serial.println("mDNS tidak aktif, tidak bisa mencari.");
+    return;
+  }
+  Serial.println("Mencari perangkat dengan layanan _http._tcp (tunggu 3 detik)...");
+  int jumlah = MDNS.queryService("http", "tcp");  // ESP32 menunggu ±3 detik di sini
+  if (jumlah == 0) {
+    Serial.println("Tidak ditemukan. (ESP32 ini sendiri tidak ikut terhitung.)");
+    return;
+  }
+  Serial.printf("Ditemukan %d perangkat:\n", jumlah);
+  for (int i = 0; i < jumlah; i++) {
+    Serial.printf("  %d. %s.local | IP: %s | port: %u\n", i + 1,
+                  MDNS.hostname(i).c_str(),
+                  MDNS.address(i).toString().c_str(),
+                  (unsigned int)MDNS.port(i));
+  }
+}
+
+void cariIp(const String& masukan) {
+  String nama = rapikanNama(masukan);
+  if (nama.length() == 0) {
+    Serial.println("Tulis namanya, contoh: ip bluino-budi");
+    return;
+  }
+  if (!mdnsAktif) {
+    Serial.println("mDNS tidak aktif, tidak bisa mencari.");
+    return;
+  }
+  Serial.printf("Mencari %s.local (tunggu sampai 2 detik)...\n", nama.c_str());
+  IPAddress ip = MDNS.queryHost(nama, 2000);  // nama TANPA ".local", tunggu maks. 2000 ms
+  if (ip == INADDR_NONE) {                    // 0.0.0.0 = tidak ada yang menjawab
+    Serial.println("Tidak ditemukan.");
+  } else {
+    Serial.printf("%s.local -> %s\n", nama.c_str(), ip.toString().c_str());
+  }
+}
+
+// Pisahkan baris menjadi perintah + isi, lalu jalankan
+void prosesPerintah(String baris) {
+  baris.trim();
+  if (baris.length() == 0) return;  // baris kosong (misalnya sisa '\r') diabaikan
+  Serial.print("> ");
+  Serial.println(baris);
+
+  String perintah = baris;
+  String isi = "";
+  int spasi = baris.indexOf(' ');
+  if (spasi > 0) {
+    perintah = baris.substring(0, spasi);
+    isi = baris.substring(spasi + 1);
+  }
+  perintah.toLowerCase();
+
+  if (perintah == "bantuan") {
+    tampilkanBantuan();
+  } else if (perintah == "status") {
+    tampilkanStatus();
+  } else if (perintah == "nama") {
+    gantiNama(isi);
+  } else if (perintah == "cari") {
+    cariLayanan();
+  } else if (perintah == "ip") {
+    cariIp(isi);
+  } else {
+    Serial.println("Perintah tidak dikenal. Ketik: bantuan");
+  }
+}
+
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  pinMode(LED_BIRU, OUTPUT);
+  digitalWrite(LED_BIRU, LOW);
   delay(500);
+  Serial.println();
+  Serial.println("BAB 45 - Program 3: Ganti Nama dan Cari Perangkat Lain");
 
-  Serial.println("\n=== BAB 45 Program 3: mDNS Dinamis + Serial CLI ===");
-  Serial.println("[INFO] Ketik 'help' di Serial Monitor untuk melihat perintah.");
+  // 1. Muat nama tersimpan dari NVS (lihat BAB 39)
+  prefs.begin("bab45", false);  // namespace "bab45", mode baca-tulis
+  namaMdns = NAMA_BAWAAN;
+  if (prefs.isKey("nama")) {
+    namaMdns = prefs.getString("nama");
+  }
+  if (!namaValid(namaMdns)) {
+    namaMdns = NAMA_BAWAAN;  // jaga-jaga kalau isi NVS tidak sesuai aturan
+  }
+  Serial.printf("Nama tersimpan: %s\n", namaMdns.c_str());
 
-  // Pre-alokasi CLI buffer global untuk mencegah fragmentasi pada resize input looping
-  inputBuffer.reserve(128);
-
-  // ── Muat Hostname dari NVS ────────────────────────────────────
-  loadHostname();
-  Serial.printf("[NVS] Hostname dimuat: '%s'\n", currentHostname.c_str());
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
+  // 2. Sambungkan ke WiFi
+  WiFi.setHostname(namaMdns.c_str());  // SEBELUM WiFi.mode()
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(currentHostname.c_str());
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Menghubungkan ke WiFi");
 
-  uint32_t tStart = millis();
+  unsigned long mulai = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 20000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000);
+    if (millis() - mulai >= 20000) {  // menyerah setelah 20 detik
+      Serial.println();
+      Serial.println("Gagal terhubung! Periksa nama dan password WiFi (harus 2,4 GHz).");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
       ESP.restart();
-    }
-    if (Serial.available()) {
-      String input = Serial.readStringUntil('\n');
-      input.trim();
-      if (input.length() > 0) {
-        Serial.println("\n[CLI] ⏳ Harap tunggu hingga WiFi terhubung...");
-      }
     }
     Serial.print(".");
     delay(500);
   }
   Serial.println();
+  Serial.print("Terhubung! Alamat IP: ");
+  Serial.println(WiFi.localIP());
 
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("[WiFi] SSID         : %s\n", WiFi.SSID().c_str());
+  // 3. Mulai mDNS
+  mdnsAktif = mulaiMdns();
+  if (mdnsAktif) {
+    Serial.printf("mDNS aktif: %s.local\n", namaMdns.c_str());
+  } else {
+    Serial.println("Gagal memulai mDNS!");
+  }
 
-  // ── Inisialisasi mDNS ─────────────────────────────────────────
-  startMDNS();
-
-  // ── Web Server ────────────────────────────────────────────────
-  server.on("/", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW); // Kedip respon penerimaan HTTP Request
-    server.send(200, "text/html", buildStatusPage());
-    digitalWrite(LED_PIN, HIGH);
-  });
-  server.on("/status", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW);
-    // 1. Ekstrak identitas murni ESP32
-    uint64_t chipId = ESP.getEfuseMac();
-    char cidBuf[13];
-    snprintf(cidBuf, 13, "%04X%08X", (uint16_t)(chipId >> 32), (uint32_t)chipId);
-
-    // 2. Endpoint JSON High-Performance via alokasi Stack C Native (Mencegah Heap Fragmentation)
-    char json[256];
-    snprintf(json, sizeof(json),
-      "{\"hostname\":\"%s.local\",\"ip\":\"%s\",\"rssi\":%d,\"uptime\":%lu,\"freeHeap\":%u,\"cpuMHz\":%u,\"chipId\":\"%s\"}",
-      currentHostname.c_str(),
-      WiFi.localIP().toString().c_str(),
-      WiFi.RSSI(),
-      millis() / 1000UL,
-      ESP.getFreeHeap(),
-      ESP.getCpuFreqMHz(),
-      cidBuf
-    );
-    // Bypass String() implisit C++ pada `server.send` dengan streaming murni
-    server.setContentLength(strlen(json));
-    server.send(200, "application/json", "");
-    server.sendContent(json);
-    digitalWrite(LED_PIN, HIGH);
-  });
-  server.onNotFound([]() {
-    String redirectUrl;
-    redirectUrl.reserve(32 + currentHostname.length());
-    redirectUrl += "http://";
-    redirectUrl += currentHostname;
-    redirectUrl += ".local/";
-    server.sendHeader("Location", redirectUrl, true);
-    server.send(302, "text/plain", "");
-  });
+  // 4. Jalankan web server
+  server.on("/", handleRoot);
   server.begin();
-  Serial.println("[HTTP] Web Server aktif.");
+  Serial.printf("Web server berjalan. Buka di browser: http://%s.local\n", namaMdns.c_str());
 
-  Serial.println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  Serial.printf (" 🌐 Akses Web: http://%s.local\n", currentHostname.c_str());
-  Serial.println(" 📊 Akses API: /status (Berformat JSON)");
-  Serial.println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-  digitalWrite(LED_PIN, HIGH);
+  bufferPerintah.reserve(64);
+  tampilkanBantuan();
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  // ── Pelayan Web ───────────────────────────────────────────────
   server.handleClient();
 
-  // ── Serial CLI ────────────────────────────────────────────────
-  while (Serial.available()) {
+  // Baca perintah dari Serial Monitor huruf demi huruf sampai Enter
+  while (Serial.available() > 0) {
     char c = (char)Serial.read();
     if (c == '\n' || c == '\r') {
-      if (inputBuffer.length() > 0) {
-        processSerialCommand(inputBuffer);
-        inputBuffer = "";
-      }
-    } else {
-      if (inputBuffer.length() < 128) { // Batas buffer input CLI
-        inputBuffer += c;
-      }
+      prosesPerintah(bufferPerintah);
+      bufferPerintah = "";
+    } else if (bufferPerintah.length() < 64) {
+      bufferPerintah += c;
     }
   }
 
-  // ── Deteksi Transisi WiFi ───────────────────────────────────────
-  // Perubahan IP akibat reconnect ditangani otomatis oleh ESPmDNS 
-  // di dalam kernel (LwIP). Tidak perlu mDNS restart manual.
-  static bool prevWiFiState = true;
-  bool currWiFiState = (WiFi.status() == WL_CONNECTED);
-  
-  if (!prevWiFiState && currWiFiState) {
-    // Transisi: dari Terputus → Terhubung
-    Serial.printf("[WiFi] ✅ Reconnect! IP baru: %s\n",
-      WiFi.localIP().toString().c_str());
-  }
-  if (prevWiFiState && !currWiFiState) {
-    Serial.println("[WiFi] ⚠️  Koneksi terputus...");
-    digitalWrite(LED_PIN, LOW);
-  }
-  prevWiFiState = currWiFiState;
-
-  // ── Heartbeat ─────────────────────────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 30000UL) {
-    tHb = millis();
-    Serial.printf("[Heartbeat] %s.local | IP: %s | RSSI: %d | Heap: %u B\n",
-      currentHostname.c_str(),
-      WiFi.localIP().toString().c_str(),
-      WiFi.RSSI(),
-      ESP.getFreeHeap());
-  }
+  // LED biru menyala selama WiFi terhubung dan mDNS aktif
+  digitalWrite(LED_BIRU, (WiFi.status() == WL_CONNECTED && mdnsAktif) ? HIGH : LOW);
 }
 ```
 
-**Contoh Sesi Serial CLI:**
+**Penjelasan Kode:**
+
+- **Menyimpan nama di NVS.** `prefs.begin("bab45", false)` membuka tempat penyimpanan NVS bernama `bab45` (lihat [BAB 39](../BAB-39/README.md)). Saat menyala, program memakai nama tersimpan dengan kunci `"nama"` kalau ada (`prefs.isKey()`), atau `bluino` kalau belum ada. Perintah `nama` menyimpan nama baru dengan `prefs.putString()`.
+- **Memeriksa nama.** `rapikanNama()` membuang spasi di tepi, mengubah ke huruf kecil, dan membuang `.local` kalau ikut diketik. `namaValid()` lalu memeriksa aturan dari [45.2.4](#4524-aturan-memberi-nama). Nama yang tidak sesuai ditolak, jadi nama di halaman web juga pasti aman ditampilkan.
+- **Mengganti nama tanpa *restart*.** `mulaiMdns()` memanggil `MDNS.end()` lalu `MDNS.begin()` dengan nama baru. Karena `MDNS.end()` ikut menghapus semua layanan, `addService()` dan `addServiceTxt()` harus dipanggil lagi. Nama DHCP (`WiFi.setHostname()`) baru ikut berubah setelah *restart*, karena hanya dipasang saat WiFi dinyalakan.
+- **Mencari layanan.** `MDNS.queryService("http", "tcp")` mengirim pertanyaan *multicast* "siapa punya layanan `_http._tcp`?", menunggu jawaban sekitar 3 detik, lalu menghasilkan jumlah perangkat yang menjawab. Detail setiap perangkat dibaca dengan `MDNS.hostname(i)` (tanpa `.local`), `MDNS.address(i)`, dan `MDNS.port(i)`. ESP32 tidak menjawab pertanyaannya sendiri, jadi dirinya tidak masuk daftar.
+- **Mencari alamat IP.** `MDNS.queryHost(nama, 2000)` menanyakan alamat IP sebuah nama. Namanya harus ditulis **tanpa** `.local`. Kalau dalam 2000 ms tidak ada yang menjawab, hasilnya `0.0.0.0`, yang dibandingkan dengan konstanta `INADDR_NONE`.
+- **Membaca perintah.** Huruf dari Serial Monitor dikumpulkan di `bufferPerintah` sampai ada karakter Enter (`'\n'` atau `'\r'`), lalu dipisah menjadi perintah dan isinya oleh `prosesPerintah()`. Panjang *buffer* dibatasi 64 huruf supaya memori tidak terbuang.
+- Selama `cari` atau `ip` menunggu jawaban, ESP32 tidak melayani *web server*. Untuk program belajar ini tidak masalah karena hanya berlangsung beberapa detik.
+
+**Contoh Output:**
+
+Contoh sesi berikut terjadi di jaringan yang juga berisi kit teman (`bluino-budi`) dan sebuah printer. Hasil `cari` di jaringanmu tentu berbeda.
+
+```text
+BAB 45 - Program 3: Ganti Nama dan Cari Perangkat Lain
+Nama tersimpan: bluino
+Menghubungkan ke WiFi.....
+Terhubung! Alamat IP: 192.168.1.105
+mDNS aktif: bluino.local
+Web server berjalan. Buka di browser: http://bluino.local
+Perintah yang tersedia:
+  bantuan          -> tampilkan daftar perintah ini
+  status           -> tampilkan nama, alamat IP, dan status WiFi
+  nama <nama-baru> -> ganti nama mDNS, contoh: nama bluino-andi
+  cari             -> cari perangkat yang punya web server (_http._tcp)
+  ip <nama>        -> cari alamat IP sebuah nama, contoh: ip bluino-budi
+> nama bluino-andi
+Nama diganti dan disimpan. Sekarang buka: http://bluino-andi.local
+(Nama di daftar perangkat router baru ikut berubah setelah ESP32 restart.)
+> status
+Nama tersimpan : bluino-andi.local
+Nama aktif     : bluino-andi.local
+WiFi           : terhubung
+Alamat IP      : 192.168.1.105
+> cari
+Mencari perangkat dengan layanan _http._tcp (tunggu 3 detik)...
+Ditemukan 2 perangkat:
+  1. bluino-budi.local | IP: 192.168.1.110 | port: 80
+  2. printer-kantor.local | IP: 192.168.1.20 | port: 80
+> ip bluino-budi
+Mencari bluino-budi.local (tunggu sampai 2 detik)...
+bluino-budi.local -> 192.168.1.110
+> ip tidak-ada
+Mencari tidak-ada.local (tunggu sampai 2 detik)...
+Tidak ditemukan.
 ```
-=== BAB 45 Program 3: mDNS Dinamis + Serial CLI ===
-[INFO] Ketik 'help' di Serial Monitor untuk melihat perintah.
-[NVS] Hostname dimuat: 'bluino'
-[WiFi] ✅ Terhubung! IP: 192.168.1.105
-[mDNS] ✅ Aktif — http://bluino.local
-[HTTP] Web Server aktif.
 
-╔══════════════════════════════════════════════╗
-║  Akses via: http://bluino.local              ║
-║  (Juga tersedia di /status untuk JSON API)   ║
-╚══════════════════════════════════════════════╝
+Tekan tombol **EN** untuk me-*restart* ESP32: baris kedua sekarang menjadi `Nama tersimpan: bluino-andi`, karena nama baru sudah tersimpan di NVS. Untuk kembali ke nama awal, ketik `nama bluino`.
 
---- (ketik "hostname sensor-ruang-tamu" di Serial Monitor) ---
+**Kalau Belum Berhasil:**
 
-[CLI] > hostname sensor-ruang-tamu
-[NVS] Hostname disimpan: 'sensor-ruang-tamu'
-[CLI] Mengganti hostname ke 'sensor-ruang-tamu.local'...
-[mDNS] ✅ Aktif — http://sensor-ruang-tamu.local
-[CLI] ✅ Berhasil! Sekarang akses via: http://sensor-ruang-tamu.local
-```
+- **Perintah yang diketik tidak ditanggapi** → *line ending* Serial Monitor masih **No Line Ending**. Ganti ke **New Line** atau **Both NL & CR**.
+- **`Nama tidak valid!`** → nama memakai huruf besar, spasi, garis bawah, atau lebih dari 31 karakter. Contoh nama yang benar: `nama bluino-andi`.
+- **`cari` selalu `Tidak ditemukan.`** → belum ada perangkat lain yang mengumumkan layanan `_http._tcp` di jaringanmu. Nyalakan kit kedua dengan Program 2/3 di WiFi yang sama. Kalau tetap tidak ketemu, jaringanmu mungkin memblokir *multicast* (lihat [45.10](#4510-troubleshooting)).
+- **`status` menampilkan nama aktif berakhiran `-2`** → nama yang kamu pilih sudah dipakai perangkat lain, jadi mDNS otomatis menggantinya. Pilih nama lain dengan perintah `nama`.
 
 ---
 
-## 45.7 Konsep Lanjutan: Mengapa mDNS Esensial untuk IoT?
+## 45.9 Keterbatasan mDNS dan Tips Pemakaian
 
-```
-SKENARIO SMART HOME PROFESIONAL:
+### 45.9.1 Yang Tidak Bisa Dilakukan mDNS
 
-  Tanpa mDNS:
-  ┌───────────────────────────────────────────────────────┐
-  │  Sensor Suhu ESP32 #1  → IP: 192.168.1.101 (?)       │
-  │  Sensor Suhu ESP32 #2  → IP: 192.168.1.102 (?)       │
-  │  Relay Controller      → IP: 192.168.1.115 (?)       │
-  │  Dashboard Node-RED    → "Harus cek dulu IP-nya!"     │
-  └───────────────────────────────────────────────────────┘
-  MASALAH: Setiap reboot bisa berubah. Tidak scalable!
+| Keterbatasan | Penjelasan | Yang bisa kamu lakukan |
+|---|---|---|
+| Hanya di jaringan lokal | Pesan *multicast* tidak diteruskan *router* ke jaringan lain atau ke internet. `bluino.local` tidak bisa dibuka dari luar rumah | Untuk akses dari jauh, pakai cara lain, misalnya MQTT dengan *broker* di internet ([BAB 50](../BAB-50/README.md)) |
+| Perangkat pembuka harus mendukung mDNS | Android 11 ke bawah, Windows lama, atau HP dengan VPN aktif tidak bisa membuka nama `.local` | Pakai alamat IP sebagai cadangan (lihat [45.3](#453-laptop-dan-hp-mana-yang-bisa-membuka-local)) |
+| Bisa diblokir jaringan | WiFi tamu, WiFi kampus/kantor, dan sebagian *router* *mesh* memblokir *multicast* atau komunikasi antarperangkat | Coba di WiFi rumah biasa, atau minta admin jaringan mengizinkan mDNS |
+| Nama harus unik | Dua perangkat dengan nama sama akan bentrok, lalu salah satunya otomatis berganti nama menjadi `...-2` — kamu tidak bisa memilih yang mana | Beri nama unik sejak awal, misalnya `bluino-andi` |
+| Bukan pengaman | Semua perangkat di jaringan yang sama bisa melihat nama dan layanan ESP32, lalu membuka halamannya | Jangan menganggap nama yang "dirahasiakan" sebagai pengaman. Keamanan dibahas di [BAB 49](../BAB-49/README.md) |
 
-  Dengan mDNS:
-  ┌───────────────────────────────────────────────────────┐
-  │  Sensor Suhu #1  → sensor-kamar.local      (tetap!)  │
-  │  Sensor Suhu #2  → sensor-dapur.local      (tetap!)  │
-  │  Relay           → relay-ac-ruang.local    (tetap!)  │
-  │  Dashboard       → http://sensor-kamar.local → ✅   │
-  └───────────────────────────────────────────────────────┘
-  SOLUSI: Nama selalu sama, IP boleh berubah-ubah.
+### 45.9.2 mDNS Saat ESP32 Menjadi Access Point
 
+mDNS juga bekerja ketika ESP32 menjadi *Access Point* (*hotspot* sendiri, [BAB 43](../BAB-43/README.md)). Panggil `MDNS.begin()` setelah `WiFi.softAP()`, lalu HP yang tersambung ke WiFi ESP32 bisa membuka `http://bluino.local` — asalkan HP itu mendukung mDNS. Sebagai cadangan, alamat bawaan ESP32 dalam mode *Access Point* adalah `http://192.168.4.1`.
 
-PERBANDINGAN TEKNOLOGI RESOLUSI NAMA LOKAL:
+> 📌 **Catatan:** WiFi milik ESP32 tidak tersambung ke internet. Karena itu, sebagian HP Android tetap memakai data seluler, dan nama `bluino.local` bisa gagal dibuka. Kalau begitu, matikan data seluler sementara, atau pakai `http://192.168.4.1`.
 
-  ┌────────────────┬───────────────┬──────────────┬────────────┐
-  │ Teknologi      │ Butuh Server? │ Cross-Platform│ Port       │
-  ├────────────────┼───────────────┼──────────────┼────────────┤
-  │ mDNS           │ Tidak (P2P)   │ Ya (+ config)│ 5353       │
-  │ Static IP      │ Tidak         │ Ya           │ N/A        │
-  │ DNS Server     │ Ya (Pi-hole)  │ Ya           │ 53         │
-  │ NetBIOS/WINS   │ Optional      │ Windows only │ 137-139    │
-  │ Avahi/Bonjour  │ Tidak (daemon)│ Linux/Mac    │ 5353       │
-  └────────────────┴───────────────┴──────────────┴────────────┘
+### 45.9.3 Tips Pemakaian
 
+- **Tetap tampilkan alamat IP** di Serial Monitor (atau di OLED, lihat [BAB 35](../BAB-35/README.md)) sebagai cadangan untuk perangkat yang tidak mendukung `.local`.
+- **Samakan nama DHCP dan nama mDNS** dengan memanggil `WiFi.setHostname()` sebelum `WiFi.mode()`, supaya ESP32 mudah dikenali juga di daftar perangkat *router*.
+- **Panggil `MDNS.begin()` sekali saja** setelah WiFi terhubung. Jangan memanggilnya berulang-ulang di `loop()`; pemulihan setelah WiFi tersambung ulang sudah otomatis.
+- **Kalau `ping` lambat atau sesekali gagal**, penyebabnya bisa mode hemat daya WiFi ESP32 yang aktif secara *default*. Tambahkan `WiFi.setSleep(false);` setelah `WiFi.mode(WIFI_STA);` supaya ESP32 lebih cepat menjawab. Konsekuensinya, ESP32 menyedot arus lebih besar (lihat [BAB 42](../BAB-42/README.md)).
+- **Gabungkan dengan reservasi DHCP** kalau kamu punya akses ke *router*: alamat IP tetap, dan nama `.local` tetap bisa dipakai.
 
-KETERBATASAN mDNS (Yang Wajib Dipahami):
+<details>
+<summary><b>🔬 Pendalaman (opsional): Apa yang terjadi saat <code>MDNS.begin()</code> dipanggil?</b></summary>
 
-  1. HANYA untuk jaringan LOKAL (LAN/WiFi yang sama)
-     → Tidak bisa diakses dari internet (WAN)
-     → Solusi untuk remote access: lihat BAB 57 (Blynk) atau BAB 58 (Firebase)
-  
-  2. Bluetooth dan WiFi BERBEDA subnet = tidak bisa
-     → mDNS menggunakan Multicast yang dibatasi subnet
+Standar mDNS (RFC 6762) mengatur tiga tahap supaya nama di jaringan tidak bentrok:
 
-  3. Beberapa router mengeblok multicast secara default
-     → Cek pengaturan router: izinkan "Multicast" atau "mDNS passthrough"
-  
-  4. Satu nama = satu perangkat
-     → Jika dua ESP32 pakai nama sama, konflik akan terjadi
-     → Gunakan MDNS.queryHost("nama.local") untuk cek konflik
-```
+1. ***Probing* (memeriksa).** Sebelum memakai nama `bluino`, ESP32 bertanya tiga kali dengan jeda ±250 ms: "Ada yang sudah memakai nama `bluino.local`?" Kalau ternyata ada perangkat lain dengan nama yang sama, terjadi bentrok dan salah satu pihak harus mengalah — yang mengalah ditentukan oleh aturan di dalam *library*, bukan oleh siapa yang menyala lebih dulu. Kalau ESP32 yang mengalah, *library* mDNS-nya otomatis menambah akhiran angka (`bluino-2`, lalu `bluino-3`, dan seterusnya) dan memeriksa lagi. Karena itulah Program 1–3 menampilkan "nama aktif" lewat `mdns_hostname_get()`.
+2. ***Announcing* (mengumumkan).** Setelah yakin namanya bebas, ESP32 mengirim pengumuman *multicast* "`bluino.local` = `192.168.1.105`" beberapa kali, supaya perangkat lain langsung mencatatnya.
+3. ***Responding* (menjawab).** Selanjutnya ESP32 menjawab setiap pertanyaan tentang namanya dan layanannya.
+
+Jawaban mDNS menyertakan **TTL** (*time to live*), yaitu berapa lama jawaban boleh disimpan di *cache* perangkat lain. RFC 6762 menganjurkan 120 detik untuk catatan alamat. Karena itu, setelah alamat IP ESP32 berubah, laptop kadang masih mencoba alamat lama sebentar. Biasanya ini segera teratasi, karena ESP32 mengumumkan alamat barunya begitu tersambung ulang.
+
+Di esp32 core 3.3.12, `ESPmDNS` adalah pembungkus komponen **mDNS ESP-IDF** (`espressif/mdns` versi 1.13.1). Komponen ini memantau *event* WiFi sendiri: saat WiFi terputus, mDNS di antarmuka itu dinonaktifkan, dan saat ESP32 mendapat alamat IP lagi (`IP_EVENT_STA_GOT_IP`), mDNS diaktifkan dan diumumkan ulang. Itulah sebabnya kode Arduino tidak perlu memanggil `MDNS.begin()` lagi setelah *reconnect*.
+
+</details>
 
 ---
 
-## 45.8 Tabel Ringkasan Fungsi Library `ESPmDNS`
+## 45.10 Troubleshooting
 
-| Fungsi | Keterangan | Contoh |
-|--------|------------|--------|
-| `MDNS.begin(hostname)` | Mulai mDNS dengan nama tertentu | `MDNS.begin("bluino")` |
-| `MDNS.end()` | Hentikan mDNS (sebelum restart) | `MDNS.end()` |
-| `MDNS.addService(proto, transport, port)` | Umumkan layanan ke DNS-SD | `MDNS.addService("http","tcp",80)` |
-| `MDNS.addServiceTxt(proto, transport, key, val)` | Tambah metadata layanan | `MDNS.addServiceTxt("http","tcp","version","1.0")` |
-| `MDNS.queryHost(hostname)` | Cari IP perangkat lain via mDNS | `IPAddress ip = MDNS.queryHost("bluino.local")` |
-| `MDNS.queryService(proto, transport)` | Temukan service di jaringan | `int n = MDNS.queryService("http","tcp")` |
+| Masalah | Kemungkinan Penyebab | Solusi |
+|---|---|---|
+| Windows: `Ping request could not find host bluino.local` | Laptop tidak di WiFi yang sama; VPN aktif; Windows versi lama | Sambungkan laptop ke WiFi yang sama dan matikan VPN. Cek versi dengan `winver`; untuk Windows lama, pasang **Bonjour Print Services for Windows**. Sementara itu pakai alamat IP |
+| macOS/Linux: `cannot resolve bluino.local` atau `Name or service not known` | Laptop tidak di WiFi yang sama atau VPN aktif; di Linux, Avahi/nss-mdns belum terpasang atau belum aktif | Sambungkan ke WiFi yang sama dan matikan VPN. Di Ubuntu/Debian: `sudo apt install avahi-daemon libnss-mdns`, lalu `sudo systemctl restart avahi-daemon` |
+| Nama `.local` tidak ditemukan dari perangkat mana pun, tetapi alamat IP bisa dibuka | Jaringan memblokir *multicast* (WiFi kampus/kantor, sebagian *router* *mesh*, fitur "IGMP snooping" atau "multicast filtering" di *router*) | Coba di WiFi rumah biasa. Kalau kamu admin *router*, izinkan *multicast*/mDNS. Selama itu, pakai alamat IP |
+| Nama ditemukan, tetapi `ping` menampilkan `Request timed out` dan alamat IP pun tidak bisa dibuka | Isolasi klien (*AP/client isolation*) di WiFi tamu: perangkat di WiFi yang sama dilarang saling berkomunikasi | Jangan pakai WiFi tamu. Matikan *AP isolation* di pengaturan *router*, atau pakai WiFi lain |
+| Laptop dan ESP32 tidak bisa saling menemukan sama sekali | Berada di jaringan berbeda, misalnya laptop di WiFi *router* utama dan ESP32 di *repeater*/*router* kedua yang membuat jaringan sendiri | Sambungkan keduanya ke WiFi (SSID) yang sama. Catatan: laptop di WiFi 5 GHz dan ESP32 di WiFi 2,4 GHz **dari *router* yang sama** biasanya tetap satu jaringan |
+| HP Android tidak bisa membuka `http://bluino.local` | Android 11 ke bawah, VPN aktif, data seluler yang dipakai, atau *browser*/HP tertentu belum mendukung | Matikan VPN dan pastikan tersambung ke WiFi yang sama. Kalau tetap gagal, pakai alamat IP dari Serial Monitor, atau aplikasi seperti **Fing** |
+| *Browser* menampilkan hasil pencarian, bukan halaman ESP32 | Alamat diketik tanpa `http://` | Ketik lengkap `http://bluino.local` |
+| Yang terbuka malah ESP32 lain, atau nama aktif menjadi `bluino-2` | Ada dua perangkat dengan nama sama di jaringan | Beri setiap kit nama unik (Program 3: `nama bluino-namamu`) |
+| Setelah ESP32 di-*restart*, nama sempat tidak bisa dibuka | Laptop masih menyimpan alamat lama di *cache*, atau ESP32 belum selesai tersambung | Tunggu sampai LED biru menyala, lalu coba lagi dalam 1–2 menit. Di Windows, kamu juga bisa mengetik `ipconfig /flushdns` di Command Prompt |
+| `ping` lambat (ratusan ms) atau sesekali gagal | Mode hemat daya WiFi ESP32 | Tambahkan `WiFi.setSleep(false);` setelah `WiFi.mode(WIFI_STA);` (lebih boros daya) |
+| Serial Monitor menampilkan `Gagal memulai mDNS!` | Nama kosong atau terlalu panjang | Pakai nama 1–31 karakter sesuai [45.2.4](#4524-aturan-memberi-nama) |
+| Di daftar perangkat *router*, ESP32 bernama `esp32-XXXXXX` | `WiFi.setHostname()` dipanggil sesudah `WiFi.mode()`/`WiFi.begin()` | Pindahkan `WiFi.setHostname()` ke **sebelum** `WiFi.mode()` |
+| `MDNS.queryHost("bluino.local")` selalu `0.0.0.0` | Nama ditulis lengkap dengan `.local` | Tulis tanpa `.local`: `MDNS.queryHost("bluino")` |
+| *Upload* gagal (`Failed to connect to ESP32`) | *Port* salah atau kabel USB hanya untuk mengisi daya | Lihat [BAB 5](../BAB-05/README.md); tahan tombol **BOOT** saat muncul tulisan `Connecting...` |
 
 ---
 
-## 45.9 Latihan & Tantangan
+## 📝 Rangkuman
+
+- Alamat IP dari **DHCP** bisa berubah (setelah *lease* habis, *router* *restart*, atau pindah jaringan). Pilihan solusinya: IP statis, reservasi DHCP di *router*, atau **mDNS**.
+- **mDNS** (*Multicast DNS*) membuat ESP32 bisa dipanggil dengan nama seperti `bluino.local` tanpa server DNS. Laptop/HP bertanya ke seluruh jaringan lewat *multicast* (`224.0.0.251`, UDP 5353), dan ESP32 yang punya nama itu menjawab dengan alamat IP-nya.
+- mDNS hanya bekerja di **satu jaringan lokal** yang sama, tidak lewat internet. WiFi tamu, WiFi kampus/kantor, dan VPN sering menjadi penyebab gagal.
+- Aturan nama: huruf kecil, angka, tanda hubung; tanpa spasi atau garis bawah; tidak diawali/diakhiri tanda hubung; **unik** di jaringan. Di kode, tulis **tanpa** `.local`.
+- Dukungan perangkat: Windows 10 (1903 ke atas) dan Windows 11, macOS, iPhone/iPad, dan Linux dengan Avahi umumnya bisa langsung; Android 12 ke atas umumnya bisa (kecuali saat VPN/data seluler). Cadangannya: **alamat IP dari Serial Monitor**.
+- Urutan di kode: `WiFi.setHostname()` → `WiFi.mode()` → `WiFi.begin()` → tunggu terhubung → `MDNS.begin()` → `MDNS.addService()`. Tidak perlu `MDNS.update()`, dan pemulihan setelah WiFi tersambung ulang sudah otomatis.
+- **DNS-SD** mengumumkan layanan (`MDNS.addService("http", "tcp", 80)`) beserta catatan TXT (`MDNS.addServiceTxt()`).
+- ESP32 juga bisa mencari: `MDNS.queryHost("nama")` (tanpa `.local`) untuk alamat IP, dan `MDNS.queryService("http", "tcp")` untuk daftar perangkat yang punya *web server*.
+- Uji nama dengan `ping bluino.local` di Command Prompt (Windows) atau `ping -c 4 bluino.local` di Terminal (macOS/Linux), lalu buka `http://bluino.local` di *browser*.
+
+| Fungsi | Kegunaan singkat |
+|---|---|
+| `MDNS.begin("bluino")` | Mulai mDNS → `bluino.local` |
+| `MDNS.end()` | Hentikan mDNS (layanan ikut terhapus) |
+| `MDNS.addService("http", "tcp", 80)` | Umumkan *web server* |
+| `MDNS.addServiceTxt("http", "tcp", "kunci", "nilai")` | Tambah catatan TXT |
+| `MDNS.queryHost("nama", 2000)` | Cari alamat IP dari nama |
+| `MDNS.queryService("http", "tcp")` | Cari perangkat yang punya layanan tertentu |
+
+Selanjutnya, di [BAB 46](../BAB-46/README.md) kamu akan membuat *web server* yang lebih lengkap — halaman dengan tombol, data sensor, dan kontrol LED — yang tetap bisa dibuka lewat `http://bluino.local`.
+
+---
+
+## 💪 Latihan
 
 ### Latihan Dasar
-1. **Upload Program 1**, lakukan `ping bluino.local` dari PC. Verifikasi IP yang muncul sama dengan yang ditampilkan di Serial Monitor.
-2. **Upload Program 2**, buka `http://bluino.local` di browser HP kamu. Amati halaman status yang muncul.
-3. Coba tutup Serial Monitor, restart ESP32, buka kembali `http://bluino.local`. Apakah bisa diakses? Tanpa melihat IP?
+
+1. **Uji `ping`:** Jalankan Program 1, lalu `ping` nama ESP32 dari laptop. Cocokkan alamat IP hasil `ping` dengan alamat di Serial Monitor.
+   *Petunjuk:* Ikuti langkah di [45.6](#456-menguji-nama-local-dengan-ping). Kalau gagal, periksa dulu apakah laptop dan ESP32 berada di WiFi yang sama.
+2. **Nama milikmu sendiri:** Ubah `NAMA_MDNS` di Program 2 menjadi `bluino-` diikuti nama panggilanmu, lalu buka halamannya dari laptop **dan** dari HP.
+   *Petunjuk:* Ikuti aturan nama di [45.2.4](#4524-aturan-memberi-nama). Kalau HP gagal membuka nama `.local`, cek versi Android-nya dan coba alamat IP.
+3. **Tanpa Serial Monitor:** Tutup Serial Monitor, cabut kabel USB, colokkan lagi, lalu buka halaman Program 2 hanya dengan nama `.local`.
+   *Petunjuk:* Tunggu sampai LED biru menyala sebelum membuka halaman.
 
 ### Latihan Menengah
-4. **Modifikasi Program 3**: Tambahkan perintah CLI `scan` yang akan menelusuri semua perangkat `_http._tcp` di jaringan menggunakan `MDNS.queryService("http", "tcp")` dan menampilkan daftar hostname + IP mereka di Serial Monitor.
-5. **Uji Konflik Nama**: Sambungkan dua ESP32 berbeda dengan nama mDNS yang sama. Amati apa yang terjadi di browser dan Serial Monitor. Siapa yang "menang"?
 
-### Kata Kunci untuk Penelitian Mandiri
-- `DNS-SD (DNS Service Discovery)` — Standar di balik fitur Service Discovery
-- `Bonjour` — Implementasi Apple untuk mDNS + DNS-SD (macOS, iOS)
-- `Avahi` — Implementasi open-source untuk Linux
-- `Zero-configuration Networking (Zeroconf)` — Ekosistem protokol secara keseluruhan
+4. **Nama unik otomatis:** Buat nama mDNS dari dua *byte* terakhir alamat MAC, misalnya `bluino-cdef`, supaya setiap kit otomatis punya nama berbeda. Tampilkan namanya di Serial Monitor.
+   *Petunjuk:* Tambahkan `#include "esp_mac.h"`, baca MAC dengan `uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);`, lalu susun namanya dengan `snprintf(nama, sizeof(nama), "bluino-%02x%02x", mac[4], mac[5]);`. Lakukan sebelum `WiFi.setHostname()`.
+5. **Nama di layar OLED:** Tampilkan `bluino.local` dan alamat IP di OLED, supaya alamat cadangan bisa dibaca tanpa laptop.
+   *Petunjuk:* Lihat [BAB 35](../BAB-35/README.md) untuk OLED (I2C, alamat `0x3C`). Perbarui tampilan setiap 10 detik dengan pola `millis()`.
+6. **Nama kembar (butuh 2 kit):** Jalankan Program 1 di dua kit dengan `NAMA_MDNS` yang sama. Amati laporan berkala di Serial Monitor masing-masing kit, lalu `ping` kedua nama yang muncul.
+   *Petunjuk:* Salah satu kit akan melaporkan `bluino-2.local`. Coba juga `ping bluino-2.local` dari laptop.
 
----
+### Tantangan Lanjutan
 
-## 45.10 Materi Referensi
-
-| Sumber | Link |
-|--------|------|
-| RFC 6762 — mDNS Standard | https://datatracker.ietf.org/doc/html/rfc6762 |
-| RFC 6763 — DNS-SD Standard | https://datatracker.ietf.org/doc/html/rfc6763 |
-| ESPmDNS GitHub | https://github.com/espressif/arduino-esp32/tree/master/libraries/ESPmDNS |
-| Espressif mDNS Docs | https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/protocols/mdns.html |
+7. **Pemantau kit teman:** Setiap 15 detik, ESP32 mencari `bluino-budi` dengan `MDNS.queryHost()`. Nyalakan LED2 (hijau, IO17) kalau ditemukan dan LED1 (merah, IO4) kalau tidak.
+   *Petunjuk:* Pasang kabel *jumper* LED1 → IO4 dan LED2 → IO17 seperti di [BAB 8](../BAB-08/README.md). Pakai pola `millis()` dari [BAB 16](../BAB-16/README.md). Ingat, `queryHost()` bisa membuat program menunggu sampai 2 detik.
+8. **Data di catatan TXT:** Umumkan nilai potensiometer (IO34) sebagai catatan TXT `pot=...` dan perbarui setiap 10 detik. Amati perubahannya dengan `avahi-browse -rt _http._tcp` (Linux), `dns-sd -L "Kit Bluino ESP32" _http._tcp` (macOS), atau aplikasi **Service Browser** (Android).
+   *Petunjuk:* Pasang kabel VR10K → IO34 dan baca dengan `analogRead(34)` ([BAB 11](../BAB-11/README.md)). Memanggil `MDNS.addServiceTxt("http", "tcp", "pot", String(nilai))` lagi dengan kunci yang sama akan memperbarui nilainya. Jangan memperbarui terlalu sering, karena setiap perubahan dikirim ke seluruh jaringan.
 
 ---
 
-> ✅ **Selesai!** Sekarang ESP32 Bluino Kit kamu bisa ditemukan di jaringan lokal hanya dengan nama `bluino.local` — tidak perlu tahu nomor IP lagi!
->
-> **Langkah Selanjutnya:** [BAB 46 — Web Server](../BAB-46/) untuk membangun dashboard IoT berbasis web yang dapat dikontrol via browser secara penuh.
+## 📚 Referensi
+
+- [RFC 6762 — Multicast DNS, IETF](https://datatracker.ietf.org/doc/html/rfc6762) — standar mDNS: domain `.local`, alamat 224.0.0.251/UDP 5353, *probing*, dan TTL 120 detik untuk catatan alamat.
+- [RFC 6763 — DNS-Based Service Discovery, IETF](https://datatracker.ietf.org/doc/html/rfc6763) — standar DNS-SD: format `_layanan._protokol`, nama *instance*, dan catatan TXT.
+- [ESPmDNS — arduino-esp32, Espressif (GitHub)](https://github.com/espressif/arduino-esp32/tree/master/libraries/ESPmDNS) — kode sumber dan contoh *library* `ESPmDNS` (`begin()`, `addService()`, `queryHost()`, `queryService()`).
+- [mDNS Service — ESP-Protocols Documentation, Espressif](https://docs.espressif.com/projects/esp-protocols/mdns/docs/latest/en/index.html) — dokumentasi komponen mDNS ESP-IDF yang dibungkus `ESPmDNS`, termasuk `mdns_hostname_get()` dan `mdns_query_a()` (nama tanpa domain `.local`).
+- [Komponen mdns — espressif/esp-protocols (GitHub)](https://github.com/espressif/esp-protocols/tree/master/components/mdns) — kode sumber; `mdns_netif.c` menunjukkan pemulihan otomatis saat WiFi tersambung ulang, dan `mdns_receive.c` menunjukkan penggantian nama `-2` saat bentrok.
+- [DNS Resolver — Android Open Source Project](https://source.android.com/docs/core/ota/modular-system/dns-resolver) — Android mendukung resolusi `.local` sejak November 2021; koneksi VPN dan data seluler dikecualikan.
+- [Chrome Host Resolution — Chromium](https://chromium.googlesource.com/chromium/src/+/main/net/dns/README.md) — Chrome menyerahkan nama `.local` ke sistem operasi.
+- [Multicast DNS — Wikipedia](https://en.wikipedia.org/wiki/Multicast_DNS) — ringkasan implementasi mDNS, termasuk dukungan nama `.local` di Windows 10 versi 1903 ke atas.
+- [Download Bonjour Print Services for Windows v2.0.2 — Apple](https://support.apple.com/en-us/106380) — pemasang Bonjour untuk Windows lama.
+- [Avahi](https://avahi.org/) dan [nss-mdns (GitHub)](https://github.com/avahi/nss-mdns) — implementasi mDNS/DNS-SD di Linux.
+- [ESP32: Set Up mDNS (Arduino IDE) — Random Nerd Tutorials](https://randomnerdtutorials.com/esp32-mdns-arduino/) — contoh tambahan mDNS pada ESP32 dengan Arduino IDE.
 
 ---
 
