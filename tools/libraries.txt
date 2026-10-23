@@ -1,18 +1,18 @@
 # Library (nama persis di Library Manager @ versi yang diuji)
 # Dipakai oleh GitHub Actions untuk meng-compile semua program.
-DHT sensor library@1.4.6
+DHT sensor library@1.4.7
 Adafruit Unified Sensor@1.1.15
 Adafruit SSD1306@2.5.17
 Adafruit GFX Library@1.13.0
-Adafruit BusIO
-Adafruit BMP085 Library
+Adafruit BusIO@1.17.4
+Adafruit BMP085 Library@1.2.4
 Adafruit MPU6050@2.2.9
 ArduinoJson@7.4.3
 OneWire@2.3.8
 DallasTemperature@4.0.6
 WebSockets@2.7.2
 PubSubClient@2.8
-CoAP simple library
+CoAP simple library@1.4.0
 FastLED@3.10.8
 ESP32Servo@3.2.1
 WiFiManager@2.0.17

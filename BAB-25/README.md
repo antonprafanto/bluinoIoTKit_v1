@@ -1301,7 +1301,7 @@ if (millis() - waktuUkurTerakhir >= lamaKonversi) {  // langkah 2: setelah waktu
 
 ---
 
-[⬅️ BAB 24: SPI — Serial Peripheral Interface](../BAB-24/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 26: Sensor Suhu & Kelembaban Udara (DHT11) ➡️](../BAB-26/README.md)
+[⬅️ BAB 24: SPI — Serial Peripheral Interface](../BAB-24/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 26: DHT11 — Suhu & Kelembapan ➡️](../BAB-26/README.md)
 
 ---
 
