@@ -1,119 +1,190 @@
 /*
- * BAB 54 - Program 1A: ESP-NOW Unicast — SENDER
+ * BAB 54 - Program 1 (board A): Pengirim Tombol S1
  *
- * Fungsi: Baca DHT11 → kirim struct data ke ESP32 Receiver tiap 5 detik
+ * Setiap kali S1 ditekan, board A mengirim perintah "LED merah nyala/mati"
+ * langsung ke board B lewat ESP-NOW (unicast, tanpa router).
+ * LED biru bawaan board A berkedip singkat setiap kali radio board B
+ * mengonfirmasi bahwa paketnya sampai (ACK).
  *
- * SEBELUM UPLOAD:
- *   Ganti RECEIVER_MAC dengan MAC address ESP32 Receiver kamu!
- *   (Lihat 54.4 untuk cara mendapatkan MAC address)
- *
- * Hardware: DHT11 → IO27
+ * Rangkaian board A: SW1 (header kuning, pin ke-3 dari kiri) -> IO15
+ * Board B menjalankan p1_receiver. Isi MAC_PENERIMA dengan MAC board B.
+ * Alat uji: Serial Monitor, baud 115200.
  */
 
 #include <WiFi.h>
-#include <esp_now.h>
-#include <DHT.h>
+#include <esp_wifi.h>  // esp_wifi_get_mac()
+#include <esp_now.h>   // fungsi-fungsi ESP-NOW
 
-#define DHT_PIN 27
-DHT dht(DHT_PIN, DHT11);
+#define TOMBOL_S1 15  // S1: ditekan = HIGH (pull-down 10 kΩ di kit)
+#define LED_BIRU  2   // LED biru bawaan board ESP32 (tidak perlu kabel)
 
-// ── GANTI dengan MAC address ESP32 Receiver kamu! ─────────────────────
-uint8_t RECEIVER_MAC[] = {0x24, 0x6F, 0x28, 0xAB, 0xCD, 0xEF};
+const uint8_t KANAL_ESPNOW = 1;  // harus sama dengan board B
 
-// ── Struct paket data — HARUS IDENTIK dengan Receiver! ────────────────
-typedef struct {
-  float    temperature;
-  float    humidity;
-  uint32_t uptime;
-  uint32_t packetNum;
-} SensorPacket;
+// ← ganti dengan MAC board B (baris "Format kode" di Serial Monitor board B)
+uint8_t MAC_PENERIMA[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-SensorPacket packet;
-uint32_t sendCount  = 0;
-bool     lastSendOK = true;
+// Isi paket: HARUS sama persis dengan struct di p1_receiver
+struct PaketLed {
+  uint32_t nomor;     // nomor urut paket: 1, 2, 3, ...
+  uint8_t  ledNyala;  // 1 = nyalakan LED merah, 0 = matikan
+};
 
-// ── Callback: dipanggil setelah esp_now_send() selesai ────────────────
-void onSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  lastSendOK = (status == ESP_NOW_SEND_SUCCESS);
-  Serial.printf("[ESPNOW] Kirim #%u: %s\n",
-    sendCount, lastSendOK ? "✅ OK" : "❌ GAGAL");
+const unsigned long WAKTU_DEBOUNCE = 50;   // ms, seperti BAB 9
+const unsigned long LAMA_KEDIP     = 150;  // ms, lama LED biru menyala saat ACK datang
+
+// Hasil pengiriman: ditulis callback (task WiFi), dibaca loop()
+const uint8_t HASIL_BELUM_ADA = 0;
+const uint8_t HASIL_SUKSES    = 1;
+const uint8_t HASIL_GAGAL     = 2;
+volatile uint8_t hasilKirim = HASIL_BELUM_ADA;
+
+bool espNowSiap = false;
+bool peerSiap = false;
+PaketLed paket = {0, 0};
+bool ledBTerkonfirmasi = false;  // keadaan LED board B yang terakhir dikonfirmasi ACK
+
+int bacaanSebelumnya = LOW;      // variabel debounce (BAB 9)
+int statusStabil = LOW;
+unsigned long waktuBerubah = 0;
+
+bool ledBiruNyala = false;
+unsigned long waktuKedip = 0;
+
+void cetakMac(const uint8_t *mac) {
+  Serial.printf("%02X:%02X:%02X:%02X:%02X:%02X",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+// Mencetak MAC board ini dalam dua bentuk: teks biasa dan siap ditempel ke kode
+void cetakMacBoardIni() {
+  uint8_t mac[6];
+  esp_wifi_get_mac(WIFI_IF_STA, mac);
+  Serial.print("MAC board ini : ");
+  cetakMac(mac);
+  Serial.println();
+  Serial.printf("Format kode   : {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+bool macMasihKosong(const uint8_t *mac) {
+  for (int i = 0; i < 6; i++) {
+    if (mac[i] != 0) return false;
+  }
+  return true;
+}
+
+// Callback: dipanggil ESP-NOW setelah paket selesai dikirim (bentuk core 3.3.x)
+void saatTerkirim(const wifi_tx_info_t *info, esp_now_send_status_t status) {
+  hasilKirim = (status == ESP_NOW_SEND_SUCCESS) ? HASIL_SUKSES : HASIL_GAGAL;
+}
+
+bool mulaiEspNow() {
+  WiFi.mode(WIFI_STA);            // 1. nyalakan radio WiFi sebagai Station
+  WiFi.STA.begin();               // 2. tunggu radio benar-benar menyala (maks. 1 detik)
+  WiFi.setChannel(KANAL_ESPNOW);  // 3. pindah ke kanal yang disepakati
+  cetakMacBoardIni();
+  Serial.printf("Kanal         : %ld\n", (long)WiFi.channel());
+
+  if (esp_now_init() != ESP_OK) {  // 4. nyalakan ESP-NOW
+    Serial.println("ESP-NOW gagal dimulai. Tekan tombol EN untuk mencoba lagi.");
+    return false;
+  }
+  esp_now_register_send_cb(saatTerkirim);  // 5. daftarkan callback kirim
+  return true;
+}
+
+bool tambahPeer(const uint8_t *mac) {
+  esp_now_peer_info_t peer = {};  // semua kolom diisi 0 dulu
+  memcpy(peer.peer_addr, mac, 6);
+  peer.channel = 0;               // 0 = ikut kanal radio saat ini
+  peer.ifidx = WIFI_IF_STA;       // kirim lewat antarmuka Station
+  peer.encrypt = false;           // tanpa enkripsi
+  esp_err_t hasil = esp_now_add_peer(&peer);
+  if (hasil != ESP_OK) {
+    Serial.printf("Gagal mendaftarkan peer: %s\n", esp_err_to_name(hasil));
+    return false;
+  }
+  return true;
+}
+
+void kirimPerintah(bool nyala) {
+  if (!peerSiap) {
+    Serial.println("MAC_PENERIMA belum diisi, tekanan S1 diabaikan.");
+    return;
+  }
+  paket.nomor = paket.nomor + 1;
+  paket.ledNyala = nyala ? 1 : 0;
+  Serial.printf("Kirim #%lu: LED %s", (unsigned long)paket.nomor, nyala ? "NYALA" : "MATI");
+
+  esp_err_t hasil = esp_now_send(MAC_PENERIMA, (uint8_t *)&paket, sizeof(paket));
+  if (hasil != ESP_OK) {
+    // Ditolak sebelum dikirim, jadi callback kirim tidak akan dipanggil
+    Serial.printf(" -> ditolak: %s\n", esp_err_to_name(hasil));
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-  dht.begin();
+  delay(1000);  // beri waktu Serial Monitor tersambung
+  pinMode(TOMBOL_S1, INPUT);
+  pinMode(LED_BIRU, OUTPUT);
+  digitalWrite(LED_BIRU, LOW);
 
-  Serial.println("\n=== BAB 54 Program 1A: ESP-NOW Unicast SENDER ===");
+  Serial.println();
+  Serial.println("BAB 54 - Program 1: Pengirim Tombol S1 (board A)");
 
-  // 1. Set WiFi mode
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  Serial.print("[WiFi] MAC Sender: ");
-  Serial.println(WiFi.macAddress());
+  espNowSiap = mulaiEspNow();
+  if (!espNowSiap) return;
 
-  // 2. Inisiasi ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("[ESPNOW] ❌ Init gagal! Reboot...");
-    ESP.restart();
-  }
-  Serial.println("[ESPNOW] ✅ ESP-NOW siap");
-
-  // 3. Daftarkan callback kirim
-  esp_now_register_send_cb(onSent);
-
-  // 4. Tambahkan Receiver sebagai peer
-  esp_now_peer_info_t peerInfo = {};
-  memcpy(peerInfo.peer_addr, RECEIVER_MAC, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("[ESPNOW] ❌ Gagal tambah peer! Cek MAC address.");
+  if (macMasihKosong(MAC_PENERIMA)) {
+    Serial.println("MAC_PENERIMA masih 00:00:00:00:00:00.");
+    Serial.println("Isi dengan MAC board B, lalu upload ulang program ini.");
   } else {
-    Serial.println("[ESPNOW] ✅ Peer Receiver terdaftar");
+    peerSiap = tambahPeer(MAC_PENERIMA);
+    if (peerSiap) {
+      Serial.print("Peer (board B): ");
+      cetakMac(MAC_PENERIMA);
+      Serial.println();
+    }
   }
-
-  // Baca sensor awal
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", t, h);
-  }
-
-  Serial.println("[ESPNOW] Mulai kirim data tiap 5 detik...");
+  Serial.println("Tekan S1 untuk menyalakan/mematikan LED merah di board B.");
 }
 
 void loop() {
-  // Baca DHT11 non-blocking tiap 2 detik
-  static unsigned long tDHT = 0;
-  static float lastT = NAN, lastH = NAN;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
+  if (!espNowSiap) return;
+  unsigned long sekarang = millis();
+
+  // 1. Baca S1 dengan debounce, bereaksi saat baru ditekan (pola BAB 9)
+  int bacaan = digitalRead(TOMBOL_S1);
+  if (bacaan != bacaanSebelumnya) {
+    waktuBerubah = sekarang;
+    bacaanSebelumnya = bacaan;
   }
-
-  // Kirim ke Receiver tiap 5 detik
-  static unsigned long tSend = 0;
-  if (millis() - tSend >= 5000UL) {
-    tSend = millis();
-    if (!isnan(lastT)) {
-      sendCount++;
-      packet.temperature = lastT;
-      packet.humidity    = lastH;
-      packet.uptime      = millis() / 1000UL;
-      packet.packetNum   = sendCount;
-
-      esp_now_send(RECEIVER_MAC, (uint8_t*)&packet, sizeof(packet));
-      Serial.printf("[ESPNOW] → Kirim #%u: %.1f°C | %.0f%% | Up:%lu s\n",
-        sendCount, lastT, lastH, packet.uptime);
+  if (sekarang - waktuBerubah > WAKTU_DEBOUNCE && bacaan != statusStabil) {
+    statusStabil = bacaan;
+    if (statusStabil == HIGH) {
+      kirimPerintah(!ledBTerkonfirmasi);  // minta LED board B berganti keadaan
     }
   }
 
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Sent:%u | LastOK:%s | Heap:%u B | Up:%lu s\n",
-      sendCount, lastSendOK?"✅":"❌", ESP.getFreeHeap(), millis()/1000UL);
+  // 2. Proses hasil pengiriman yang dilaporkan callback
+  uint8_t hasil = hasilKirim;
+  if (hasil != HASIL_BELUM_ADA) {
+    hasilKirim = HASIL_BELUM_ADA;
+    if (hasil == HASIL_SUKSES) {
+      ledBTerkonfirmasi = (paket.ledNyala == 1);
+      Serial.println(" -> sampai di board B (ACK)");
+      digitalWrite(LED_BIRU, HIGH);
+      ledBiruNyala = true;
+      waktuKedip = sekarang;
+    } else {
+      Serial.println(" -> GAGAL: board B tidak menjawab");
+    }
+  }
+
+  // 3. Matikan LED biru setelah LAMA_KEDIP
+  if (ledBiruNyala && sekarang - waktuKedip >= LAMA_KEDIP) {
+    digitalWrite(LED_BIRU, LOW);
+    ledBiruNyala = false;
   }
 }

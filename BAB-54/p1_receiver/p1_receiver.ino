@@ -1,106 +1,112 @@
 /*
- * BAB 54 - Program 1B: ESP-NOW Unicast — RECEIVER
+ * BAB 54 - Program 1 (board B): Penerima LED Merah
  *
- * Fungsi: Terima paket sensor dari Sender → tampilkan di OLED & Serial
+ * Menerima perintah dari board A (p1_sender) lewat ESP-NOW, lalu
+ * menyalakan/mematikan LED merah. MAC board ini dicetak di Serial
+ * Monitor supaya bisa disalin ke MAC_PENERIMA di p1_sender.
  *
- * Hardware: OLED → SDA=IO21, SCL=IO22
- * Tidak perlu tahu MAC address Sender (receiver menerima dari siapapun)
+ * Rangkaian board B: LED1 (merah, header LED) -> IO4
+ * Alat uji: Serial Monitor, baud 115200.
  */
 
 #include <WiFi.h>
-#include <esp_now.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <esp_wifi.h>  // esp_wifi_get_mac()
+#include <esp_now.h>   // fungsi-fungsi ESP-NOW
 
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
+#define LED_MERAH 4  // LED1 (merah). Board ESP32 polos tanpa kit: ganti menjadi 2
 
-// ── Struct paket data — HARUS IDENTIK dengan Sender! ──────────────────
-typedef struct {
-  float    temperature;
-  float    humidity;
-  uint32_t uptime;
-  uint32_t packetNum;
-} SensorPacket;
+const uint8_t KANAL_ESPNOW = 1;  // harus sama dengan board A
 
-SensorPacket rxPacket;
-bool    newDataFlag   = false;
-uint32_t recvCount    = 0;
-uint8_t  lastSenderMAC[6];
+// Isi paket: HARUS sama persis dengan struct di p1_sender
+struct PaketLed {
+  uint32_t nomor;     // nomor urut paket: 1, 2, 3, ...
+  uint8_t  ledNyala;  // 1 = nyalakan LED merah, 0 = matikan
+};
 
-// ── Callback: dipanggil saat data masuk (di FreeRTOS task, bukan loop!) ──
-void onRecv(const uint8_t *mac, const uint8_t *data, int len) {
-  if (len != sizeof(SensorPacket)) return;  // Tolak paket tidak valid
-  memcpy(&rxPacket, data, sizeof(rxPacket));
-  memcpy(lastSenderMAC, mac, 6);
-  newDataFlag = true;
-  recvCount++;
+// Data bersama antara callback (task WiFi) dan loop(), dijaga kunci (BAB 10)
+portMUX_TYPE kunci = portMUX_INITIALIZER_UNLOCKED;
+volatile bool adaPaketBaru = false;
+PaketLed paketMasuk;
+uint8_t macPengirim[6];
+int rssiPaket = 0;
+
+bool espNowSiap = false;
+
+void cetakMac(const uint8_t *mac) {
+  Serial.printf("%02X:%02X:%02X:%02X:%02X:%02X",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-void updateOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-  oled.setCursor(0, 0);  oled.print("ESP-NOW Receiver");
-  oled.drawLine(0, 10, 127, 10, WHITE);
-  oled.setCursor(0, 14);
-  oled.printf("Pkt #%u | Up:%lu s", rxPacket.packetNum, rxPacket.uptime);
-  oled.setTextSize(2); oled.setCursor(0, 26);
-  oled.printf("%.1fC", rxPacket.temperature);
-  oled.setTextSize(1); oled.setCursor(0, 50);
-  oled.printf("H:%.0f%% | Rcv:%u", rxPacket.humidity, recvCount);
-  oled.display();
+// Mencetak MAC board ini dalam dua bentuk: teks biasa dan siap ditempel ke kode
+void cetakMacBoardIni() {
+  uint8_t mac[6];
+  esp_wifi_get_mac(WIFI_IF_STA, mac);
+  Serial.print("MAC board ini : ");
+  cetakMac(mac);
+  Serial.println();
+  Serial.printf("Format kode   : {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+// Callback: dipanggil ESP-NOW setiap ada paket masuk (bentuk core 3.x)
+void saatMenerima(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
+  if (len != sizeof(PaketLed)) return;  // ukuran tidak cocok: bukan paket kita
+  portENTER_CRITICAL(&kunci);
+  memcpy(&paketMasuk, data, sizeof(PaketLed));
+  memcpy(macPengirim, info->src_addr, 6);
+  rssiPaket = info->rx_ctrl->rssi;
+  adaPaketBaru = true;
+  portEXIT_CRITICAL(&kunci);
+}
+
+bool mulaiEspNow() {
+  WiFi.mode(WIFI_STA);            // 1. nyalakan radio WiFi sebagai Station
+  WiFi.STA.begin();               // 2. tunggu radio benar-benar menyala (maks. 1 detik)
+  WiFi.setChannel(KANAL_ESPNOW);  // 3. pindah ke kanal yang disepakati
+  cetakMacBoardIni();
+  Serial.printf("Kanal         : %ld\n", (long)WiFi.channel());
+
+  if (esp_now_init() != ESP_OK) {  // 4. nyalakan ESP-NOW
+    Serial.println("ESP-NOW gagal dimulai. Tekan tombol EN untuk mencoba lagi.");
+    return false;
+  }
+  esp_now_register_recv_cb(saatMenerima);  // 5. daftarkan callback terima
+  return true;
 }
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(21, 22);
+  delay(1000);  // beri waktu Serial Monitor tersambung
+  pinMode(LED_MERAH, OUTPUT);
+  digitalWrite(LED_MERAH, LOW);
 
-  Serial.println("\n=== BAB 54 Program 1B: ESP-NOW Unicast RECEIVER ===");
+  Serial.println();
+  Serial.println("BAB 54 - Program 1: Penerima LED Merah (board B)");
 
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-    oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-    oled.setCursor(0, 0);  oled.print("ESP-NOW Receiver");
-    oled.setCursor(0, 16); oled.print("Menunggu data...");
-    oled.display();
-  }
+  espNowSiap = mulaiEspNow();
+  if (!espNowSiap) return;
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  Serial.print("[WiFi] MAC Receiver: ");
-  Serial.println(WiFi.macAddress());
-  Serial.println("[PETUNJUK] Salin MAC di atas ke RECEIVER_MAC di sketch Sender!");
-
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("[ESPNOW] ❌ Init gagal! Reboot...");
-    ESP.restart();
-  }
-
-  esp_now_register_recv_cb(onRecv);
-  Serial.println("[ESPNOW] ✅ Menunggu data dari Sender...");
+  Serial.println("Salin baris \"Format kode\" ke MAC_PENERIMA di p1_sender.");
+  Serial.println("Menunggu perintah dari board A...");
 }
 
 void loop() {
-  // Proses data baru (flag dari callback) — aman dari race condition
-  if (newDataFlag) {
-    newDataFlag = false;
-    Serial.printf("[ESPNOW] ✅ Terima pkt #%u dari %02X:%02X:%02X:%02X:%02X:%02X\n",
-      rxPacket.packetNum,
-      lastSenderMAC[0], lastSenderMAC[1], lastSenderMAC[2],
-      lastSenderMAC[3], lastSenderMAC[4], lastSenderMAC[5]);
-    Serial.printf("         Suhu:%.1f°C | Humi:%.0f%% | Up:%lu s | Total Rcv:%u\n",
-      rxPacket.temperature, rxPacket.humidity,
-      rxPacket.uptime, recvCount);
-    updateOLED();
-  }
+  if (!espNowSiap || !adaPaketBaru) return;
 
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Rcv:%u | Heap:%u B | Up:%lu s\n",
-      recvCount, ESP.getFreeHeap(), millis()/1000UL);
-  }
+  // Ambil salinan data dari callback, lalu lepaskan kunci secepatnya
+  PaketLed paket;
+  uint8_t mac[6];
+  int rssi;
+  portENTER_CRITICAL(&kunci);
+  paket = paketMasuk;
+  memcpy(mac, macPengirim, 6);
+  rssi = rssiPaket;
+  adaPaketBaru = false;
+  portEXIT_CRITICAL(&kunci);
+
+  digitalWrite(LED_MERAH, paket.ledNyala ? HIGH : LOW);
+
+  Serial.printf("Paket #%lu dari ", (unsigned long)paket.nomor);
+  cetakMac(mac);
+  Serial.printf(" (RSSI %d dBm): LED %s\n", rssi, paket.ledNyala ? "NYALA" : "MATI");
 }

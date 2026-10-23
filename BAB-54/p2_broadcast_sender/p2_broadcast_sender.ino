@@ -1,106 +1,141 @@
 /*
- * BAB 54 - Program 2A: ESP-NOW Broadcast — SENDER
+ * BAB 54 - Program 2 (board A): Broadcast Suhu DHT11
  *
- * Fungsi: Broadcast data DHT11 ke SEMUA ESP32 dalam jangkauan tiap 3 detik
- * Tidak perlu tahu MAC address Receiver — cukup gunakan broadcast MAC!
+ * Setiap 3 detik board A membaca DHT11, lalu menyiarkan (broadcast) suhu
+ * dan kelembapan ke SEMUA board ESP-NOW di kanal yang sama.
+ * Tidak perlu tahu MAC penerima.
  *
- * Hardware: DHT11 → IO27
+ * Rangkaian board A: DHT (header hijau, pin ke-3 dari atas) -> IO27
+ * Library: DHT sensor library by Adafruit (+ Adafruit Unified Sensor)
+ * Alat uji: Serial Monitor, baud 115200.
  */
 
 #include <WiFi.h>
-#include <esp_now.h>
+#include <esp_wifi.h>  // esp_wifi_get_mac()
+#include <esp_now.h>   // fungsi-fungsi ESP-NOW
 #include <DHT.h>
 
-#define DHT_PIN 27
-DHT dht(DHT_PIN, DHT11);
+#define DHT_PIN  27
+#define DHT_TYPE DHT11
 
-// Broadcast MAC — semua ESP32 dalam jangkauan akan menerima
-uint8_t BROADCAST_MAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+const uint8_t KANAL_ESPNOW = 1;       // harus sama di semua board
+const char NAMA_BOARD[] = "Kamar-A";  // ← boleh diganti, maksimal 11 huruf
 
-typedef struct {
-  float    temperature;
-  float    humidity;
-  uint32_t uptime;
-  uint32_t packetNum;
-  char     senderID[12]; // Identitas sender (nama node)
-} BroadcastPacket;
+uint8_t MAC_BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-BroadcastPacket packet;
-uint32_t sendCount = 0;
+// Isi paket: HARUS sama persis dengan struct di p2_broadcast_receiver
+struct PaketCuaca {
+  uint32_t nomor;       // nomor urut paket
+  float    suhu;        // °C
+  float    kelembapan;  // %
+  char     nama[12];    // nama board pengirim (teks diakhiri '\0')
+};
 
-void onSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.printf("[ESPNOW] Broadcast #%u: %s\n",
-    sendCount, status == ESP_NOW_SEND_SUCCESS ? "✅ OK" : "❌ GAGAL");
+// Pola timer dari BAB 16
+struct Timer {
+  unsigned long interval;
+  unsigned long waktuLalu;
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
+
+DHT dht(DHT_PIN, DHT_TYPE);
+Timer timerKirim = {3000, 0};  // 3 detik; DHT11 paling cepat dibaca tiap 2 detik
+PaketCuaca paket = {};          // semua kolom diisi 0 dulu
+bool espNowSiap = false;
+
+void cetakMac(const uint8_t *mac) {
+  Serial.printf("%02X:%02X:%02X:%02X:%02X:%02X",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+void cetakMacBoardIni() {
+  uint8_t mac[6];
+  esp_wifi_get_mac(WIFI_IF_STA, mac);
+  Serial.print("MAC board ini : ");
+  cetakMac(mac);
+  Serial.println();
+  Serial.printf("Format kode   : {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+bool mulaiEspNow() {
+  WiFi.mode(WIFI_STA);
+  WiFi.STA.begin();
+  WiFi.setChannel(KANAL_ESPNOW);
+  cetakMacBoardIni();
+  Serial.printf("Kanal         : %ld\n", (long)WiFi.channel());
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW gagal dimulai. Tekan tombol EN untuk mencoba lagi.");
+    return false;
+  }
+  return true;  // broadcast tidak punya ACK, jadi callback kirim tidak dipakai
+}
+
+bool tambahPeer(const uint8_t *mac) {
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, mac, 6);
+  peer.channel = 0;          // 0 = ikut kanal radio saat ini
+  peer.ifidx = WIFI_IF_STA;
+  peer.encrypt = false;      // broadcast tidak bisa dienkripsi
+  esp_err_t hasil = esp_now_add_peer(&peer);
+  if (hasil != ESP_OK) {
+    Serial.printf("Gagal mendaftarkan peer: %s\n", esp_err_to_name(hasil));
+    return false;
+  }
+  return true;
+}
+
+void kirimData() {
+  float suhu = dht.readTemperature();
+  float kelembapan = dht.readHumidity();
+  if (isnan(suhu) || isnan(kelembapan)) {
+    Serial.println("Gagal membaca DHT11, paket tidak dikirim. Periksa kabel DHT -> IO27.");
+    return;
+  }
+
+  paket.nomor = paket.nomor + 1;
+  paket.suhu = suhu;
+  paket.kelembapan = kelembapan;
+
+  esp_err_t hasil = esp_now_send(MAC_BROADCAST, (uint8_t *)&paket, sizeof(paket));
+  if (hasil == ESP_OK) {
+    Serial.printf("Broadcast #%lu: %.1f °C | %.0f %%\n",
+                  (unsigned long)paket.nomor, suhu, kelembapan);
+  } else {
+    Serial.printf("Broadcast #%lu ditolak: %s\n",
+                  (unsigned long)paket.nomor, esp_err_to_name(hasil));
+  }
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
   dht.begin();
 
-  Serial.println("\n=== BAB 54 Program 2A: ESP-NOW Broadcast SENDER ===");
+  Serial.println();
+  Serial.println("BAB 54 - Program 2: Broadcast Suhu DHT11 (board A)");
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  Serial.print("[WiFi] MAC Sender: ");
-  Serial.println(WiFi.macAddress());
+  espNowSiap = mulaiEspNow();
+  if (!espNowSiap) return;
 
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("[ESPNOW] ❌ Init gagal! Reboot...");
-    ESP.restart();
+  if (tambahPeer(MAC_BROADCAST)) {
+    Serial.println("Peer broadcast FF:FF:FF:FF:FF:FF terdaftar.");
   }
-  esp_now_register_send_cb(onSent);
-
-  // Daftarkan Broadcast MAC sebagai peer
-  esp_now_peer_info_t peerInfo = {};
-  memcpy(peerInfo.peer_addr, BROADCAST_MAC, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("[ESPNOW] ❌ Gagal daftarkan broadcast peer!");
-  } else {
-    Serial.println("[ESPNOW] ✅ Broadcast peer terdaftar (FF:FF:FF:FF:FF:FF)");
-  }
-
-  strncpy(packet.senderID, "Sensor-Node1", sizeof(packet.senderID));
-
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", t, h);
-  }
-
-  Serial.println("[ESPNOW] Mulai broadcast tiap 3 detik...");
+  strncpy(paket.nama, NAMA_BOARD, sizeof(paket.nama) - 1);  // sisakan 1 byte untuk '\0'
+  Serial.printf("Nama board    : %s\n", paket.nama);
+  Serial.println("Menyiarkan data setiap 3 detik...");
 }
 
 void loop() {
-  static unsigned long tDHT = 0;
-  static float lastT = NAN, lastH = NAN;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
-  }
-
-  static unsigned long tSend = 0;
-  if (millis() - tSend >= 3000UL) {
-    tSend = millis();
-    if (!isnan(lastT)) {
-      sendCount++;
-      packet.temperature = lastT;
-      packet.humidity    = lastH;
-      packet.uptime      = millis() / 1000UL;
-      packet.packetNum   = sendCount;
-
-      esp_now_send(BROADCAST_MAC, (uint8_t*)&packet, sizeof(packet));
-      Serial.printf("[ESPNOW] → Broadcast #%u: %.1f°C | %.0f%%\n",
-        sendCount, lastT, lastH);
-    }
-  }
-
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Sent:%u | Heap:%u B | Up:%lu s\n",
-      sendCount, ESP.getFreeHeap(), millis()/1000UL);
+  if (!espNowSiap) return;
+  if (timerKirim.sudahWaktunya(millis())) {
+    kirimData();
   }
 }
