@@ -1,177 +1,175 @@
 /*
- * BAB 51 - Program 1: CoAP GET — Baca Data dari Server Publik (coap.me)
- *
- * Fitur:
- *   ► ESP32 sebagai CoAP Client (UDP, bukan TCP!)
- *   ► CoAP GET ke coap.me/hello tiap 30 detik
- *   ► Response callback asinkron — UDP stateless
- *   ► Decode CoAP response code (cls.dtl format)
- *   ► OLED tampilkan response & counter
- *   ► Non-blocking reconnect WiFi
- *   ► Heartbeat tiap 60 detik
- *
- * Hardware:
- *   OLED → SDA=IO21, SCL=IO22 (hardwired Bluino Kit)
- *
- * Library:
- *   coap-simple by hirotakaster (Library Manager)
- *
- * Server: coap.me — server publik Eclipse untuk testing CoAP
- *   Endpoint tersedia: /hello, /test, /sink (terima semua POST)
- *   Tidak perlu akun atau API key!
- *
- * Perbedaan dari HTTP GET (BAB 48):
- *   HTTP : TCP connect → request → response → disconnect (sinkron)
- *   CoAP : UDP packet → kirim → callback saat response tiba (asinkron)
+ * BAB 51 - Program 1: CoAP GET ke Server Publik
+ * ESP32 menjadi client CoAP dan mengirim GET ke coap://coap.me/<resource>.
+ * - Saat menyala: GET coap://coap.me/hello
+ * - Ketik nama resource di Serial Monitor (line ending: New Line),
+ *   misalnya test atau abc, lalu tekan Enter untuk mengirim GET lain.
+ * - Kalau jawaban tidak datang dalam 5 detik, program memberi tahu.
+ * Rangkaian: tidak perlu. Butuh WiFi 2,4 GHz yang tersambung ke internet.
  */
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <coap-simple.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── CoAP Server (coap.me — public test server) ───────────────────────
-const char* COAP_SERVER   = "coap.me";
-const int   COAP_PORT     = 5683;
-const char* COAP_RESOURCE = "/hello";
+const char *SERVER_COAP = "coap.me";      // server uji CoAP publik
+const int PORT_COAP = 5683;               // port bawaan CoAP
+const unsigned long BATAS_TUNGGU = 5000;  // ms, batas menunggu jawaban
 
-const unsigned long GET_INTERVAL = 30000UL;  // 30 detik
-
-// ── Hardware ──────────────────────────────────────────────────────────
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
-
-// ── State ─────────────────────────────────────────────────────────────
-char     lastResp[128] = "Menunggu...";
-uint32_t getCount = 0;
-uint32_t okCount  = 0;
-
-// ── Objek CoAP (UDP) ──────────────────────────────────────────────────
 WiFiUDP udp;
-Coap    coap(udp);
+Coap coap(udp, 256);  // buffer kirim & terima masing-masing 256 byte
 
-// ── OLED Helper ───────────────────────────────────────────────────────
-void updateOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-  oled.setCursor(0, 0);  oled.print("CoAP GET Client");
-  oled.drawLine(0, 10, 127, 10, WHITE);
-  oled.setCursor(0, 14); oled.print("coap.me/hello");
-  oled.setCursor(0, 26); oled.print("Req:"); oled.print(getCount);
-  oled.print("  OK:"); oled.print(okCount);
-  oled.setCursor(0, 38); oled.print("Response:");
-  oled.setCursor(0, 50); oled.print(lastResp);
-  oled.display();
+// Data request yang sedang menunggu jawaban
+bool menunggu = false;
+uint16_t idDitunggu = 0;
+unsigned long waktuKirim = 0;
+
+// Nama jenis pesan CoAP
+const char *namaJenis(uint8_t jenis) {
+  switch (jenis) {
+    case COAP_CON: return "CON";
+    case COAP_NONCON: return "NON";
+    case COAP_ACK: return "ACK";
+    case COAP_RESET: return "RST";
+    default: return "?";
+  }
 }
 
-// ── Callback: dipanggil saat response CoAP diterima (ASINKRON!) ───────
-void callbackResponse(CoapPacket &packet, IPAddress ip, int port) {
-  // WAJIB: payload tidak null-terminated!
-  memset(lastResp, 0, sizeof(lastResp));
-  size_t copyLen = min((size_t)packet.payloadlen, sizeof(lastResp) - 1);
-  if (copyLen > 0) memcpy(lastResp, packet.payload, copyLen);
-
-  // Decode response code: high 3 bits = class, low 5 bits = detail
-  uint8_t cls = packet.code >> 5;
-  uint8_t dtl = packet.code & 0x1F;
-
-  Serial.printf("[CoAP] ← Response dari %s\n", ip.toString().c_str());
-  Serial.printf("[CoAP] Code: %u.%02u | Payload: %s\n", cls, dtl, lastResp);
-
-  if (cls == 2) {
-    okCount++;
-    Serial.printf("[CoAP] ✅ Sukses! Heap: %u B\n", ESP.getFreeHeap());
-  } else {
-    Serial.printf("[CoAP] ⚠️ Error response: %u.%02u\n", cls, dtl);
+// Arti beberapa kode respons yang sering muncul
+const char *artiKode(uint8_t kode) {
+  switch (kode) {
+    case 0: return "Empty (ACK kosong, jawaban menyusul terpisah)";
+    case COAP_CREATED: return "Created (berhasil dibuat)";
+    case COAP_DELETED: return "Deleted (berhasil dihapus)";
+    case COAP_CHANGED: return "Changed (berhasil diubah)";
+    case COAP_CONTENT: return "Content (berhasil, ada isi)";
+    case COAP_BAD_REQUEST: return "Bad Request (permintaan tidak dimengerti)";
+    case COAP_NOT_FOUND: return "Not Found (resource tidak ada)";
+    case COAP_METHOD_NOT_ALLOWED: return "Method Not Allowed (method tidak didukung)";
+    case COAP_INTERNAL_SERVER_ERROR: return "Internal Server Error (kesalahan di server)";
+    case COAP_SERVICE_UNAVAILABLE: return "Service Unavailable (server sedang tidak bisa melayani)";
+    default: return "(lihat tabel kode respons)";
   }
-  updateOLED();
+}
+
+// Callback: dipanggil oleh coap.loop() saat paket ACK (jawaban) datang
+void terimaJawaban(CoapPacket &paket, IPAddress ip, int port) {
+  if (!menunggu || paket.messageid != idDitunggu) {
+    Serial.printf("[INFO] Jawaban untuk Message ID %u tidak sedang ditunggu, diabaikan.\n",
+                  paket.messageid);
+    return;
+  }
+  menunggu = false;
+
+  Serial.printf("[JAWABAN] %s, Message ID %u, %lu ms\n",
+                namaJenis(paket.type), paket.messageid, millis() - waktuKirim);
+  Serial.printf("[JAWABAN] kode %d.%02d = %s\n",
+                paket.code >> 5, paket.code & 0x1F, artiKode(paket.code));
+  Serial.printf("[JAWABAN] isi (%u byte): ", (unsigned)paket.payloadlen);
+  if (paket.payloadlen > 0) {
+    Serial.write(paket.payload, paket.payloadlen);  // payload TIDAK diakhiri '\0'
+  } else {
+    Serial.print("(kosong)");
+  }
+  Serial.println();
+}
+
+// Mengirim GET ke coap://coap.me/<resource>
+void kirimGet(const String &resource) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[GAGAL] WiFi belum tersambung.");
+    return;
+  }
+
+  // DNS: ubah nama "coap.me" menjadi alamat IP (menunggu sebentar)
+  IPAddress ipServer;
+  if (!WiFi.hostByName(SERVER_COAP, ipServer)) {
+    Serial.printf("[GAGAL] Alamat IP %s tidak ditemukan (DNS gagal).\n", SERVER_COAP);
+    return;
+  }
+
+  // Path ditulis TANPA '/' di depan, misalnya "hello"
+  uint16_t id = coap.get(ipServer, PORT_COAP, resource.c_str());
+  if (id == 0) {
+    Serial.println("[GAGAL] Paket tidak bisa disusun (nama resource terlalu panjang?).");
+    return;
+  }
+
+  menunggu = true;
+  idDitunggu = id;
+  waktuKirim = millis();
+  Serial.println();
+  Serial.printf("[GET] coap://%s/%s (IP %s), Message ID %u\n",
+                SERVER_COAP, resource.c_str(), ipServer.toString().c_str(), id);
+}
+
+// Membaca nama resource yang diketik di Serial Monitor
+void bacaSerial() {
+  if (!Serial.available()) return;
+
+  String masukan = Serial.readStringUntil('\n');
+  masukan.trim();
+  if (masukan.startsWith("/")) masukan.remove(0, 1);  // buang '/' di depan
+  if (masukan.length() == 0) return;
+
+  if (menunggu) {
+    Serial.println("[INFO] Masih menunggu jawaban sebelumnya. Coba lagi sebentar.");
+    return;
+  }
+  kirimGet(masukan);
+}
+
+// Memberi tahu kalau jawaban tidak datang dalam BATAS_TUNGGU
+void periksaBatasWaktu() {
+  if (menunggu && millis() - waktuKirim >= BATAS_TUNGGU) {
+    menunggu = false;
+    Serial.printf("[GAGAL] Tidak ada jawaban untuk Message ID %u dalam %lu detik.\n",
+                  idDitunggu, BATAS_TUNGGU / 1000);
+    Serial.println("        Paket hilang, atau jaringan memblokir UDP. Coba kirim lagi.");
+  }
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  Serial.print("Alamat IP ESP32: ");
+  Serial.println(WiFi.localIP());
 }
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(21, 22);
+  delay(1000);
+  Serial.println("\nBAB 51 - Program 1: CoAP GET ke Server Publik");
 
-  Serial.println("\n=== BAB 51 Program 1: CoAP GET — coap.me ===");
-  Serial.printf("[INFO] Target: coap://%s:%d%s\n", COAP_SERVER, COAP_PORT, COAP_RESOURCE);
+  sambungkanWiFi();
 
-  // OLED
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-    oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-    oled.setCursor(0, 0);  oled.print("BAB 51 CoAP GET");
-    oled.setCursor(0, 12); oled.print("WiFi..."); oled.display();
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak terdeteksi — lanjut tanpa OLED.");
-  }
+  coap.response(terimaJawaban);  // daftarkan callback SEBELUM start()
+  coap.start();                  // buka UDP port 5683
+  Serial.println("CoAP siap (UDP port 5683).");
+  Serial.println("Ketik nama resource lalu tekan Enter, misalnya: hello, test, abc");
 
-  // WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - t0 >= 15000UL) { delay(2000); ESP.restart(); }
-    Serial.print("."); delay(500);
-  }
-  Serial.printf("\n[WiFi] ✅ Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
-
-  // CoAP setup — WAJIB: daftarkan callback SEBELUM coap.start()!
-  coap.response(callbackResponse);
-  coap.start();  // Buka UDP listener di port 5683
-  Serial.println("[CoAP] ✅ Client siap (UDP port 5683)");
-  Serial.printf("[INFO] GET tiap %lu detik\n", GET_INTERVAL / 1000UL);
+  kirimGet("hello");
 }
 
 void loop() {
-  // Cek WiFi
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] ⚠️ Terputus! Reconnect...");
-    WiFi.reconnect(); delay(5000); return;
-  }
-
-  // WAJIB: proses semua incoming UDP (response CoAP)
-  coap.loop();
-
-  // CoAP GET tiap GET_INTERVAL
-  static unsigned long tGet = 0;
-  static bool firstRun = true;
-  if (firstRun || millis() - tGet >= GET_INTERVAL) {
-    firstRun = false;
-    tGet = millis();
-    getCount++;
-
-    // Resolve hostname ke IP (DNS)
-    IPAddress serverIP;
-    if (!WiFi.hostByName(COAP_SERVER, serverIP)) {
-      Serial.printf("[CoAP] ❌ DNS gagal resolve '%s'\n", COAP_SERVER);
-      return;
-    }
-
-    Serial.printf("[CoAP] → GET #%u: coap://%s%s\n", getCount, COAP_SERVER, COAP_RESOURCE);
-    // coap.get() mengirim paket UDP dan langsung return msgId
-    // Response akan datang ASINKRON via callbackResponse()
-    uint16_t msgId = coap.get(serverIP, COAP_PORT, COAP_RESOURCE);
-    if (msgId > 0) {
-      Serial.printf("[CoAP] Terkirim (msgId:%u) — tunggu response...\n", msgId);
-    } else {
-      Serial.println("[CoAP] ❌ Gagal kirim — cek koneksi WiFi.");
-    }
-    updateOLED();
-  }
-
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] GET:%u OK:%u | Heap:%u B | Uptime:%lu s\n",
-      getCount, okCount, ESP.getFreeHeap(), millis() / 1000UL);
-  }
+  coap.loop();          // tugas 1: proses paket CoAP yang masuk (memanggil callback)
+  bacaSerial();         // tugas 2: cek apakah ada nama resource yang diketik
+  periksaBatasWaktu();  // tugas 3: cek jawaban yang terlalu lama
 }

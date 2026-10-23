@@ -211,6 +211,7 @@ Pemula sering bingung "perintah ini diketik di mana?". Setiap kali memberi perin
 | Membuka halaman web ESP32 | *Browser* di laptop/HP | Laptop/HP harus terhubung ke WiFi yang **sama** dengan ESP32 |
 | Mengirim permintaan HTTP | `curl` di **Command Prompt** (Windows) / **Terminal** (macOS/Linux), atau [Hoppscotch](https://hoppscotch.io) | Di Windows buka: tombol Start → ketik `cmd` → Enter. Di PowerShell lama, ketik `curl.exe` (bukan `curl`) |
 | MQTT | [MQTT Explorer](https://mqtt-explorer.com) (aplikasi desktop) | Alternatif berbasis web: HiveMQ WebSocket Client |
+| CoAP | `aiocoap-client` (Python, `pip install aiocoap`) di Command Prompt/Terminal | Alternatif: `coap-client` dari libcoap. *Add-on* Copper untuk Firefox sudah tidak berfungsi |
 | Bluetooth Classic | Aplikasi **Serial Bluetooth Terminal** (Android) | iPhone **tidak mendukung** Bluetooth Classic SPP |
 | BLE | Aplikasi **nRF Connect for Mobile** (Android/iOS) | Alternatif: LightBlue |
 | Perintah Python (`pip`, `python`) | Command Prompt / Terminal | Jelaskan cara cek apakah Python sudah terpasang |

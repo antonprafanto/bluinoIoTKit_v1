@@ -1,30 +1,13 @@
 /*
- * BAB 51 - Program 3: CoAP Server — ESP32 sebagai Endpoint IoT
- *
- * Arsitektur: Edge IoT — ESP32 melayani request langsung, tanpa cloud
- *
- * Fitur:
- *   ► ESP32 berjalan sebagai CoAP Server di port 5683
- *   ► Endpoint /sensor → GET: return JSON suhu & kelembaban DHT11
- *   ► Endpoint /relay  → GET: return status relay
- *                      → PUT: ubah status relay (payload: "ON" / "OFF")
- *   ► Semua CoAP client di jaringan LAN yang sama dapat query ESP32 ini
- *   ► OLED tampilkan IP, request counter, suhu
- *   ► Non-blocking DHT11 read tiap 2 detik
- *   ► Heartbeat tiap 60 detik
- *
- * Hardware:
- *   DHT11 → IO27, Relay → IO4, OLED → SDA=IO21, SCL=IO22
- *
- * Cara Uji (dari laptop/PC di jaringan yang sama):
- *   Install coap-client: sudo apt install libcoap-bin  (Linux)
- *                        brew install libcoap           (macOS)
- *
- *   GET sensor: coap-client -m get coap://192.168.1.105/sensor
- *   GET relay : coap-client -m get coap://192.168.1.105/relay
- *   SET relay : coap-client -m put coap://192.168.1.105/relay -e "ON"
- *
- *   Atau gunakan MQTT Explorer versi CoAP: Copper (Firefox addon)
+ * BAB 51 - Program 3: ESP32 sebagai CoAP Server
+ * Resource yang disediakan:
+ *   GET coap://IP/sensor            -> JSON suhu & kelembapan DHT11
+ *   GET coap://IP/led               -> status LED merah: 1 (menyala) / 0 (padam)
+ *   PUT coap://IP/led  (isi 1 / 0)  -> menyalakan / memadamkan LED merah
+ *   GET coap://IP/.well-known/core  -> daftar resource (CoRE Link Format)
+ * DHT11 dibaca setiap 2 detik tanpa delay() (struct Timer dari BAB 16).
+ * Rangkaian: DHT (header hijau) -> IO27, LED1 (merah) -> IO4
+ * Uji dari laptop di WiFi yang sama: aiocoap-client coap://IP/sensor
  */
 
 #include <WiFi.h>
@@ -32,207 +15,237 @@
 #include <coap-simple.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Hardware ──────────────────────────────────────────────────────────
-#define DHT_PIN   27
-#define RELAY_PIN 4
-DHT dht(DHT_PIN, DHT11);
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define LED_MERAH 4  // LED1 (merah)
 
-// ── State ─────────────────────────────────────────────────────────────
-float    lastT      = NAN;
-float    lastH      = NAN;
-bool     relayState = false;
-uint32_t reqCount   = 0;
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── Objek CoAP Server ─────────────────────────────────────────────────
-WiFiUDP udp;
-Coap    coap(udp);
-
-// ── OLED Helper ───────────────────────────────────────────────────────
-void updateOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-  oled.setCursor(0, 0); oled.print("CoAP Server");
-  oled.setCursor(0, 10); oled.print("IP:"); oled.print(WiFi.localIP());
-  oled.drawLine(0, 20, 127, 20, WHITE);
-  oled.setTextSize(2); oled.setCursor(0, 24);
-  if (!isnan(lastT)) { oled.print(lastT, 1); oled.print("C"); }
-  else oled.print("---");
-  oled.setTextSize(1); oled.setCursor(0, 46);
-  oled.print("Req:#"); oled.print(reqCount);
-  oled.print(" RLY:"); oled.print(relayState ? "ON" : "OFF");
-  oled.display();
-}
-
-// ── Callback: Endpoint /sensor ────────────────────────────────────────
-// Melayani GET /sensor → return JSON suhu & kelembaban
-void callbackSensor(CoapPacket &packet, IPAddress clientIP, int clientPort) {
-  reqCount++;
-  Serial.printf("[CoAP] ← %s GET /sensor (#%u)\n",
-    clientIP.toString().c_str(), reqCount);
-
-  // Bangun JSON response (float langsung → tidak ada ambiguitas type)
-  StaticJsonDocument<128> doc;
-  if (!isnan(lastT)) {
-    doc["temp"]     = lastT;           // → 29.1 (number, bukan "29.1" string)
-    doc["humidity"] = (int)lastH;      // → 65   (integer)
-  } else {
-    doc["error"] = "sensor_unavailable";
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
   }
-  doc["uptime"] = millis() / 1000UL;
+};
 
-  char payload[128];
-  size_t payLen = serializeJson(doc, payload, sizeof(payload));
+WiFiUDP udp;
+Coap coap(udp, 256);
+DHT dht(PIN_DHT, TIPE_DHT);
+Timer timerDHT = {2000, 0};  // baca DHT11 setiap 2 detik
 
-  Serial.printf("[CoAP] → Response: %s\n", payload);
+// Hasil bacaan DHT11 terakhir
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
 
-  // Kirim response 2.05 Content
-  coap.sendResponse(clientIP, clientPort, packet.messageid,
-    payload, payLen,
-    COAP_RESPONSE_CODE(CONTENT),
-    COAP_CONTENT_TYPE(APPLICATION_JSON),
-    packet.token, packet.tokenlen);
+bool ledMenyala = false;
+unsigned long jumlahRequest = 0;
+bool wifiTersambung = true;
 
-  updateOLED();
+// Daftar resource untuk /.well-known/core (format CoRE Link Format, RFC 6690)
+const char DAFTAR_RESOURCE[] =
+  "</sensor>;title=\"Suhu dan kelembapan\";ct=50,"
+  "</led>;title=\"LED merah (PUT 1/0)\";ct=0";
+
+const char *namaJenis(uint8_t jenis) {
+  switch (jenis) {
+    case COAP_CON: return "CON";
+    case COAP_NONCON: return "NON";
+    case COAP_ACK: return "ACK";
+    case COAP_RESET: return "RST";
+    default: return "?";
+  }
 }
 
-// ── Callback: Endpoint /relay ─────────────────────────────────────────
-// Melayani GET /relay → return status
-//           PUT /relay → ubah status (payload: "ON" / "OFF")
-void callbackRelay(CoapPacket &packet, IPAddress clientIP, int clientPort) {
-  reqCount++;
+const char *namaMethod(uint8_t kode) {
+  switch (kode) {
+    case COAP_GET: return "GET";
+    case COAP_POST: return "POST";
+    case COAP_PUT: return "PUT";
+    case COAP_DELETE: return "DELETE";
+    default: return "?";
+  }
+}
 
-  if (packet.code == COAP_GET) {
-    // GET: balas status relay
-    Serial.printf("[CoAP] ← %s GET /relay (#%u)\n",
-      clientIP.toString().c_str(), reqCount);
+// Mengirim jawaban (ACK) dengan Message ID dan token yang sama dengan request
+void balas(CoapPacket &paket, IPAddress ip, int port, const char *isi,
+           COAP_RESPONSE_CODE kode, COAP_CONTENT_TYPE format) {
+  coap.sendResponse(ip, port, paket.messageid, isi, strlen(isi),
+                    kode, format, paket.token, paket.tokenlen);
+}
 
-    char payload[32];
-    snprintf(payload, sizeof(payload), "{\"relay\":\"%s\"}",
-      relayState ? "ON" : "OFF");
+// Mencatat request yang baru saja dijawab ke Serial Monitor
+void catat(CoapPacket &paket, IPAddress ip, int port, const char *path, uint8_t kodeJawaban) {
+  jumlahRequest++;
+  Serial.printf("[CoAP #%lu] %s %s %s dari %s:%d, token %u byte -> %d.%02d\n",
+                jumlahRequest, namaJenis(paket.type), namaMethod(paket.code), path,
+                ip.toString().c_str(), port, paket.tokenlen,
+                kodeJawaban >> 5, kodeJawaban & 0x1F);
+}
 
-    coap.sendResponse(clientIP, clientPort, packet.messageid,
-      payload, strlen(payload),
-      COAP_RESPONSE_CODE(CONTENT),
-      COAP_CONTENT_TYPE(APPLICATION_JSON),
-      packet.token, packet.tokenlen);
+// Resource /sensor
+void tanganiSensor(CoapPacket &paket, IPAddress ip, int port) {
+  if (paket.code != COAP_GET) {
+    balas(paket, ip, port, "pakai GET", COAP_METHOD_NOT_ALLOWED, COAP_TEXT_PLAIN);
+    catat(paket, ip, port, "/sensor", COAP_METHOD_NOT_ALLOWED);
+    return;
+  }
+  if (!dhtOk) {
+    balas(paket, ip, port, "DHT11 belum terbaca", COAP_SERVICE_UNAVAILABLE, COAP_TEXT_PLAIN);
+    catat(paket, ip, port, "/sensor", COAP_SERVICE_UNAVAILABLE);
+    return;
+  }
 
-    Serial.printf("[CoAP] → Response: %s\n", payload);
+  JsonDocument doc;
+  doc["suhu"] = suhu;                   // °C
+  doc["kelembapan"] = kelembapan;       // %RH
+  doc["waktu_nyala"] = millis() / 1000;  // detik sejak ESP32 menyala
+  char json[96];
+  serializeJson(doc, json, sizeof(json));
 
-  } else if (packet.code == COAP_PUT) {
-    // PUT: ubah status relay
-    char cmd[16] = "";
-    size_t copyLen = min((size_t)packet.payloadlen, sizeof(cmd) - 1);
-    if (copyLen > 0) { memcpy(cmd, packet.payload, copyLen); }
+  balas(paket, ip, port, json, COAP_CONTENT, COAP_APPLICATION_JSON);
+  catat(paket, ip, port, "/sensor", COAP_CONTENT);
+}
 
-    Serial.printf("[CoAP] ← %s PUT /relay cmd='%s' (#%u)\n",
-      clientIP.toString().c_str(), cmd, reqCount);
+// Resource /led
+void tanganiLed(CoapPacket &paket, IPAddress ip, int port) {
+  if (paket.code == COAP_GET) {
+    balas(paket, ip, port, ledMenyala ? "1" : "0", COAP_CONTENT, COAP_TEXT_PLAIN);
+    catat(paket, ip, port, "/led", COAP_CONTENT);
 
-    if (strcmp(cmd, "ON") == 0) {
-      relayState = true;
-      digitalWrite(RELAY_PIN, HIGH);
-      Serial.println("[RELAY] ✅ Relay → ON");
-      coap.sendResponse(clientIP, clientPort, packet.messageid,
-        "OK", 2, COAP_RESPONSE_CODE(CHANGED),
-        COAP_CONTENT_TYPE(TEXT_PLAIN),
-        packet.token, packet.tokenlen);
-    } else if (strcmp(cmd, "OFF") == 0) {
-      relayState = false;
-      digitalWrite(RELAY_PIN, LOW);
-      Serial.println("[RELAY] ✅ Relay → OFF");
-      coap.sendResponse(clientIP, clientPort, packet.messageid,
-        "OK", 2, COAP_RESPONSE_CODE(CHANGED),
-        COAP_CONTENT_TYPE(TEXT_PLAIN),
-        packet.token, packet.tokenlen);
+  } else if (paket.code == COAP_PUT) {
+    // Salin isi pesan ke string C (payload TIDAK diakhiri '\0')
+    char perintah[8] = "";
+    size_t panjang = min(paket.payloadlen, sizeof(perintah) - 1);
+    if (panjang > 0) memcpy(perintah, paket.payload, panjang);
+    perintah[panjang] = '\0';
+
+    if (strcmp(perintah, "1") == 0 || strcmp(perintah, "0") == 0) {
+      ledMenyala = (perintah[0] == '1');
+      digitalWrite(LED_MERAH, ledMenyala ? HIGH : LOW);
+      balas(paket, ip, port, perintah, COAP_CHANGED, COAP_TEXT_PLAIN);
+      catat(paket, ip, port, "/led", COAP_CHANGED);
+      Serial.printf("          LED merah %s\n", ledMenyala ? "MENYALA" : "PADAM");
     } else {
-      Serial.printf("[RELAY] ⚠️ Perintah tidak dikenal: '%s'\n", cmd);
-      coap.sendResponse(clientIP, clientPort, packet.messageid,
-        "BAD_REQUEST", 11, COAP_RESPONSE_CODE(BAD_REQUEST),
-        COAP_CONTENT_TYPE(TEXT_PLAIN),
-        packet.token, packet.tokenlen);
+      balas(paket, ip, port, "isi harus 1 atau 0", COAP_BAD_REQUEST, COAP_TEXT_PLAIN);
+      catat(paket, ip, port, "/led", COAP_BAD_REQUEST);
+    }
+
+  } else {
+    balas(paket, ip, port, "pakai GET atau PUT", COAP_METHOD_NOT_ALLOWED, COAP_TEXT_PLAIN);
+    catat(paket, ip, port, "/led", COAP_METHOD_NOT_ALLOWED);
+  }
+}
+
+// Resource /.well-known/core
+void tanganiDaftar(CoapPacket &paket, IPAddress ip, int port) {
+  balas(paket, ip, port, DAFTAR_RESOURCE, COAP_CONTENT, COAP_APPLICATION_LINK_FORMAT);
+  catat(paket, ip, port, "/.well-known/core", COAP_CONTENT);
+}
+
+// Callback jawaban: ESP32 ini tidak mengirim request, tetapi callback ini
+// WAJIB didaftarkan supaya program tidak crash kalau ada paket ACK masuk.
+void abaikanJawaban(CoapPacket &paket, IPAddress ip, int port) {
+  Serial.printf("[INFO] Paket ACK dari %s diabaikan.\n", ip.toString().c_str());
+}
+
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  // Cetak pesan hanya pada bacaan pertama atau saat status berubah
+  if (bacaanPertama || berhasil != dhtOk) {
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
+    } else {
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
     }
   }
-  updateOLED();
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
+  }
+}
+
+// Memberi tahu kalau WiFi terputus atau tersambung lagi
+void pantauWiFi() {
+  bool tersambung = (WiFi.status() == WL_CONNECTED);
+  if (tersambung == wifiTersambung) return;
+  wifiTersambung = tersambung;
+  if (tersambung) {
+    Serial.print("[WiFi] Tersambung lagi. Alamat IP ESP32: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("[WiFi] Terputus. ESP32 mencoba menyambung ulang otomatis...");
+  }
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya request lebih cepat dijawab
+  Serial.print("Alamat IP ESP32: ");
+  Serial.println(WiFi.localIP());
 }
 
 void setup() {
   Serial.begin(115200);
-  pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW);
+  pinMode(LED_MERAH, OUTPUT);
+  digitalWrite(LED_MERAH, LOW);
+  delay(1000);
+  Serial.println("\nBAB 51 - Program 3: ESP32 sebagai CoAP Server");
+
   dht.begin();
-  Wire.begin(21, 22);
+  sambungkanWiFi();
 
-  Serial.println("\n=== BAB 51 Program 3: CoAP Server — ESP32 Endpoint ===");
+  // Daftarkan semua callback SEBELUM coap.start()
+  coap.server(tanganiSensor, "sensor");
+  coap.server(tanganiLed, "led");
+  coap.server(tanganiDaftar, ".well-known/core");
+  coap.response(abaikanJawaban);
+  coap.start();  // buka UDP port 5683
 
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-  }
-  oled.clearDisplay(); oled.setTextColor(WHITE);
-  oled.setCursor(0, 0);  oled.print("BAB 51 CoAP Srv");
-  oled.setCursor(0, 12); oled.print("WiFi..."); oled.display();
-
-  // WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - t0 >= 15000UL) { delay(2000); ESP.restart(); }
-    Serial.print("."); delay(500);
-  }
-  Serial.printf("\n[WiFi] ✅ Terhubung! IP: %s\n",
-    WiFi.localIP().toString().c_str());
-
-  // CoAP Server setup — daftarkan endpoint SEBELUM coap.start()
-  coap.server(callbackSensor, "sensor");  // → coap://IP/sensor
-  coap.server(callbackRelay,  "relay");   // → coap://IP/relay
-  coap.start();                           // Buka port UDP 5683
-
-  Serial.println("[CoAP] ✅ Server siap di port 5683");
-  Serial.printf("[CoAP] Endpoint: coap://%s/sensor\n", WiFi.localIP().toString().c_str());
-  Serial.printf("[CoAP] Endpoint: coap://%s/relay\n", WiFi.localIP().toString().c_str());
-  Serial.println("[CoAP] Cara uji: coap-client -m get coap://IP/sensor");
-
-  // Baca sensor awal
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
-  updateOLED();
+  String ip = WiFi.localIP().toString();
+  Serial.println("CoAP server siap di UDP port 5683. Coba dari laptop di WiFi yang sama:");
+  Serial.printf("  aiocoap-client coap://%s/sensor\n", ip.c_str());
+  Serial.printf("  aiocoap-client -m PUT --payload 1 coap://%s/led\n", ip.c_str());
 }
 
 void loop() {
-  // Cek WiFi
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] ⚠️ Terputus! Reconnect...");
-    WiFi.reconnect(); delay(5000); return;
+  coap.loop();  // tugas 1: layani request CoAP yang masuk
+
+  if (timerDHT.sudahWaktunya(millis())) {  // tugas 2: baca DHT11 setiap 2 detik
+    bacaDHT();
   }
 
-  // WAJIB: proses semua incoming CoAP request
-  coap.loop();
-
-  // Baca DHT11 non-blocking tiap 2 detik
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
-  }
-
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Relay:%s | Req:%u | Heap:%u B | Up:%lu s\n",
-      isnan(lastT)?0.0f:lastT, isnan(lastH)?0.0f:lastH,
-      relayState?"ON":"OFF", reqCount, ESP.getFreeHeap(), millis()/1000UL);
-  }
+  pantauWiFi();  // tugas 3: laporkan perubahan status WiFi
 }

@@ -1,23 +1,11 @@
 /*
- * BAB 51 - Program 2: CoAP POST — Kirim Data DHT11 ke Antares.id
- *
- * Fitur:
- *   ► CoAP POST data DHT11 ke Antares IoT Platform tiap 15 detik
- *   ► Payload format oneM2M (m2m:cin) — standar Antares
- *   ► Response callback asinkron (2.01 Created = sukses)
- *   ► ArduinoJson stack-allocated (zero heap fragmentation)
- *   ► Non-blocking reconnect WiFi
- *   ► OLED tampilkan suhu, kelembaban, counter POST
- *
- * Hardware:
- *   DHT11 → IO27 (hardwired Bluino Kit)
- *   OLED  → SDA=IO21, SCL=IO22 (hardwired)
- *
- * Format Antares CoAP (oneM2M):
- *   URL    : coap://platform.antares.id:5683/~/ACCESS_KEY/APP/DEVICE
- *   Method : POST
- *   Payload: {"m2m:cin":{"con":"{\"temp\":29.1,\"humidity\":65}"}}
- *   Sukses : Response code 2.01 Created
+ * BAB 51 - Program 2: Kirim Data DHT11 dengan CoAP POST
+ * Setiap 30 detik ESP32 mengirim suhu & kelembapan (JSON) ke
+ * coap://coap.me/sink dengan POST berjenis CON.
+ * Kalau ACK tidak datang, pesan yang sama (Message ID sama) dikirim ulang:
+ * tunggu 2 detik, lalu 4 detik, lalu 8 detik sebelum menyerah.
+ * DHT11 dibaca setiap 2 detik tanpa delay() (struct Timer dari BAB 16).
+ * Rangkaian: DHT (header hijau) -> IO27. Butuh WiFi yang tersambung ke internet.
  */
 
 #include <WiFi.h>
@@ -25,199 +13,252 @@
 #include <coap-simple.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ── Konfigurasi WiFi ──────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Konfigurasi Antares CoAP ──────────────────────────────────────────
-const char* ANTARES_HOST = "platform.antares.id";
-const int   ANTARES_PORT = 5683;
-const char* ACCESS_KEY   = "ACCESSKEY-ANDA-DISINI"; // ← Ganti!
-const char* APP_NAME     = "bluino-kit";             // ← Ganti!
-const char* DEVICE_NAME  = "sensor-ruangan";         // ← Ganti!
+const char *SERVER_COAP = "coap.me";        // server uji CoAP publik
+const int PORT_COAP = 5683;                 // port bawaan CoAP
+const char *RESOURCE = "sink";              // tanpa '/' di depan
+const char *NAMA_PERANGKAT = "bluino-kit";  // ganti dengan nama unik, misalnya "bluino-andi"
 
-const unsigned long POST_INTERVAL = 15000UL;
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
 
-// ── Hardware ──────────────────────────────────────────────────────────
-#define DHT_PIN 27
-DHT dht(DHT_PIN, DHT11);
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
+const unsigned long TUNGGU_ACK_AWAL = 2000;  // ms, waktu tunggu ACK pertama
+const uint8_t MAKS_KIRIM = 3;                // 1 kali kirim + 2 kali kirim ulang
 
-// ── State ─────────────────────────────────────────────────────────────
-float    lastT     = NAN;
-float    lastH     = NAN;
-uint32_t postCount = 0;
-uint32_t okCount   = 0;
-char     coapPath[200];
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ── Objek CoAP ────────────────────────────────────────────────────────
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
+
 WiFiUDP udp;
-Coap    coap(udp);
+Coap coap(udp, 256);
+DHT dht(PIN_DHT, TIPE_DHT);
 
-// ── OLED Helper ───────────────────────────────────────────────────────
-void updateOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE);
-  oled.setTextSize(1); oled.setCursor(0, 0); oled.print("CoAP POST Antares");
-  oled.drawLine(0, 10, 127, 10, WHITE);
-  oled.setTextSize(2); oled.setCursor(0, 14);
-  if (!isnan(lastT)) { oled.print(lastT, 1); oled.print("C"); }
-  else oled.print("---");
-  oled.setTextSize(1); oled.setCursor(0, 36);
-  if (!isnan(lastH)) { oled.print("Humid: "); oled.print(lastH, 0); oled.print("%"); }
-  oled.setCursor(0, 48);
-  oled.print("Post:#"); oled.print(postCount);
-  oled.print(" OK:#"); oled.print(okCount);
-  oled.display();
+Timer timerDHT = {2000, 0};     // baca DHT11 setiap 2 detik
+Timer timerKirim = {30000, 0};  // kirim data setiap 30 detik
+
+// Hasil bacaan DHT11 terakhir
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
+bool sudahPernahKirim = false;
+
+// Pesan yang sedang menunggu ACK
+bool menungguAck = false;
+uint16_t idPesan = 0;         // Message ID pesan yang sedang dikirim
+uint16_t idBerikutnya = 1;    // Message ID untuk pesan baru berikutnya
+uint8_t jumlahKirim = 0;      // sudah berapa kali pesan ini dikirim
+unsigned long waktuKirim = 0;      // millis() saat kiriman terakhir
+unsigned long waktuKirimAwal = 0;  // millis() saat kiriman pertama
+unsigned long batasTunggu = 0;     // ms, waktu tunggu ACK saat ini
+IPAddress ipServer;
+char isiPesan[100];
+size_t panjangIsi = 0;
+unsigned long jumlahBerhasil = 0;
+unsigned long jumlahGagal = 0;
+
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  // Cetak pesan hanya pada bacaan pertama atau saat status berubah
+  if (bacaanPertama || berhasil != dhtOk) {
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
+    } else {
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+    }
+  }
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
+  }
 }
 
-// ── Callback: response dari Antares ───────────────────────────────────
-void callbackResponse(CoapPacket &packet, IPAddress ip, int port) {
-  uint8_t cls = packet.code >> 5;
-  uint8_t dtl = packet.code & 0x1F;
+void cetakTotal() {
+  Serial.printf("[TOTAL] berhasil %lu, gagal %lu\n", jumlahBerhasil, jumlahGagal);
+}
 
-  char respBuf[128] = "";
-  size_t copyLen = min((size_t)packet.payloadlen, sizeof(respBuf) - 1);
-  if (copyLen > 0) { memcpy(respBuf, packet.payload, copyLen); }
+// Mengirim (atau mengirim ulang) pesan yang tersimpan di isiPesan
+void kirimPaket() {
+  jumlahKirim++;
+  waktuKirim = millis();
+  uint16_t hasil = coap.send(ipServer, PORT_COAP, RESOURCE,
+                             COAP_CON, COAP_POST,              // jenis CON, method POST
+                             NULL, 0,                          // tanpa token
+                             (const uint8_t *)isiPesan, panjangIsi,
+                             COAP_APPLICATION_JSON,            // Content-Format 50
+                             idPesan);                         // Message ID pilihan kita
+  if (hasil == 0) {
+    Serial.println("[GAGAL] Paket tidak bisa disusun (isi terlalu besar untuk buffer?).");
+    menungguAck = false;
+    jumlahGagal++;
+    cetakTotal();
+    return;
+  }
+  Serial.printf("[KIRIM] Message ID %u, percobaan %u dari %u\n", idPesan, jumlahKirim, MAKS_KIRIM);
+}
 
-  Serial.printf("[CoAP] ← Response: %u.%02u", cls, dtl);
-  if (strlen(respBuf)) Serial.printf(" | %s", respBuf);
+// Menyiapkan pesan baru berisi data DHT11, lalu mengirimnya
+void mulaiKirimData() {
+  if (menungguAck) {
+    Serial.println("[INFO] Pesan sebelumnya belum selesai, data kali ini dilewati.");
+    return;
+  }
+  if (!dhtOk) {
+    Serial.println("[INFO] Belum ada bacaan DHT11 yang valid, pengiriman dilewati.");
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[INFO] WiFi terputus, pengiriman dilewati.");
+    return;
+  }
+  if (!WiFi.hostByName(SERVER_COAP, ipServer)) {  // DNS: nama -> alamat IP
+    Serial.printf("[GAGAL] Alamat IP %s tidak ditemukan (DNS gagal).\n", SERVER_COAP);
+    return;
+  }
+
+  // Susun JSON, misalnya {"id":"bluino-kit","suhu":28.6,"kelembapan":70}
+  JsonDocument doc;
+  doc["id"] = NAMA_PERANGKAT;
+  doc["suhu"] = suhu;
+  doc["kelembapan"] = kelembapan;
+  panjangIsi = serializeJson(doc, isiPesan, sizeof(isiPesan));
+
+  // Pesan baru = Message ID baru (0 tidak dipakai)
+  idPesan = idBerikutnya;
+  idBerikutnya++;
+  if (idBerikutnya == 0) idBerikutnya = 1;
+
+  jumlahKirim = 0;
+  batasTunggu = TUNGGU_ACK_AWAL;
+  menungguAck = true;
+  waktuKirimAwal = millis();
+  Serial.println();
+  Serial.printf("[POST] coap://%s/%s, isi: %s\n", SERVER_COAP, RESOURCE, isiPesan);
+  kirimPaket();
+}
+
+// Callback: dipanggil oleh coap.loop() saat paket ACK datang
+void terimaJawaban(CoapPacket &paket, IPAddress ip, int port) {
+  if (!menungguAck || paket.messageid != idPesan) {
+    Serial.printf("[INFO] ACK untuk Message ID %u datang terlambat, diabaikan.\n",
+                  paket.messageid);
+    return;
+  }
+  menungguAck = false;
+
+  int kelas = paket.code >> 5;
+  int detail = paket.code & 0x1F;
+  Serial.printf("[ACK] Message ID %u, %lu ms sejak kiriman pertama\n",
+                paket.messageid, millis() - waktuKirimAwal);
+  Serial.printf("[ACK] kode %d.%02d", kelas, detail);
+  if (paket.code == COAP_CREATED) Serial.print(" = Created (berhasil dibuat)");
+  Serial.print(", isi: ");
+  if (paket.payloadlen > 0) {
+    Serial.write(paket.payload, paket.payloadlen);  // payload TIDAK diakhiri '\0'
+  } else {
+    Serial.print("(kosong)");
+  }
   Serial.println();
 
-  if (cls == 2) {
-    okCount++;
-    Serial.printf("[CoAP] ✅ Antares menerima data! Total OK: %u | Heap: %u B\n",
-      okCount, ESP.getFreeHeap());
+  if (kelas == 2) {
+    jumlahBerhasil++;
   } else {
-    // 4.01 = Unauthorized (cek ACCESS_KEY)
-    // 4.04 = Not Found    (cek APP_NAME / DEVICE_NAME)
-    // 5.00 = Server Error (coba lagi nanti)
-    Serial.printf("[CoAP] ⚠️ Error %u.%02u — cek konfigurasi Antares\n", cls, dtl);
+    jumlahGagal++;  // misalnya 4.xx: permintaan ditolak server
   }
-  updateOLED();
+  cetakTotal();
+}
+
+// Kirim ulang kalau ACK belum datang, dengan waktu tunggu yang digandakan
+void periksaAck() {
+  if (!menungguAck) return;
+  if (millis() - waktuKirim < batasTunggu) return;
+
+  Serial.printf("[ULANG] Belum ada ACK setelah %lu detik.\n", batasTunggu / 1000);
+  if (jumlahKirim >= MAKS_KIRIM) {
+    menungguAck = false;
+    jumlahGagal++;
+    Serial.printf("[GAGAL] Tidak ada ACK setelah %u kali kirim. Data ini dilewati.\n", jumlahKirim);
+    cetakTotal();
+    return;
+  }
+  batasTunggu = batasTunggu * 2;  // 2 s -> 4 s -> 8 s
+  kirimPaket();                   // Message ID tetap sama
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  Serial.print("Alamat IP ESP32: ");
+  Serial.println(WiFi.localIP());
 }
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
+  Serial.println("\nBAB 51 - Program 2: Kirim Data DHT11 dengan CoAP POST");
+
   dht.begin();
-  Wire.begin(21, 22);
+  sambungkanWiFi();
 
-  // Bangun path CoAP Antares
-  snprintf(coapPath, sizeof(coapPath), "/~/%s/%s/%s",
-    ACCESS_KEY, APP_NAME, DEVICE_NAME);
+  idBerikutnya = random(1, 65536);  // Message ID awal acak (random() memakai generator acak ESP32)
 
-  Serial.println("\n=== BAB 51 Program 2: CoAP POST — Antares.id ===");
-  Serial.printf("[INFO] Host: %s:%d\n", ANTARES_HOST, ANTARES_PORT);
-  Serial.printf("[INFO] Path: %s\n", coapPath);
-
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak terdeteksi.");
-  }
-  oled.clearDisplay(); oled.setTextColor(WHITE);
-  oled.setCursor(0, 0);  oled.print("BAB 51 CoAP POST");
-  oled.setCursor(0, 12); oled.print("WiFi..."); oled.display();
-
-  // WiFi
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - t0 >= 15000UL) { delay(2000); ESP.restart(); }
-    Serial.print("."); delay(500);
-  }
-  Serial.printf("\n[WiFi] ✅ Terhubung! IP: %s\n", WiFi.localIP().toString().c_str());
-
-  // Baca sensor awal
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastT = t; lastH = h;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
-  } else {
-    Serial.println("[DHT] ⚠️ Gagal baca awal.");
-  }
-
-  // CoAP setup
-  coap.response(callbackResponse);
-  coap.start();
-  Serial.println("[CoAP] ✅ Client siap");
-  Serial.printf("[INFO] POST tiap %lu detik ke Antares\n", POST_INTERVAL / 1000UL);
+  coap.response(terimaJawaban);  // daftarkan callback SEBELUM start()
+  coap.start();                  // buka UDP port 5683
+  Serial.printf("CoAP siap. Data dikirim ke coap://%s/%s setiap 30 detik.\n",
+                SERVER_COAP, RESOURCE);
 }
 
 void loop() {
-  // Cek WiFi
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WiFi] ⚠️ Terputus! Reconnect...");
-    WiFi.reconnect(); delay(5000); return;
+  unsigned long sekarang = millis();
+
+  coap.loop();  // tugas 1: proses ACK yang masuk (memanggil callback)
+
+  if (timerDHT.sudahWaktunya(sekarang)) {  // tugas 2: baca DHT11 setiap 2 detik
+    bacaDHT();
   }
 
-  // WAJIB: proses incoming UDP
-  coap.loop();
-
-  // Baca DHT11 tiap 2 detik
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; }
+  // Tugas 3: kirim pertama segera setelah DHT11 terbaca, berikutnya setiap 30 detik
+  if (dhtOk && !sudahPernahKirim) {
+    sudahPernahKirim = true;
+    timerKirim.waktuLalu = sekarang;
+    mulaiKirimData();
+  } else if (timerKirim.sudahWaktunya(sekarang)) {
+    mulaiKirimData();
   }
 
-  // POST tiap POST_INTERVAL
-  static unsigned long tPost = 0;
-  static bool firstRun = true;
-  if (firstRun || millis() - tPost >= POST_INTERVAL) {
-    firstRun = false;
-    tPost = millis();
-
-    if (isnan(lastT)) {
-      Serial.println("[POST] ⚠️ Skip — sensor belum valid.");
-    } else {
-      // Resolve Antares hostname
-      IPAddress antaresIP;
-      if (!WiFi.hostByName(ANTARES_HOST, antaresIP)) {
-        Serial.println("[CoAP] ❌ DNS gagal — coba lagi nanti.");
-      } else {
-        // Bangun payload oneM2M (stack-allocated)
-        char conStr[64];
-        snprintf(conStr, sizeof(conStr),
-          "{\"temp\":%.1f,\"humidity\":%.0f}", lastT, lastH);
-
-        StaticJsonDocument<256> doc;
-        doc["m2m:cin"]["con"] = conStr;
-        char payload[256];
-        size_t payLen = serializeJson(doc, payload, sizeof(payload));
-
-        postCount++;
-        Serial.printf("[DHT] %.1f°C | %.0f%%\n", lastT, lastH);
-        Serial.printf("[CoAP] → POST #%u: %s\n", postCount, coapPath);
-        Serial.printf("[CoAP] Payload: %s\n", payload);
-
-        uint16_t msgId = coap.post(antaresIP, ANTARES_PORT, coapPath, payload);
-        if (msgId > 0) {
-          Serial.printf("[CoAP] Terkirim (msgId:%u) — tunggu response...\n", msgId);
-        } else {
-          Serial.println("[CoAP] ❌ Gagal kirim POST!");
-        }
-        updateOLED();
-      }
-    }
-  }
-
-  // Heartbeat
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 60000UL) {
-    tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Post:%u OK:%u | Heap:%u B | Up:%lu s\n",
-      isnan(lastT)?0.0f:lastT, isnan(lastH)?0.0f:lastH,
-      postCount, okCount, ESP.getFreeHeap(), millis()/1000UL);
-  }
+  periksaAck();  // tugas 4: kirim ulang kalau ACK belum datang
 }
