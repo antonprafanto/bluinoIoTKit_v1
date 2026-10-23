@@ -12,7 +12,7 @@ Repositori ini berisi **materi belajar ESP32 dan IoT (*Internet of Things*) berb
 
 Setiap BAB ditulis untuk **pemula total**: ada daftar alat yang perlu disiapkan, langkah demi langkah menjalankan program, contoh hasil yang seharusnya muncul, dan tips kalau ada yang belum berhasil.
 
-> ⏳ **Status pengembangan:** BAB 1–56 sudah tersedia dan sedang diseragamkan supaya makin ramah pemula. Semua programnya sedang diuji ulang dengan **esp32 core 3.3.12**. BAB 57–80 dan Lampiran sedang disusun.
+> ⏳ **Status pengembangan:** BAB 1–56 sudah tersedia dan sudah diaudit ulang supaya ramah pemula. Ke-226 programnya lolos uji *compile* dengan **esp32 core 3.3.12**; contoh angka keluaran (nilai sensor, waktu, alamat) bersifat ilustrasi dan bisa berbeda di kit-mu. BAB 57–80 dan Lampiran sedang disusun.
 
 ## 🚀 Mulai dari Sini
 
