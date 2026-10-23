@@ -112,6 +112,18 @@ Pakai peta pin ini di **semua** BAB supaya pembaca tidak perlu bongkar-pasang ka
 
 Cara menyambung: kabel *jumper* *female-female* dari pin header bertanda **Custom** ke pin header ESP32 dengan nomor yang sama (misalnya label `D4`/`IO4`).
 
+### Letak pin di PCB (dicocokkan dengan foto kit v3.x)
+
+| Bagian PCB | Urutan label |
+|---|---|
+| Header LED (biru, di bawah 4 LED) | `D-IN`, `LED1`, `LED2`, `LED3`, `LED4` — **LED1 = merah, LED2 = hijau, LED3 = biru, LED4 = kuning** |
+| Header kuning 5 pin (di bawah ESP32, dari kiri) | `LDR`, `TOUCH`, `SW1`, `SW2`, `VR10K` (potensiometer) |
+| Header biru dekat *buzzer* | `BUZZ`, `RELAY` (bersebelahan — jangan tertukar) |
+| Deretan pin ESP32 bawah (dari kiri) | `3V`, `G`, `15`, `2`, `4`, `16`, `17`, `5`, `18`, `19`, `21`, `3`, `1`, `22`, `23` |
+| Deretan pin ESP32 atas (dari kiri) | `5V`, `G`, `13`, `12`, `14`, `27`, `26`, `25`, `33`, `32`, `35`, `34`, `VN`, `VP`, `EN` |
+
+> ⚠️ **Perhatian:** Nomor LED **tidak** urut dengan nomor pin. Selalu sebutkan warna dan label header-nya, misalnya "LED1 (merah) → IO4", "LED4 (kuning) → IO16". Label `15` bersebelahan dengan `G`, jadi kabel S1 yang meleset satu pin akan menyambung 3,3 V ke GND saat tombol ditekan. Kalau tata letak papan pembaca berbeda, minta mereka mengikuti jalur di PCB.
+
 ---
 
 ## 5. Struktur Setiap BAB

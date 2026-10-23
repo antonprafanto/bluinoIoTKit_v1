@@ -18,9 +18,9 @@ Setiap BAB ditulis untuk **pemula total**: ada daftar alat yang perlu disiapkan,
 
 **1. Siapkan perlengkapan**
 
-- Kit Bluino ESP32 IoT Starter Shield (sudah termasuk ESP32 DEVKIT V1 dan kabel *jumper*).
+- Kit Bluino ESP32 IoT Starter Shield. Isinya sudah termasuk ESP32 DEVKIT V1, kabel USB, dan 10 kabel *jumper* *female-female*.
 - Laptop/komputer (Windows, macOS, atau Linux) dan koneksi internet.
-- Kabel USB **data** (bukan kabel yang hanya untuk mengisi daya).
+- Kalau memakai kabel USB milikmu sendiri, pastikan itu kabel **data**, bukan kabel yang hanya untuk mengisi daya.
 
 **2. Pasang software** — ikuti [BAB 5: Setup Lingkungan Pengembangan](BAB-05/README.md):
 
@@ -125,7 +125,7 @@ Kamu juga bisa berkontribusi langsung dengan membuka **Issue** atau **Pull Reque
 ### Bagian I — Fondasi & Persiapan
 | BAB | Topik |
 |-----|-------|
-| [BAB 01](BAB-01/README.md) | Apa itu IoT & Embedded Systems |
+| [BAB 01](BAB-01/README.md) | Apa Itu IoT & Embedded System |
 | [BAB 02](BAB-02/README.md) | Pengenalan ESP32 |
 | [BAB 03](BAB-03/README.md) | Dasar Elektronika untuk Mikrokontroler |
 | [BAB 04](BAB-04/README.md) | Membaca Skematik & *Datasheet* |
