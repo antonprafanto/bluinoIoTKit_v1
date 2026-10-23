@@ -1119,7 +1119,7 @@ Peta pin yang dipakai di BAB ini:
 
 ---
 
-[⬅️ BAB 29: MPU-6050 — Akselerometer, Giroskop & Filter Orientasi](../BAB-29/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 31: PIR AM312 — Deteksi Gerakan Inframerah ➡️](../BAB-31/README.md)
+[⬅️ BAB 29: MPU-6050 — Akselerometer, Giroskop & Filter Orientasi](../BAB-29/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 31: PIR AM312 — Deteksi Gerakan ➡️](../BAB-31/README.md)
 
 ---
 
