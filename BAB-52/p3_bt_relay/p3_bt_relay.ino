@@ -1,205 +1,224 @@
 /*
- * BAB 52 - Program 3: Bluetooth Remote Controller — Kontrol Relay
+ * BAB 52 - Program 3: Remote Relay dengan Pengaman
+ * Mengendalikan relay kit dari HP lewat Bluetooth Classic.
+ * Perintah (dikirim dari aplikasi Serial Bluetooth Terminal):
+ *   nyala           → relay aktif, mati sendiri setelah 60 detik
+ *   nyala <detik>   → relay aktif selama 1-3600 detik
+ *   mati            → relay mati
+ *   status          → keadaan relay dan sisa waktunya
+ *   bantuan         → daftar perintah
+ * Pengaman:
+ *   1. Relay selalu mati saat ESP32 menyala atau di-reset.
+ *   2. Relay langsung mati kalau tidak ada perangkat yang tersambung.
+ *   3. Relay mati sendiri setelah batas waktunya habis.
+ *   4. Relay baru boleh dinyalakan lagi 1 detik setelah perubahan terakhir.
  *
- * Fitur:
- *   ► Kontrol relay IO4 via perintah Bluetooth dari smartphone
- *   ► Perintah: ON, OFF, STATUS, TEMP, HELP, PING
- *   ► Feedback konfirmasi setiap perintah
- *   ► Safety: relay auto-OFF saat Bluetooth terputus
- *   ► OLED tampilkan status relay, BT, suhu real-time
- *   ► Log Serial Monitor untuk debugging
- *   ► Heartbeat ping tiap 30 detik ke smartphone
- *
- * Hardware:
- *   Relay → IO4 (hardwired Bluino Kit)
- *   DHT11 → IO27 (hardwired Bluino Kit)
- *   OLED  → SDA=IO21, SCL=IO22 (hardwired)
- *
- * Perintah Bluetooth (kirim dari "Serial BT Terminal" di HP):
- *   ON     → Hidupkan relay
- *   OFF    → Matikan relay
- *   STATUS → Info relay + suhu + heap
- *   TEMP   → Baca sensor DHT11 sekarang
- *   PING   → Cek koneksi (balas: PONG)
- *   HELP   → Daftar perintah
+ * Rangkaian: RELAY (header biru, kanan BUZZ) → IO26 (aktif HIGH)
+ *            LED biru bawaan board (IO2) menyala selama HP tersambung
+ * JANGAN menyambung listrik PLN 220 V ke relay kit (lihat BAB 37).
  */
 
 #include <BluetoothSerial.h>
-#include <DHT.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 
-// ── Nama Perangkat Bluetooth ──────────────────────────────────────────
-const char* BT_NAME = "Bluino-Relay";
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error "Bluetooth Classic (SPP) tidak tersedia. Pilih Tools > Board > ESP32 Dev Module."
+#endif
 
-// ── Hardware ──────────────────────────────────────────────────────────
-#define RELAY_PIN 4
-#define DHT_PIN   27
-DHT dht(DHT_PIN, DHT11);
-Adafruit_SSD1306 oled(128, 64, &Wire, -1);
-bool oledReady = false;
+#define RELAY_PIN 26  // RELAY → IO26
+#define LED_BIRU  2
 
-// ── Objek Bluetooth ───────────────────────────────────────────────────
+const char *NAMA_BT = "Bluino-Relay";
+const long BATAS_BAWAAN_DETIK = 60;      // lama nyala kalau tidak disebutkan
+const long BATAS_MAKS_DETIK = 3600;      // lama nyala paling panjang (1 jam)
+const unsigned long JEDA_MIN_MS = 1000;  // jarak minimum sebelum relay dinyalakan lagi
+
 BluetoothSerial SerialBT;
 
-// ── State ─────────────────────────────────────────────────────────────
-bool     relayState = false;
-bool     btConn     = false;
-float    lastT      = NAN;
-float    lastH      = NAN;
-uint32_t cmdCount   = 0;
+// Bendera dari callback Bluetooth (dijalankan task lain) untuk loop()
+volatile bool adaEventKoneksi = false;
 
-// ── Kontrol Relay dengan log ──────────────────────────────────────────
-void setRelay(bool on) {
-  relayState = on;
-  digitalWrite(RELAY_PIN, on ? HIGH : LOW);
-  Serial.printf("[RELAY] → %s\n", on ? "ON" : "OFF");
-}
+// Pembaca baris tanpa menunggu (lihat 52.6)
+struct PembacaBaris {
+  char isi[64];
+  int panjang = 0;
 
-// ── OLED Helper ───────────────────────────────────────────────────────
-void updateOLED() {
-  if (!oledReady) return;
-  oled.clearDisplay(); oled.setTextColor(WHITE); oled.setTextSize(1);
-  oled.setCursor(0, 0); oled.print("BT Remote Control");
-  oled.drawLine(0, 10, 127, 10, WHITE);
-  oled.setCursor(0, 14);
-  oled.print(btConn ? "BT: TERHUBUNG" : "BT: Menunggu...");
-  oled.setTextSize(2); oled.setCursor(0, 26);
-  oled.print("RLY:");
-  oled.print(relayState ? "ON " : "OFF");
-  oled.setTextSize(1); oled.setCursor(0, 50);
-  if (!isnan(lastT)) { oled.printf("%.1fC %.0f%%", lastT, lastH); }
-  oled.print(" Cmd:#"); oled.print(cmdCount);
-  oled.display();
-}
-
-// ── Callback koneksi BT ───────────────────────────────────────────────
-void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
-  if (event == ESP_SPP_SRV_OPEN_EVT) {
-    btConn = true;
-    Serial.println("[BT] ✅ Client terhubung!");
-    SerialBT.println("=== Bluino Remote Controller ===");
-    SerialBT.printf("Relay saat ini: %s\r\n", relayState ? "ON" : "OFF");
-    SerialBT.println("Ketik HELP untuk daftar perintah.");
-    updateOLED();
-  } else if (event == ESP_SPP_CLOSE_EVT) {
-    btConn = false;
-    Serial.println("[BT] ⚠️ Client terputus.");
-    // Safety: matikan relay saat koneksi terputus
-    if (relayState) {
-      setRelay(false);
-      Serial.println("[SAFETY] Relay auto-OFF karena BT terputus!");
+  bool baca(Stream &sumber) {
+    while (sumber.available() > 0) {
+      char c = sumber.read();
+      if (c == '\r' || c == '\n') {
+        if (panjang == 0) continue;
+        isi[panjang] = '\0';
+        panjang = 0;
+        return true;
+      }
+      if (panjang < (int)sizeof(isi) - 1) {
+        isi[panjang] = c;
+        panjang = panjang + 1;
+      }
     }
-    updateOLED();
+    return false;
+  }
+};
+
+bool relayAktif = false;
+unsigned long waktuBerubah = 0;  // millis() saat relay terakhir berganti keadaan
+unsigned long waktuMulai = 0;    // millis() saat hitungan batas waktu dimulai
+unsigned long lamaNyalaMs = 0;   // batas lama nyala yang diminta
+bool adaKoneksi = false;
+PembacaBaris dariHP;
+
+// Callback: dipanggil task Bluetooth setiap ada event SPP.
+// Isinya hanya mengangkat bendera — pekerjaan lain dilakukan di loop().
+void saatEventSPP(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
+  if (event == ESP_SPP_SRV_OPEN_EVT || event == ESP_SPP_CLOSE_EVT) {
+    adaEventKoneksi = true;
   }
 }
 
-// ── Proses perintah ───────────────────────────────────────────────────
-void processCommand(String cmd) {
-  cmd.trim(); cmd.toUpperCase();
-  if (cmd.length() == 0) return;
+// Satu-satunya tempat yang menyentuh pin relay (pola BAB 37)
+void aturRelay(bool aktif, const char *alasan) {
+  relayAktif = aktif;
+  digitalWrite(RELAY_PIN, aktif ? HIGH : LOW);
+  waktuBerubah = millis();
+  Serial.printf("[RELAY] %s - %s\n", aktif ? "ON" : "OFF", alasan);
+  if (SerialBT.hasClient()) {
+    SerialBT.printf("Relay %s - %s\r\n", aktif ? "ON" : "OFF", alasan);
+  }
+}
 
-  cmdCount++;
-  Serial.printf("[BT] Cmd #%u: '%s'\n", cmdCount, cmd.c_str());
+void kirimBantuan() {
+  SerialBT.println("Daftar perintah:");
+  SerialBT.println("  nyala            ON selama 60 detik");
+  SerialBT.println("  nyala <detik>    ON selama 1-3600 detik");
+  SerialBT.println("  mati             OFF");
+  SerialBT.println("  status           keadaan relay");
+  SerialBT.println("  bantuan          daftar ini");
+}
 
-  if (cmd == "ON") {
-    setRelay(true);
-    SerialBT.println("[OK] Relay → ON ✅");
-  } else if (cmd == "OFF") {
-    setRelay(false);
-    SerialBT.println("[OK] Relay → OFF ✅");
-  } else if (cmd == "STATUS") {
-    SerialBT.printf("[STATUS] Relay:%s | Suhu:%.1fC | Lembab:%.0f%%\r\n",
-      relayState?"ON":"OFF", isnan(lastT)?0.0f:lastT, isnan(lastH)?0.0f:lastH);
-    SerialBT.printf("[STATUS] Heap:%u | Uptime:%lus | Cmd:%u\r\n",
-      ESP.getFreeHeap(), millis()/1000UL, cmdCount);
-  } else if (cmd == "TEMP") {
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      lastT = t; lastH = h;
-      SerialBT.printf("[TEMP] Suhu:%.1fC | Lembab:%.0f%%\r\n", t, h);
-    } else {
-      SerialBT.println("[TEMP] ERROR — gagal baca DHT11.");
-    }
-  } else if (cmd == "PING") {
-    SerialBT.println("PONG");
-    Serial.println("[BT] → PONG");
-  } else if (cmd == "HELP") {
-    SerialBT.println("Perintah tersedia:");
-    SerialBT.println("  ON     → hidupkan relay");
-    SerialBT.println("  OFF    → matikan relay");
-    SerialBT.println("  STATUS → status lengkap");
-    SerialBT.println("  TEMP   → baca suhu sekarang");
-    SerialBT.println("  PING   → cek koneksi");
-    SerialBT.println("  HELP   → daftar ini");
+void kirimStatus(unsigned long sekarang) {
+  if (relayAktif) {
+    unsigned long sisaMs = lamaNyalaMs - (sekarang - waktuMulai);
+    SerialBT.printf("Relay ON, mati otomatis dalam %lu detik\r\n", (sisaMs + 999) / 1000);
   } else {
-    SerialBT.printf("[ERR] Perintah '%s' tidak dikenal. Ketik HELP.\r\n", cmd.c_str());
+    SerialBT.println("Relay OFF");
+  }
+}
+
+// true kalau teks berisi bilangan bulat utuh, misalnya "30"
+bool keAngka(const String &teks, long &hasil) {
+  if (teks.length() == 0) return false;
+  char *sisa;
+  hasil = strtol(teks.c_str(), &sisa, 10);
+  return *sisa == '\0';
+}
+
+void prosesPerintah(const char *teks, unsigned long sekarang) {
+  String baris = teks;
+  baris.trim();
+  baris.toLowerCase();
+  if (baris.length() == 0) return;
+
+  Serial.printf("[HP] %s\n", baris.c_str());
+
+  String perintah = baris;
+  String argumen = "";
+  int posisiSpasi = baris.indexOf(' ');
+  if (posisiSpasi >= 0) {
+    perintah = baris.substring(0, posisiSpasi);
+    argumen = baris.substring(posisiSpasi + 1);
+    argumen.trim();
   }
 
-  updateOLED();
+  if (perintah == "nyala") {
+    long detik = BATAS_BAWAAN_DETIK;
+    if (argumen.length() > 0) {
+      if (!keAngka(argumen, detik) || detik < 1 || detik > BATAS_MAKS_DETIK) {
+        SerialBT.println("Lama nyala harus 1-3600 detik, contoh: nyala 30");
+        return;
+      }
+    }
+    if (!relayAktif && sekarang - waktuBerubah < JEDA_MIN_MS) {
+      SerialBT.println("Terlalu cepat. Tunggu 1 detik, lalu coba lagi.");
+      return;
+    }
+    waktuMulai = sekarang;
+    lamaNyalaMs = (unsigned long)detik * 1000UL;
+    if (relayAktif) {
+      SerialBT.printf("Relay tetap ON, batas waktu diatur ulang: %ld detik\r\n", detik);
+    } else {
+      aturRelay(true, "perintah dari HP");
+      SerialBT.printf("Mati otomatis dalam %ld detik.\r\n", detik);
+    }
+  } else if (perintah == "mati") {
+    if (relayAktif) {
+      aturRelay(false, "perintah dari HP");  // mematikan selalu boleh, tanpa jeda
+    } else {
+      SerialBT.println("Relay memang sudah OFF.");
+    }
+  } else if (perintah == "status") {
+    kirimStatus(sekarang);
+  } else if (perintah == "bantuan") {
+    kirimBantuan();
+  } else {
+    SerialBT.println("Perintah tidak dikenal. Ketik: bantuan");
+  }
 }
 
 void setup() {
   Serial.begin(115200);
+
+  // Pengaman 1: pin dijadikan output dulu, lalu relay langsung dimatikan
   pinMode(RELAY_PIN, OUTPUT);
-  setRelay(false);  // Pastikan relay OFF saat boot
-  dht.begin();
-  Wire.begin(21, 22);
+  pinMode(LED_BIRU, OUTPUT);
+  digitalWrite(LED_BIRU, LOW);
 
-  Serial.println("\n=== BAB 52 Program 3: Bluetooth Remote Controller ===");
+  Serial.println();
+  Serial.println("BAB 52 - Program 3: Remote Relay dengan Pengaman");
+  aturRelay(false, "ESP32 baru menyala");
 
-  if (oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    oledReady = true;
-    Serial.println("[OLED] ✅ Display terdeteksi di 0x3C");
-  } else {
-    Serial.println("[OLED] ⚠️ Display tidak terdeteksi.");
+  SerialBT.register_callback(saatEventSPP);  // daftarkan SEBELUM begin()
+  if (!SerialBT.begin(NAMA_BT)) {
+    Serial.println("Bluetooth gagal dinyalakan. Tekan tombol EN untuk mencoba lagi.");
+    while (true) {
+      delay(1000);
+    }
   }
-
-  // Baca sensor awal
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (!isnan(t) && !isnan(h)) {
-    lastT = t; lastH = h;
-    Serial.printf("[DHT] ✅ Baca OK: %.1f°C | %.0f%%\n", lastT, lastH);
-  }
-
-  // Inisiasi Bluetooth
-  SerialBT.register_callback(btCallback);
-  if (!SerialBT.begin(BT_NAME)) {
-    Serial.println("[BT] ❌ Gagal inisiasi Bluetooth!");
-    delay(3000); ESP.restart();
-  }
-  Serial.printf("[BT] ✅ Bluetooth siap! Nama: '%s'\n", BT_NAME);
-  Serial.println("[BT] Pair dari HP → Connect → Ketik ON/OFF untuk kontrol relay.");
-
-  updateOLED();
+  Serial.printf("Bluetooth siap. Nama: %s\n", NAMA_BT);
 }
 
 void loop() {
-  // Terima perintah dari smartphone
-  if (SerialBT.available()) {
-    String incoming = SerialBT.readStringUntil('\n');
-    processCommand(incoming);
-  }
+  unsigned long sekarang = millis();
 
-  // Baca DHT11 non-blocking tiap 2 detik
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) { lastT = t; lastH = h; updateOLED(); }
-  }
-
-  // Heartbeat ping ke smartphone tiap 30 detik
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 30000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Relay:%s | BT:%s | Heap:%u B | Up:%lu s\n",
-      relayState?"ON":"OFF", btConn?"ON":"OFF",
-      ESP.getFreeHeap(), millis()/1000UL);
-    if (btConn) {
-      SerialBT.printf("[HB] Relay:%s Heap:%u Up:%lus\r\n",
-        relayState?"ON":"OFF", ESP.getFreeHeap(), millis()/1000UL);
+  // 1. Bel pintu dari callback: periksa keadaan koneksi yang sebenarnya
+  if (adaEventKoneksi) {
+    adaEventKoneksi = false;  // turunkan bendera DULU, baru periksa keadaan
+    bool tersambung = SerialBT.hasClient();
+    if (tersambung != adaKoneksi) {
+      adaKoneksi = tersambung;
+      digitalWrite(LED_BIRU, tersambung ? HIGH : LOW);
+      if (tersambung) {
+        Serial.println("[BT] Perangkat tersambung.");
+        SerialBT.println("=== Bluino Relay: kendali relay lewat Bluetooth ===");
+        kirimBantuan();
+        kirimStatus(sekarang);
+      } else {
+        Serial.println("[BT] Perangkat terputus.");
+      }
     }
+  }
+
+  // 2. Pengaman 2: tanpa perangkat tersambung, relay tidak boleh aktif
+  if (relayAktif && !SerialBT.hasClient()) {
+    aturRelay(false, "koneksi Bluetooth terputus");
+  }
+
+  // 3. Pengaman 3: batas waktu nyala
+  if (relayAktif && sekarang - waktuMulai >= lamaNyalaMs) {
+    aturRelay(false, "batas waktu habis");
+  }
+
+  // 4. Perintah dari HP
+  if (dariHP.baca(SerialBT)) {
+    prosesPerintah(dariHP.isi, sekarang);
   }
 }
