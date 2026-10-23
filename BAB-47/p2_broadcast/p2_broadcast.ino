@@ -1,336 +1,380 @@
 /*
- * BAB 47 - Program 2: Real-Time Sensor Broadcasting
- * ──────────────────────────────────────────────────
- * Fitur:
- *   ▶ HTTP port 80 → Dashboard HTML (PROGMEM)
- *   ▶ WS   port 81 → Push JSON sensor ke SEMUA browser tiap 2 detik
- *   ▶ DHT11 non-blocking via millis() (IO27, hardwired Bluino Kit)
- *   ▶ Data: suhu, kelembaban, RSSI, uptime, free heap, client count
- *   ▶ State-transition logging: cetak Serial hanya saat status berubah
- *
- * Cara Uji:
- *   1. Ganti WIFI_SSID dan WIFI_PASS di bawah
- *   2. Upload, buka Serial Monitor (115200 baud)
- *   3. Browser: http://bluino.local — angka berubah TIAP 2 DETIK tanpa refresh!
- *   4. Buka 2+ browser sekaligus — semua update bersamaan (1 broadcast = semua dapat)
- *   5. Cabut kabel DHT11 — indikator "Error" muncul instan di semua browser
- *   6. Colok kembali — "✅ OK" muncul otomatis
- *
- * Library yang dibutuhkan:
- *   - "WebSockets" by Markus Sattler >= 2.4.0  (install via Library Manager)
- *   - "DHT sensor library" by Adafruit          (install via Library Manager)
- *   - "Adafruit Unified Sensor"                 (dependensi DHT, install otomatis)
- *   - WiFi.h, ESPmDNS.h, WebServer.h            (bawaan ESP32 Core)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * BAB 47 - Program 2: Siaran Data Sensor Real-Time
+ * - GET /           -> halaman monitor (HTML + JavaScript), lewat port 80
+ * - ws://<IP>:81/   -> ESP32 MENGIRIM data sensor ke semua browser tanpa diminta:
+ *     * suhu & kelembapan DHT11 setiap 2 detik
+ *     * potensiometer begitu nilainya berubah (paling sering 10 pesan per detik)
+ * Rangkaian: DHT -> IO27, VR10K -> IO34
  */
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 #include <DHT.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
-const char* MDNS_NAME = "bluino";
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
+const char *NAMA_MDNS = "bluino";                // nama .local, tanpa ".local" (BAB 45)
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN  2    // LED built-in IO2 (active HIGH)
-#define DHT_PIN  27   // DHT11 IO27 (hardwired di Bluino Kit, pull-up 4K7Ω)
-#define DHT_TYPE DHT11
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define PIN_POT 34  // potensiometer VR10K (ADC1, aman dipakai bersama WiFi)
 
-// ── Objek ────────────────────────────────────────────────────────
-WebServer        server(80);
-WebSocketsServer ws(81);
-DHT              dht(DHT_PIN, DHT_TYPE);
+const int AMBANG_POT = 2;                  // %: perubahan lebih kecil dianggap derau
+const unsigned long JEDA_KIRIM_MIN = 100;  // ms: paling sering 10 pesan per detik
 
-// ── State Sensor (cache non-blocking) ────────────────────────────
-float   lastTemp  = NAN;
-float   lastHumid = NAN;
-bool    sensorOk  = false;
-uint8_t wsClients = 0;
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// ─────────────────────────────────────────────────────────────────
-// Dashboard HTML (PROGMEM → Flash memory, zero heap consumption)
-// JavaScript menggunakan WebSocket — bukan fetch() polling
-// ─────────────────────────────────────────────────────────────────
-const char DASH_HTML[] PROGMEM = R"rawhtml(
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
+
+WebServer server(80);     // port 80: mengirim halaman web
+WebSocketsServer ws(81);  // port 81: pesan WebSocket
+DHT dht(PIN_DHT, TIPE_DHT);
+
+Timer timerDHT = {2000, 0};       // baca DHT11 + kiriman rutin setiap 2 detik
+Timer timerPot = {20, 0};         // periksa potensiometer setiap 20 ms
+Timer timerLaporan = {10000, 0};  // laporan di Serial Monitor setiap 10 detik
+
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
+int potTerkirim = 0;  // nilai potensiometer (%) terbaru yang dikirim ke browser
+
+bool adaPerubahan = false;  // ada data baru yang belum dikirim?
+unsigned long waktuKirimTerakhir = 0;
+unsigned long jumlahSiaran = 0;  // pesan yang disiarkan sejak laporan terakhir
+
+// Halaman monitor. Tidak memakai CDN, jadi tetap berjalan tanpa internet.
+const char HALAMAN_MONITOR[] = R"rawliteral(
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluino IoT — Sensor Real-Time</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Arial,sans-serif;background:#0a0a14;
-         color:#e0e0e0;min-height:100vh;padding:16px}
-    .c{max-width:500px;margin:0 auto}
-    h1{color:#4fc3f7;font-size:1.3rem;padding:16px 0 4px}
-    .sub{color:#444;font-size:.78rem;margin-bottom:8px}
-    #live{float:right;font-size:.72rem;padding-top:18px;font-weight:600}
-    .ok{color:#81c784}.err{color:#ef5350}.wait{color:#666}
-    .sec{color:#555;font-size:.7rem;text-transform:uppercase;
-         letter-spacing:1px;margin:14px 0 8px}
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-    .card{background:#141424;border-radius:12px;padding:18px;text-align:center}
-    .cl{color:#444;font-size:.72rem;text-transform:uppercase;margin-bottom:8px}
-    .cv{font-size:2rem;font-weight:700;transition:color .5s}
-    .cu{font-size:.82rem;color:#666}
-    .hot{color:#ef5350}.warm{color:#ff9800}.cool{color:#4fc3f7}.humid{color:#26c6da}
-    .info{background:#141424;border-radius:12px;padding:14px;margin-bottom:12px}
-    table{width:100%;border-collapse:collapse}
-    td{padding:7px 4px;border-bottom:1px solid #18182a;font-size:.82rem}
-    td:first-child{color:#555}td:last-child{color:#ccc;text-align:right}
-    tr:last-child td{border-bottom:none}
-    .footer{text-align:center;color:#1e1e2e;font-size:.65rem;padding:20px 0}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor Real-Time</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #f2f4f7;
+         color: #222; margin: 0; padding: 16px; }
+  .wadah { max-width: 520px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  h1 { font-size: 1.3em; margin: 0; color: #1565c0; }
+  h2 { font-size: 1em; color: #555; margin: 20px 0 8px; }
+  .koneksi { font-size: 0.85em; padding: 4px 10px; border-radius: 999px;
+             background: #e0e0e0; color: #555; }
+  .koneksi.ok { background: #e8f5e9; color: #2e7d32; }
+  .koneksi.putus { background: #ffebee; color: #c62828; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 10px; }
+  .kartu { background: #fff; border-radius: 12px; padding: 14px;
+           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+  .label { font-size: 0.9em; color: #666; }
+  .nilai { font-size: 2em; font-weight: bold; margin-top: 4px; }
+  .satuan { font-size: 0.5em; color: #666; font-weight: normal; }
+  .batang { height: 8px; background: #e0e0e0; border-radius: 4px;
+            margin-top: 8px; overflow: hidden; }
+  .isi { height: 100%; width: 0; background: #1565c0; }
+  .peringatan { color: #c62828; font-size: 0.9em; min-height: 1.2em; margin: 8px 0 0; }
+  .info { font-size: 0.85em; color: #666; line-height: 1.6; }
+</style>
 </head>
-<body><div class="c">
-  <span id="live" class="wait">&#9679; Menghubungkan...</span>
-  <h1>&#127777; Sensor Real-Time</h1>
-  <p class="sub">BAB 47 &#183; WebSocket Push &#8212; update otomatis tanpa polling!</p>
+<body>
+<div class="wadah">
+  <header>
+    <h1>Sensor Real-Time</h1>
+    <span id="koneksi" class="koneksi">Menyambung...</span>
+  </header>
 
-  <p class="sec">&#127777; DHT11 &#8212; IO27</p>
-  <div class="g2">
-    <div class="card">
-      <div class="cl">Suhu</div>
-      <div id="temp" class="cv cool">&#8212;<span class="cu">&#176;C</span></div>
+  <h2>Sensor</h2>
+  <div class="grid">
+    <div class="kartu">
+      <div class="label">Suhu</div>
+      <div class="nilai"><span id="suhu">--</span> <span class="satuan">°C</span></div>
     </div>
-    <div class="card">
-      <div class="cl">Kelembaban</div>
-      <div id="hum" class="cv humid">&#8212;<span class="cu">%</span></div>
+    <div class="kartu">
+      <div class="label">Kelembapan</div>
+      <div class="nilai"><span id="lembap">--</span> <span class="satuan">%RH</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Potensiometer</div>
+      <div class="nilai"><span id="pot">--</span> <span class="satuan">%</span></div>
+      <div class="batang"><div id="potBatang" class="isi"></div></div>
     </div>
   </div>
+  <p id="dhtPesan" class="peringatan"></p>
 
-  <p class="sec">&#128268; Status Sistem</p>
-  <div class="info"><table>
-    <tr><td>Status Sensor</td><td id="sok">&#8212;</td></tr>
-    <tr><td>Sinyal WiFi</td><td id="rssi">&#8212;</td></tr>
-    <tr><td>Heap Bebas</td><td id="heap">&#8212;</td></tr>
-    <tr><td>Uptime</td><td id="upt">&#8212;</td></tr>
-    <tr><td>Browser Terhubung</td><td id="cli">&#8212;</td></tr>
-  </table></div>
-  <p class="footer">Bluino IoT Kit 2026 &#8212; BAB 47: WebSocket</p>
+  <h2>Info Koneksi</h2>
+  <div class="kartu info">
+    Browser tersambung: <span id="klien">--</span><br>
+    Pesan diterima halaman ini: <span id="jumlah">0</span><br>
+    Pesan terakhir pukul: <span id="jam">--</span><br>
+    Lama ESP32 menyala: <span id="lama">--</span>
+  </div>
 </div>
+
 <script>
+function el(id) { return document.getElementById(id); }
 let ws;
-let watchdog;
+let pengawas;         // timer pendeteksi koneksi macet
+let jumlahPesan = 0;
 
-function setLive(ok, txt) {
-  const el = document.getElementById('live');
-  el.textContent = '\u25cf ' + txt;
-  el.className = ok ? 'ok' : 'err';
+function aturKoneksi(ok) {
+  el("koneksi").textContent = ok ? "● Terhubung" : "● Terputus";
+  el("koneksi").className = "koneksi " + (ok ? "ok" : "putus");
 }
-function connect() {
-  ws = new WebSocket('ws://' + location.hostname + ':81/');
-  function resetWatchdog() {
-    clearTimeout(watchdog);
-    // Watchdog: Jika blank (tidak ada push) > 6 detik, anggap router hang/putus gaib
-    watchdog = setTimeout(() => {
-      setLive(false, 'Stale Data \u2014 reset TCP...');
-      if (ws.readyState === WebSocket.OPEN) ws.close();
-    }, 6000);
-  }
 
-  ws.onopen  = () => { setLive(true, 'Live \u2014 WebSocket'); resetWatchdog(); };
-  ws.onerror = () => setLive(false, 'Error');
-  ws.onclose = () => {
-    clearTimeout(watchdog);
-    setLive(false, 'Offline \u2014 retry 3 detik...');
-    setTimeout(connect, 3000);  // Auto-reconnect hardware loop
+function tampilkan(d) {
+  el("suhu").textContent = d.suhu === null ? "--" : d.suhu.toFixed(1).replace(".", ",");
+  el("lembap").textContent = d.kelembapan === null ? "--" : d.kelembapan.toFixed(0);
+  el("pot").textContent = d.potensiometer;
+  el("potBatang").style.width = d.potensiometer + "%";
+  el("dhtPesan").textContent = d.dht_ok ? "" : "DHT11 belum terbaca. Periksa kabel DHT ke IO27.";
+  el("klien").textContent = d.klien;
+  jumlahPesan = jumlahPesan + 1;
+  el("jumlah").textContent = jumlahPesan;
+  el("jam").textContent = new Date().toLocaleTimeString("id-ID");
+  const s = d.waktu_nyala;
+  el("lama").textContent = Math.floor(s / 3600) + " jam " + Math.floor((s % 3600) / 60) +
+                           " menit " + (s % 60) + " detik";
+}
+
+// Pengawas: ESP32 mengirim data minimal setiap 2 detik. Kalau 6 detik
+// tidak ada pesan sama sekali, koneksi dianggap macet.
+function aturPengawas() {
+  clearTimeout(pengawas);
+  pengawas = setTimeout(putus, 6000);
+}
+
+// Dipanggil saat koneksi tertutup ATAU macet:
+// buang koneksi lama, lalu coba sambung lagi 3 detik kemudian
+function putus() {
+  clearTimeout(pengawas);
+  aturKoneksi(false);
+  ws.onclose = null;    // koneksi lama tidak dipedulikan lagi
+  ws.onmessage = null;
+  ws.close();
+  setTimeout(sambungkan, 3000);
+}
+
+function sambungkan() {
+  ws = new WebSocket("ws://" + location.hostname + ":81/");
+  aturPengawas();       // kalau 6 detik belum juga tersambung, coba lagi
+  ws.onopen = function () {
+    aturKoneksi(true);
+    aturPengawas();
   };
-  ws.onmessage = e => {
-    resetWatchdog(); // Reset timer nyawa pelacak TCP
-    const d = JSON.parse(e.data);
-    if (d.type !== 'sensors') return;
-
-    // Suhu
-    const te = document.getElementById('temp');
-    if (d.temp !== null) {
-      te.innerHTML = d.temp.toFixed(1) + '<span class="cu">&#176;C</span>';
-      te.className = 'cv ' + (d.temp > 35 ? 'hot' : d.temp > 28 ? 'warm' : 'cool');
+  ws.onmessage = function (e) {
+    aturPengawas();     // ada pesan = koneksi masih hidup
+    let d;
+    try {
+      d = JSON.parse(e.data);
+    } catch (err) {
+      console.warn("Pesan bukan JSON:", e.data);
+      return;
     }
-    // Kelembaban
-    if (d.humidity !== null)
-      document.getElementById('hum').innerHTML =
-        d.humidity.toFixed(0) + '<span class="cu">%</span>';
-
-    // Status sensor
-    document.getElementById('sok').textContent = d.sensorOk ? '\u2705 OK' : '\u274c Error / Cek Kabel';
-
-    // RSSI + emoji
-    const ri = d.rssi >= -65 ? '\ud83d\udfe2' : d.rssi >= -80 ? '\ud83d\udfe1' : '\ud83d\udd34';
-    document.getElementById('rssi').textContent = ri + ' ' + d.rssi + ' dBm';
-
-    // Heap
-    document.getElementById('heap').textContent = (d.freeHeap / 1024).toFixed(0) + ' KB';
-
-    // Uptime
-    const u = d.uptime;
-    const uh = Math.floor(u / 3600), um = Math.floor((u % 3600) / 60), us = u % 60;
-    document.getElementById('upt').textContent = uh + 'j ' + um + 'm ' + us + 'd';
-
-    // Client count
-    document.getElementById('cli').textContent = d.clients + ' browser';
+    if (d.tipe === "sensor") tampilkan(d);
   };
+  ws.onclose = putus;
 }
-connect();
+
+sambungkan();
 </script>
-</body></html>
-)rawhtml";
+</body>
+</html>
+)rawliteral";
 
-// ─────────────────────────────────────────────────────────────────
-// Bangun & Broadcast JSON Sensor ke semua client WebSocket
-// Stack-allocated: char json[300] — zero heap fragmentation
-// ─────────────────────────────────────────────────────────────────
-void broadcastSensors() {
-  char tS[8] = "null", hS[8] = "null";
-  if (sensorOk && !isnan(lastTemp))   snprintf(tS, sizeof(tS), "%.1f", lastTemp);
-  if (sensorOk && !isnan(lastHumid))  snprintf(hS, sizeof(hS), "%.0f", lastHumid);
+// Dipanggil library (dari dalam ws.loop()) setiap ada kejadian WebSocket
+void tanganiWebSocket(uint8_t nomor, WStype_t jenis, uint8_t *data, size_t panjang) {
+  switch (jenis) {
+    case WStype_CONNECTED:
+      Serial.printf("[WS] Klien #%u terhubung dari %s (total %d klien)\n", nomor,
+                    ws.remoteIP(nomor).toString().c_str(), ws.connectedClients());
+      adaPerubahan = true;  // klien baru segera dapat data; yang lain melihat jumlah klien baru
+      break;
 
-  char json[300];
-  snprintf(json, sizeof(json),
-    "{\"type\":\"sensors\","
-    "\"temp\":%s,\"humidity\":%s,"
-    "\"rssi\":%d,\"uptime\":%lu,"
-    "\"freeHeap\":%u,\"sensorOk\":%s,"
-    "\"clients\":%d}",
-    tS, hS,
-    WiFi.RSSI(), millis() / 1000UL,
-    ESP.getFreeHeap(),
-    sensorOk ? "true" : "false",
-    wsClients
-  );
-  ws.broadcastTXT(json);
+    case WStype_DISCONNECTED:
+      Serial.printf("[WS] Klien #%u terputus (sisa %d klien)\n", nomor, ws.connectedClients());
+      adaPerubahan = true;
+      break;
+
+    case WStype_TEXT:
+      // Program ini hanya MENGIRIM data; pesan dari browser cukup dicatat
+      if (panjang > 0) {
+        Serial.printf("[WS] Pesan dari klien #%u diabaikan: %s\n", nomor, (const char *)data);
+      }
+      break;
+
+    default:
+      break;
+  }
 }
 
-// ── WebSocket Event Handler ───────────────────────────────────────
-void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
-  if (type == WStype_CONNECTED) {
-    wsClients++;
-    IPAddress ip = ws.remoteIP(num);
-    Serial.printf("[WS] #%d terhubung dari %s | Total: %d\n",
-                  num, ip.toString().c_str(), wsClients);
-    digitalWrite(LED_PIN, HIGH);
-    // Langsung push data sensor terkini ke client baru (tidak perlu tunggu 2 detik)
-    broadcastSensors();
-  }
-  else if (type == WStype_DISCONNECTED) {
-    if (wsClients > 0) wsClients--;
-    Serial.printf("[WS] #%d terputus | Sisa: %d\n", num, wsClients);
-    if (wsClients == 0) {
-      digitalWrite(LED_PIN, LOW);
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  if (bacaanPertama || berhasil != dhtOk) {  // cetak hanya saat status berubah
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
     } else {
-      // Pedantic: Langsung informasikan "Sisa Browser" ke client yang masih hidup
-      // tanpa harus menunggu siklus sensor 2 detik berikutnya.
-      broadcastSensors();
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
     }
   }
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────
+int bacaPotPersen() {
+  long total = 0;
+  for (int i = 0; i < 8; i++) {
+    total += analogRead(PIN_POT);  // rata-rata 8 bacaan untuk meredam derau ADC
+  }
+  return (total / 8) * 100 / 4095;
+}
+
+// Menyusun data sensor menjadi teks JSON
+String buatJsonSensor() {
+  JsonDocument doc;
+  doc["tipe"] = "sensor";
+  if (dhtOk) {
+    doc["suhu"] = suhu;
+    doc["kelembapan"] = kelembapan;
+  } else {
+    doc["suhu"] = nullptr;  // null = tidak ada nilai
+    doc["kelembapan"] = nullptr;
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["potensiometer"] = potTerkirim;
+  doc["klien"] = ws.connectedClients();
+  doc["waktu_nyala"] = millis() / 1000;
+
+  String json;
+  serializeJson(doc, json);
+  return json;
+}
+
+// Mengirim data terbaru ke SEMUA browser yang tersambung
+void siarkanSensor() {
+  if (ws.connectedClients() == 0) return;  // tidak ada yang mendengarkan: lewati
+  String json = buatJsonSensor();
+  ws.broadcastTXT(json);
+  jumlahSiaran = jumlahSiaran + 1;
+}
+
+void halamanUtama() {
+  server.send(200, "text/html", HALAMAN_MONITOR);
+}
+
+void halaman404() {
+  server.send(404, "text/plain", "404 - alamat tidak ditemukan");
+}
+
+void sambungkanWiFi() {
+  WiFi.setHostname(NAMA_MDNS);  // nama di daftar perangkat router — SEBELUM WiFi.mode()
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya pesan lebih cepat sampai
+}
+
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  delay(1000);
+  Serial.println("\nBAB 47 - Program 2: Siaran Data Sensor Real-Time");
+
   dht.begin();
-  delay(500);
+  potTerkirim = bacaPotPersen();
 
-  Serial.println("\n=== BAB 47 Program 2: Real-Time Sensor Broadcasting ===");
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    Serial.print("."); delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ Terhubung! IP: %s | SSID: %s\n",
-                WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
+  sambungkanWiFi();
+  bool mdnsAktif = MDNS.begin(NAMA_MDNS);
+  if (mdnsAktif) {
     MDNS.addService("http", "tcp", 80);
-    MDNS.addService("ws",   "tcp", 81);
-    Serial.printf("[mDNS] ✅ http://%s.local\n", MDNS_NAME);
-  } else {
-    Serial.println("[mDNS] ⚠️ Gagal — gunakan IP langsung.");
   }
 
-  // ── HTTP ──────────────────────────────────────────────────────
-  server.on("/", HTTP_GET, []() {
-    server.send_P(200, PSTR("text/html"), DASH_HTML);
-  });
-  server.onNotFound([]() {
-    if (server.method() == HTTP_OPTIONS) {
-      server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.send(204); return;
-    }
-    server.send(404, "text/plain", "404");
-  });
+  server.on("/", HTTP_GET, halamanUtama);
+  server.onNotFound(halaman404);
   server.begin();
-  Serial.println("[HTTP] Server aktif di port 80.");
 
-  // ── WebSocket ─────────────────────────────────────────────────
   ws.begin();
-  ws.onEvent(onWsEvent);
-  Serial.println("[WS]   Server aktif di port 81.");
-  Serial.printf("[INFO] Dashboard → http://%s.local\n", MDNS_NAME);
+  ws.onEvent(tanganiWebSocket);
+
+  String ip = WiFi.localIP().toString();
+  Serial.printf("Halaman web : http://%s/\n", ip.c_str());
+  if (mdnsAktif) {
+    Serial.printf("              atau http://%s.local/\n", NAMA_MDNS);
+  }
+  Serial.printf("WebSocket   : ws://%s:81/\n", ip.c_str());
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
   server.handleClient();
   ws.loop();
 
-  // ── DHT11 Non-Blocking (setiap 2 detik) ──────────────────────
-  // millis() timer — loop() TIDAK di-block sama sekali
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature(), h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      if (!sensorOk) Serial.println("[DHT] ✅ Sensor pulih!");
-      lastTemp = t; lastHumid = h; sensorOk = true;
-    } else {
-      if (sensorOk) Serial.println("[DHT] ⚠️ Gagal baca! Cek wiring IO27.");
-      sensorOk = false;
-    }
-    // ── Zero-Client Optimization ──
-    // Hemat CPU & Energi: Jangan repot merakit JSON jika tak ada browser yang menonton!
-    if (wsClients > 0) {
-      broadcastSensors();
+  unsigned long sekarang = millis();
+
+  // 1. Kiriman rutin setiap 2 detik: baca DHT11 dan samakan nilai potensiometer
+  if (timerDHT.sudahWaktunya(sekarang)) {
+    bacaDHT();
+    potTerkirim = bacaPotPersen();
+    adaPerubahan = true;
+  }
+
+  // 2. Potensiometer: tandai kalau berubah cukup jauh (bukan sekadar derau)
+  if (timerPot.sudahWaktunya(sekarang)) {
+    int pot = bacaPotPersen();
+    if (abs(pot - potTerkirim) >= AMBANG_POT) {
+      potTerkirim = pot;
+      adaPerubahan = true;
     }
   }
 
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  static bool prevWiFi = true;
-  bool currWiFi = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFi && currWiFi)
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n",
-                  WiFi.localIP().toString().c_str());
-  if (prevWiFi && !currWiFi)
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-  prevWiFi = currWiFi;
+  // 3. Kirim kalau ada perubahan, tetapi paling sering setiap JEDA_KIRIM_MIN
+  if (adaPerubahan && sekarang - waktuKirimTerakhir >= JEDA_KIRIM_MIN) {
+    siarkanSensor();
+    adaPerubahan = false;
+    waktuKirimTerakhir = sekarang;
+  }
 
-  // ── Heartbeat (tiap 30 detik) ──────────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 30000UL) {
-    tHb = millis();
-    Serial.printf("[HB] %.1fC %.0f%% | Clients: %d | Heap: %u B\n",
-                  lastTemp, lastHumid, wsClients, ESP.getFreeHeap());
+  // 4. Laporan berkala di Serial Monitor
+  if (timerLaporan.sudahWaktunya(sekarang)) {
+    int klien = ws.connectedClients();
+    if (klien > 0) {
+      Serial.printf("[INFO] 10 detik terakhir: %lu pesan disiarkan ke %d klien\n",
+                    jumlahSiaran, klien);
+    }
+    jumlahSiaran = 0;
   }
 }

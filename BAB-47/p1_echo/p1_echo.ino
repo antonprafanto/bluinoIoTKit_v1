@@ -1,27 +1,10 @@
 /*
- * BAB 47 - Program 1: WebSocket Echo Server
- * ──────────────────────────────────────────
- * Fitur:
- *   ▶ HTTP port 80 → Halaman HTML dengan form kirim pesan
- *   ▶ WS   port 81 → Echo balik setiap pesan yang diterima
- *   ▶ Multi-client: bisa dibuka dari 2+ browser sekaligus
- *   ▶ LED IO2 berkedip saat pesan diterima
- *   ▶ Serial Monitor menampilkan semua event (connect/msg/disconnect)
- *
- * Cara Uji:
- *   1. Install library: Arduino IDE → Library Manager → "WebSockets" by Markus Sattler
- *   2. Ganti WIFI_SSID dan WIFI_PASS di bawah
- *   3. Upload, buka Serial Monitor (115200 baud)
- *   4. Browser: http://bluino.local (atau IP dari Serial Monitor)
- *   5. Ketik pesan, tekan Enter atau klik Kirim
- *   6. Buka browser kedua — amati jumlah client berubah
- *
- * Library yang dibutuhkan:
- *   - "WebSockets" by Markus Sattler >= 2.4.0  (install manual)
- *   - WiFi.h, ESPmDNS.h, WebServer.h           (bawaan ESP32 Core)
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * BAB 47 - Program 1: Echo WebSocket
+ * - GET /           -> halaman uji (HTML + JavaScript), lewat port 80
+ * - ws://<IP>:81/   -> WebSocket: setiap teks yang diterima dikirim balik (echo)
+ * LED biru (IO2) menyala selama ada minimal satu browser yang tersambung.
+ * Rangkaian: tidak perlu (LED biru bawaan board di IO2).
+ *   Opsional: LED3 (biru) -> IO2 supaya LED biru di kit ikut menyala.
  */
 
 #include <WiFi.h>
@@ -29,329 +12,214 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID = "NamaWiFiKamu";  // ← Ganti!
-const char* WIFI_PASS = "PasswordWiFi";  // ← Ganti!
-const char* MDNS_NAME = "bluino";
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
+const char *NAMA_MDNS = "bluino";                // nama .local, tanpa ".local" (BAB 45)
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN 2   // LED built-in (active HIGH)
+#define LED_BIRU 2  // LED biru bawaan board (dan LED3 kit) -> IO2
 
-// ── Objek ────────────────────────────────────────────────────────
-WebServer        server(80);  // HTTP di port 80 → melayani halaman HTML
-WebSocketsServer ws(81);      // WebSocket di port 81 → komunikasi real-time
+WebServer server(80);     // port 80: mengirim halaman web
+WebSocketsServer ws(81);  // port 81: pesan WebSocket dua arah
 
-// ── State ────────────────────────────────────────────────────────
-uint8_t  wsClients  = 0;    // Jumlah browser yang sedang terhubung
-uint32_t msgTotal   = 0;    // Akumulasi pesan diterima sejak boot
-uint32_t blinkTimer = 0;    // Timer non-blocking LED (anti-delay)
-bool     isBlinking = false;
-
-// ─────────────────────────────────────────────────────────────────
-// Halaman HTML (PROGMEM → disimpan di Flash, tidak memakan heap)
-// ─────────────────────────────────────────────────────────────────
-const char PAGE_HTML[] PROGMEM = R"rawhtml(
+// Halaman uji: HTML + CSS + JavaScript dalam satu raw string literal (BAB 46).
+// Tidak memakai CDN, jadi tetap berjalan tanpa internet.
+const char HALAMAN_ECHO[] = R"rawliteral(
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluino IoT — WebSocket Echo</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Arial,sans-serif;background:#0a0a14;
-         color:#e0e0e0;min-height:100vh;padding:16px}
-    .c{max-width:520px;margin:0 auto}
-    h1{color:#4fc3f7;font-size:1.3rem;padding:16px 0 4px}
-    .sub{color:#444;font-size:.78rem;margin-bottom:16px}
-    .badge{display:inline-block;padding:3px 10px;border-radius:16px;
-           font-size:.75rem;font-weight:600;margin-bottom:14px}
-    .conn{background:#1b5e20;color:#81c784}
-    .disc{background:#4a0000;color:#ef9a9a}
-    .card{background:#141424;border-radius:12px;padding:16px;margin-bottom:10px}
-    .sec{color:#555;font-size:.7rem;text-transform:uppercase;
-         letter-spacing:1px;margin-bottom:8px}
-    #log{height:210px;overflow-y:auto;font-family:monospace;font-size:.78rem;line-height:1.7}
-    .in{color:#81c784}.out{color:#4fc3f7}.sys{color:#555}.err{color:#ef5350}
-    .row{display:flex;gap:8px;margin-top:10px}
-    input{flex:1;background:#0d0d1a;border:1px solid #1e2a3a;border-radius:8px;
-          padding:10px 12px;color:#e0e0e0;font-size:.85rem;outline:none}
-    input:focus{border-color:#4fc3f7}
-    button{background:#0f3460;color:#4fc3f7;border:none;border-radius:8px;
-           padding:10px 18px;font-size:.82rem;font-weight:600;cursor:pointer;
-           user-select:none;-webkit-tap-highlight-color:transparent}
-    button:hover{background:#1565c0}
-    button:active{transform:scale(.95)}
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .stat{background:#0d0d1a;border-radius:8px;padding:10px;text-align:center}
-    .sv{font-size:1.4rem;font-weight:700;color:#4fc3f7}
-    .sl{font-size:.68rem;color:#555}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo WebSocket</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #f2f4f7;
+         color: #222; margin: 0; padding: 16px; }
+  .wadah { max-width: 520px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  h1 { font-size: 1.3em; margin: 0; color: #1565c0; }
+  .koneksi { font-size: 0.85em; padding: 4px 10px; border-radius: 999px;
+             background: #e0e0e0; color: #555; }
+  .koneksi.ok { background: #e8f5e9; color: #2e7d32; }
+  .koneksi.putus { background: #ffebee; color: #c62828; }
+  #log { background: #fff; border-radius: 12px; padding: 12px; height: 260px;
+         overflow-y: auto; margin: 16px 0 10px; font-family: monospace;
+         font-size: 0.9em; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+  .kirim { color: #1565c0; }
+  .terima { color: #2e7d32; }
+  .sistem { color: #888; font-style: italic; }
+  .baris { display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; font-size: 1em; padding: 10px;
+          border: 1px solid #bbb; border-radius: 8px; }
+  button { font-size: 1em; padding: 10px 16px; border: none; border-radius: 8px;
+           background: #1565c0; color: #fff; cursor: pointer; }
+  button:disabled { background: #90a4ae; cursor: not-allowed; }
+</style>
 </head>
-<body><div class="c">
-  <h1>&#128311; WebSocket Echo</h1>
-  <p class="sub">BAB 47 &#183; Bluino IoT Kit &#8212; Pesan dikirim &amp; di-echo ESP32 secara instan</p>
-  <span id="st" class="badge disc">&#9679; Menghubungkan...</span>
-
-  <div class="card">
-    <div class="sec">Log Percakapan</div>
-    <div id="log"></div>
-    <div class="row">
-      <input id="inp" type="text" placeholder="Ketik pesan, tekan Enter..." maxlength="120">
-      <button onclick="kirim()">Kirim</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="sec">Statistik Sesi</div>
-    <div class="g2">
-      <div class="stat"><div class="sv" id="sc">0</div><div class="sl">Client Aktif</div></div>
-      <div class="stat"><div class="sv" id="mc">0</div><div class="sl">Total Pesan</div></div>
-    </div>
+<body>
+<div class="wadah">
+  <header>
+    <h1>Echo WebSocket</h1>
+    <span id="koneksi" class="koneksi">Menyambung...</span>
+  </header>
+  <div id="log"></div>
+  <div class="baris">
+    <input id="teks" type="text" maxlength="100" placeholder="Ketik pesan, lalu Enter">
+    <button id="tombol" onclick="kirim()" disabled>Kirim</button>
   </div>
 </div>
+
 <script>
+function el(id) { return document.getElementById(id); }
 let ws;
-const log = document.getElementById('log');
-const inp = document.getElementById('inp');
 
-function addLog(txt, cls) {
-  const d = document.createElement('div');
-  d.className = cls;
-  d.textContent = new Date().toLocaleTimeString('id') + '  ' + txt;
-  log.appendChild(d);
-  log.scrollTop = log.scrollHeight;
+// Menambah satu baris (dengan jam) ke kotak log
+function catat(teks, kelas) {
+  const baris = document.createElement("div");
+  baris.className = kelas;
+  baris.textContent = new Date().toLocaleTimeString("id-ID") + "  " + teks;
+  el("log").appendChild(baris);
+  el("log").scrollTop = el("log").scrollHeight;
 }
 
-function setSt(ok) {
-  const s = document.getElementById('st');
-  s.textContent = ok ? '\u25cf Terhubung' : '\u25cf Terputus';
-  s.className = 'badge ' + (ok ? 'conn' : 'disc');
+function aturKoneksi(ok) {
+  el("koneksi").textContent = ok ? "● Terhubung" : "● Terputus";
+  el("koneksi").className = "koneksi " + (ok ? "ok" : "putus");
+  el("tombol").disabled = !ok;
 }
 
-function connect() {
-  ws = new WebSocket('ws://' + location.hostname + ':81/');
-  ws.onopen  = () => { setSt(true);  addLog('WebSocket terhubung ke ESP32!', 'sys'); };
-  ws.onerror = () => addLog('Koneksi error.', 'err');
-  ws.onclose = () => {
-    setSt(false);
-    addLog('Terputus \u2014 mencoba kembali dalam 3 detik...', 'sys');
-    setTimeout(connect, 3000);
+// Membuka WebSocket ke port 81 di alamat yang sama dengan halaman ini
+function sambungkan() {
+  ws = new WebSocket("ws://" + location.hostname + ":81/");
+  ws.onopen = function () {
+    aturKoneksi(true);
+    catat("Terhubung ke ESP32", "sistem");
   };
-  ws.onmessage = e => {
-    const d = JSON.parse(e.data);
-    if (d.type === 'echo')
-      addLog('\u2190 Echo ESP32: ' + d.msg, 'in');
-    if (d.type === 'info') {
-      document.getElementById('sc').textContent = d.clients;
-      document.getElementById('mc').textContent = d.total;
-    }
+  ws.onmessage = function (e) {
+    catat("◀ " + e.data, "terima");
+  };
+  ws.onclose = function () {
+    aturKoneksi(false);
+    catat("Koneksi terputus. Mencoba lagi dalam 3 detik...", "sistem");
+    setTimeout(sambungkan, 3000);  // sambung ulang otomatis
   };
 }
 
 function kirim() {
-  const msg = inp.value.trim();
-  if (!msg || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ cmd: 'echo', msg }));
-  addLog('\u2192 Kamu: ' + msg, 'out');
-  inp.value = '';
+  const teks = el("teks").value.trim();
+  if (teks === "" || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(teks);
+  catat("▶ " + teks, "kirim");
+  el("teks").value = "";
 }
 
-inp.addEventListener('keydown', e => { if (e.key === 'Enter') kirim(); });
-connect();
+el("teks").addEventListener("keydown", function (e) {
+  if (e.key === "Enter") kirim();
+});
+
+sambungkan();
 </script>
-</body></html>
-)rawhtml";
+</body>
+</html>
+)rawliteral";
 
-// ─────────────────────────────────────────────────────────────────
-// WebSocket Event Handler
-// Single callback menangani semua event: connect, disconnect, text
-// ─────────────────────────────────────────────────────────────────
-void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
-  switch (type) {
+// LED biru menyala kalau ada minimal satu browser yang tersambung
+void perbaruiLed() {
+  digitalWrite(LED_BIRU, ws.connectedClients() > 0 ? HIGH : LOW);
+}
 
+// Dipanggil library (dari dalam ws.loop()) setiap ada kejadian WebSocket
+void tanganiWebSocket(uint8_t nomor, WStype_t jenis, uint8_t *data, size_t panjang) {
+  switch (jenis) {
     case WStype_CONNECTED: {
-      wsClients++;
-      IPAddress ip = ws.remoteIP(num);
-      Serial.printf("[WS] Client #%d terhubung dari %s | Total: %d\n",
-                    num, ip.toString().c_str(), wsClients);
-      digitalWrite(LED_PIN, HIGH);  // LED ON = ada client
-      // Broadcast info ke semua (update counter di semua browser)
-      char info[64];
-      snprintf(info, sizeof(info),
-               "{\"type\":\"info\",\"clients\":%d,\"total\":%lu}",
-               wsClients, (unsigned long)msgTotal);
-      ws.broadcastTXT(info);
+      Serial.printf("[WS] Klien #%u terhubung dari %s (total %d klien)\n", nomor,
+                    ws.remoteIP(nomor).toString().c_str(), ws.connectedClients());
+      char sapaan[48];
+      snprintf(sapaan, sizeof(sapaan), "Halo! Kamu klien nomor %u", nomor);
+      ws.sendTXT(nomor, sapaan);  // sapa browser yang baru tersambung saja
+      perbaruiLed();
       break;
     }
 
-    case WStype_DISCONNECTED: {
-      if (wsClients > 0) wsClients--;
-      Serial.printf("[WS] Client #%d terputus | Sisa: %d\n", num, wsClients);
-      if (wsClients == 0) digitalWrite(LED_PIN, LOW);  // LED OFF = tidak ada client
-      char info[64];
-      snprintf(info, sizeof(info),
-               "{\"type\":\"info\",\"clients\":%d,\"total\":%lu}",
-               wsClients, (unsigned long)msgTotal);
-      ws.broadcastTXT(info);
+    case WStype_DISCONNECTED:
+      Serial.printf("[WS] Klien #%u terputus (sisa %d klien)\n", nomor, ws.connectedClients());
+      perbaruiLed();
       break;
-    }
 
     case WStype_TEXT: {
-      msgTotal++;
-      // Casting aman karena library WebSockets selalu null-terminated
-      String raw = (char*)payload;
-      Serial.printf("[WS] #%d → %s\n", num, raw.c_str());
-
-      // ── Parse "msg" dari JSON (Penanganan Escaped Quotes Akurat) ──
-      String extracted = "";
-      int mi = raw.indexOf("\"msg\":\"");
-      if (mi >= 0) {
-        int s = mi + 7; // Mulai setelah "msg":"
-        int e = s;
-        while (e < raw.length()) {
-          if (raw[e] == '"') {
-            // Hitung runtutan karakter backslash sebelumnya
-            int backslashCount = 0;
-            int temp = e - 1;
-            while (temp >= s && raw[temp] == '\\') {
-              backslashCount++;
-              temp--;
-            }
-            // Jika jumlah backslash genap (atau 0), ini adalah kutip penutup tulen
-            if (backslashCount % 2 == 0) break; 
-          }
-          e++;
-        }
-        if (e > s) {
-          extracted = raw.substring(s, e);
-          if (extracted.length() > 100) extracted = extracted.substring(0, 100);
-        }
-      }
-
-      // ── Echo kembali ke pengirim ───────────────────────────────
-      char resp[200];
-      snprintf(resp, sizeof(resp),
-               "{\"type\":\"echo\",\"msg\":\"%s\",\"total\":%lu}",
-               extracted.c_str(), (unsigned long)msgTotal);
-      ws.sendTXT(num, resp);
-
-      // ── Update statistik ke semua client ──────────────────────
-      char info[64];
-      snprintf(info, sizeof(info),
-               "{\"type\":\"info\",\"clients\":%d,\"total\":%lu}",
-               wsClients, (unsigned long)msgTotal);
-      ws.broadcastTXT(info);
-
-      // ── Trigger Kedip LED (Non-blocking) ──────────────────────
-      // ⚠️ HARAM menggunakan delay() di dalam event handler TCP!
-      // delay(25) akan mem-blokir tumpukan async. Gunakan millis timer.
-      digitalWrite(LED_PIN, LOW);
-      blinkTimer = millis() + 40; // Jadwalkan nyala kembali di loop()
-      isBlinking = true;
+      if (panjang == 0) break;  // abaikan pesan kosong
+      // data sudah diakhiri '\0' oleh library, jadi aman dicetak sebagai teks
+      Serial.printf("[WS] Pesan dari klien #%u: %s\n", nomor, (const char *)data);
+      String balasan = "ESP32 menerima: ";
+      balasan += (const char *)data;
+      ws.sendTXT(nomor, balasan);  // echo: kirim balik HANYA ke pengirimnya
       break;
     }
 
-    case WStype_PING:
-      Serial.printf("[WS] Ping dari #%d\n", num);
+    default:  // PONG, PING, BIN, dan lain-lain tidak dipakai di program ini
       break;
-
-    case WStype_PONG:
-      Serial.printf("[WS] Pong dari #%d\n", num);
-      break;
-
-    default: break;
   }
 }
 
-// ─────────────────────────────────────────────────────────────────
+// Handler untuk GET /
+void halamanUtama() {
+  server.send(200, "text/html", HALAMAN_ECHO);
+}
+
+void halaman404() {
+  server.send(404, "text/plain", "404 - alamat tidak ditemukan");
+}
+
+void sambungkanWiFi() {
+  WiFi.setHostname(NAMA_MDNS);  // nama di daftar perangkat router — SEBELUM WiFi.mode()
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya pesan lebih cepat sampai
+}
+
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  delay(500);
+  delay(1000);
+  Serial.println("\nBAB 47 - Program 1: Echo WebSocket");
 
-  Serial.println("\n=== BAB 47 Program 1: WebSocket Echo Server ===");
+  pinMode(LED_BIRU, OUTPUT);  // pinMode dulu, baru digitalWrite (core 3.x)
+  digitalWrite(LED_BIRU, LOW);
 
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    Serial.print("."); delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ IP: %s | SSID: %s\n",
-                WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
+  sambungkanWiFi();
+  bool mdnsAktif = MDNS.begin(NAMA_MDNS);
+  if (mdnsAktif) {
     MDNS.addService("http", "tcp", 80);
-    MDNS.addService("ws",   "tcp", 81);
-    Serial.printf("[mDNS] ✅ http://%s.local | ws://%s.local:81\n",
-                  MDNS_NAME, MDNS_NAME);
-  } else {
-    Serial.println("[mDNS] ⚠️ Gagal — gunakan alamat IP langsung.");
   }
 
-  // ── HTTP: Sajikan halaman HTML ─────────────────────────────────
-  server.on("/", HTTP_GET, []() {
-    server.send_P(200, PSTR("text/html"), PAGE_HTML);
-  });
-  server.onNotFound([]() {
-    if (server.method() == HTTP_OPTIONS) {
-      server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-      server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-      server.send(204); return;
-    }
-    server.send(404, "text/plain", "404 Not Found");
-  });
-  server.begin();
-  Serial.println("[HTTP] Web server aktif di port 80.");
+  server.on("/", HTTP_GET, halamanUtama);
+  server.onNotFound(halaman404);
+  server.begin();  // port 80
 
-  // ── WebSocket Server ───────────────────────────────────────────
-  ws.begin();
-  ws.onEvent(onWsEvent);
-  Serial.println("[WS]   WebSocket server aktif di port 81.");
-  Serial.printf("[INFO] Buka browser → http://%s.local\n", MDNS_NAME);
+  ws.begin();  // port 81
+  ws.onEvent(tanganiWebSocket);
+
+  String ip = WiFi.localIP().toString();
+  Serial.printf("Halaman web : http://%s/\n", ip.c_str());
+  if (mdnsAktif) {
+    Serial.printf("              atau http://%s.local/\n", NAMA_MDNS);
+  }
+  Serial.printf("WebSocket   : ws://%s:81/\n", ip.c_str());
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  server.handleClient();  // Layani HTTP request (halaman HTML)
-  ws.loop();              // Proses WebSocket frame masuk/keluar
-
-  // ── Non-blocking LED Blink ────────────────────────────────────
-  if (isBlinking && millis() >= blinkTimer) {
-    isBlinking = false;
-    digitalWrite(LED_PIN, wsClients > 0 ? HIGH : LOW);
-  }
-
-  // ── Deteksi Transisi WiFi (State-Transition Logging) ──────────
-  static bool prevWiFi = true;  // true: sudah konek di setup()
-  bool currWiFi = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFi && currWiFi)
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n",
-                  WiFi.localIP().toString().c_str());
-  if (prevWiFi && !currWiFi)
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-  prevWiFi = currWiFi;
-
-  // ── Heartbeat Log (tiap 30 detik) ────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 30000UL) {
-    tHb = millis();
-    Serial.printf("[HB] Clients: %d | Pesan: %lu | Heap: %u B | Uptime: %lu s\n",
-                  wsClients, (unsigned long)msgTotal,
-                  ESP.getFreeHeap(), millis() / 1000UL);
-  }
+  server.handleClient();  // layani halaman web (port 80)
+  ws.loop();              // layani WebSocket (port 81): koneksi baru dan pesan masuk
 }
