@@ -293,7 +293,7 @@ Gunakan format yang seragam:
 | `timerAttachInterrupt(t, fn, true)` | `timerAttachInterrupt(t, fn)` |
 | `timerAlarmWrite()` + `timerAlarmEnable()` | `timerAlarm(t, nilai, autoreload, 0)` |
 | `hallRead()` | **Dihapus** di core 3.x |
-| `esp_task_wdt_init(timeout, panic)` | `esp_task_wdt_init(&config)` |
+| `esp_task_wdt_init(timeout, panic)` | `esp_task_wdt_reconfigure(&config)` (di Arduino, *watchdog* sudah diinisialisasi sehingga `esp_task_wdt_init()` gagal), atau `enableLoopWDT()` untuk mengawasi `loop()` |
 | Callback ESP-NOW terima `(const uint8_t *mac, ...)` | `(const esp_now_recv_info_t *info, const uint8_t *data, int len)` |
 | Callback ESP-NOW kirim `(const uint8_t *mac, status)` | `(const wifi_tx_info_t *info, esp_now_send_status_t status)` (core ≥ 3.3) |
 | BLE `std::string v = c->getValue();` | `String v = c->getValue();` |
