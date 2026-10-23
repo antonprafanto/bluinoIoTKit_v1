@@ -1746,7 +1746,7 @@ Folder `data` juga sering dipakai untuk menyimpan halaman web (`index.html`, `st
 
 ---
 
-[⬅️ BAB 39: NVS — Non-Volatile Storage](../BAB-39/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 41: MicroSD Card — Data Logging Eksternal ESP32 ➡️](../BAB-41/README.md)
+[⬅️ BAB 39: NVS — Non-Volatile Storage](../BAB-39/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 41: MicroSD Card — Data Logging ➡️](../BAB-41/README.md)
 
 ---
 
