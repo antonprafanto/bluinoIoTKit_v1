@@ -819,17 +819,17 @@ if (!SD.begin(SD_CS, SPI, SD_SPI_FREQ)) {
 
 ---
 
+[⬅️ BAB 23: I2C — Inter-Integrated Circuit](../BAB-23/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 25: OneWire & Sensor Suhu DS18B20 ➡️](../BAB-25/README.md)
+
+---
+
 ## ☕ Dukung Proyek Ini
 
-Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Jika materi *engineering-grade* ini bermanfaat bagi riset atau proses belajarmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah secangkir kopi untuk penulis:
+Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Kalau materi ini bermanfaat untuk proses belajar, riset, atau proyekmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah mentraktir penulis secangkir kopi:
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
 **💬 Konsultasi & Kolaborasi:**
-Punya kritik, saran, atau butuh mentoring khusus ESP32 & IoT industri? Silakan sapa saya di:
-- ✉️ **Email:** antonprafanto@unmul.ac.id
-- 📞 **WhatsApp:** 0811-553-393 / 0852-5069-0673
-
----
-
-*Selanjutnya → [BAB 25: OneWire Protocol](../BAB-25/README.md)*
+Punya kritik, saran, atau butuh pendampingan khusus ESP32 & IoT? Silakan hubungi:
+- ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
+- 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)

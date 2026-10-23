@@ -961,16 +961,17 @@ Kapan pilih BT Classic vs BLE?
 
 ---
 
+[⬅️ BAB 51: 🌐 BAB 51 — CoAP: Constrained Application Protocol](../BAB-51/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 53: 📡 BAB 53 — BLE (Bluetooth Low Energy): Sensor Nirkabel Hemat Daya ➡️](../BAB-53/README.md)
+
+---
+
 ## ☕ Dukung Proyek Ini
+
+Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Kalau materi ini bermanfaat untuk proses belajar, riset, atau proyekmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah mentraktir penulis secangkir kopi:
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
 **💬 Konsultasi & Kolaborasi:**
-- ✉️ **Email:** antonprafanto@unmul.ac.id
-- 📞 **WhatsApp:** 0811-553-393 / 0852-5069-0673
-
----
-
-*Sebelumnya → [BAB 51: CoAP](../BAB-51/README.md)*
-
-*Selanjutnya → [BAB 53: BLE — Bluetooth Low Energy](../BAB-53/README.md)*
+Punya kritik, saran, atau butuh pendampingan khusus ESP32 & IoT? Silakan hubungi:
+- ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
+- 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)

@@ -762,16 +762,17 @@ Ini memungkinkan kamu menyimpan webpage HTML di ESP32 untuk web server!
 
 ---
 
+[⬅️ BAB 39: NVS — Memori Permanen ESP32](../BAB-39/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 41: MicroSD Card — Data Logging Eksternal ESP32 ➡️](../BAB-41/README.md)
+
+---
+
 ## ☕ Dukung Proyek Ini
+
+Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Kalau materi ini bermanfaat untuk proses belajar, riset, atau proyekmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah mentraktir penulis secangkir kopi:
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
 **💬 Konsultasi & Kolaborasi:**
-- ✉️ **Email:** antonprafanto@unmul.ac.id
-- 📞 **WhatsApp:** 0811-553-393 / 0852-5069-0673
-
----
-
-*Sebelumnya → [BAB 39: NVS — Memori Permanen ESP32](../BAB-39/README.md)*
-
-*Selanjutnya → [BAB 41: WiFi — Koneksi Internet](../BAB-41/README.md)*
+Punya kritik, saran, atau butuh pendampingan khusus ESP32 & IoT? Silakan hubungi:
+- ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
+- 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)

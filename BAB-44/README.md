@@ -1103,3 +1103,20 @@ ANTIPATTERN KLASIK WiFiManager:
 | **BAB 46** | Web Server | Bangun dashboard IoT via browser di atas fondasi ini |
 | **BAB 47** | WebSocket | Data real-time di halaman web yang sudah kita bangun |
 | **BAB 48** | HTTP Client & REST API | ESP32 komunikasi ke cloud setelah tersambung WiFi |
+
+---
+
+[⬅️ BAB 43: WiFi Access Point — ESP32 sebagai Hotspot Mandiri](../BAB-43/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 45: mDNS — Akses ESP32 dengan Nama Domain Lokal ➡️](../BAB-45/README.md)
+
+---
+
+## ☕ Dukung Proyek Ini
+
+Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Kalau materi ini bermanfaat untuk proses belajar, riset, atau proyekmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah mentraktir penulis secangkir kopi:
+
+[![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
+
+**💬 Konsultasi & Kolaborasi:**
+Punya kritik, saran, atau butuh pendampingan khusus ESP32 & IoT? Silakan hubungi:
+- ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
+- 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)

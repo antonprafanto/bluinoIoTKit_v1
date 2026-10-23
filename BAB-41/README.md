@@ -1007,16 +1007,17 @@ SD_MMC (SDIO 4-bit) yang jauh lebih cepat dari SPI.
 
 ---
 
+[⬅️ BAB 40: LittleFS — Sistem File di Flash ESP32](../BAB-40/README.md) · [🏠 Daftar Isi](../README.md) · [BAB 42: WiFi Station Mode — Koneksi Internet ESP32 ➡️](../BAB-42/README.md)
+
+---
+
 ## ☕ Dukung Proyek Ini
+
+Bab ini disusun dengan dedikasi waktu dan keahlian yang tidak sedikit. Kalau materi ini bermanfaat untuk proses belajar, riset, atau proyekmu, bentuk apresiasi terbaik yang bisa kamu berikan adalah mentraktir penulis secangkir kopi:
 
 [![Trakteer](https://img.shields.io/badge/Trakteer-Dukung_Penulis-red?style=for-the-badge&logo=trakteer&logoColor=white)](https://trakteer.id/limitless7/tip)
 
 **💬 Konsultasi & Kolaborasi:**
-- ✉️ **Email:** antonprafanto@unmul.ac.id
-- 📞 **WhatsApp:** 0811-553-393 / 0852-5069-0673
-
----
-
-*Sebelumnya → [BAB 40: LittleFS — Sistem File di Flash ESP32](../BAB-40/README.md)*
-
-*Selanjutnya → [BAB 42: WiFi Station Mode](../BAB-42/README.md)*
+Punya kritik, saran, atau butuh pendampingan khusus ESP32 & IoT? Silakan hubungi:
+- ✉️ **Email:** [antonprafanto@unmul.ac.id](mailto:antonprafanto@unmul.ac.id)
+- 📞 **WhatsApp:** [0811-553-393](https://wa.me/62811553393) / [0852-5069-0673](https://wa.me/6285250690673)
