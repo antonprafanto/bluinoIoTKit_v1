@@ -78,8 +78,8 @@ Tanpa sadar, kamu sudah memakai *callback* di BAB-BAB sebelumnya. Contoh potonga
 // BAB 10: fungsiISR adalah callback — dipanggil saat IO15 berubah dari LOW ke HIGH
 attachInterrupt(digitalPinToInterrupt(15), fungsiISR, RISING);
 
-// BAB 14: saatDisentuh adalah callback — dipanggil saat touch pad IO33 (T8) disentuh
-touchAttachInterrupt(T8, saatDisentuh, ambang);
+// BAB 14: saatPadBerubah adalah callback — dipanggil saat touch pad IO33 (T8) disentuh dan saat dilepas
+touchAttachInterrupt(T8, saatPadBerubah, ambang);
 
 // BAB 15: saatWaktuHabis adalah callback — dipanggil setiap kali timer hardware mencapai alarm
 timerAttachInterrupt(timer, saatWaktuHabis);
@@ -435,7 +435,7 @@ void loop() {
 
 **Penjelasan Kode:**
 
-- `struct TombolPintar` mengumpulkan data dan fungsi milik satu tombol, seperti `struct Task` di [BAB 16](../BAB-16/README.md). Nilai setelah tanda `=` di dalam `struct` (misalnya `int pin = -1;`) adalah nilai awal setiap anggota.
+- `struct TombolPintar` mengumpulkan data dan fungsi milik satu tombol, seperti `struct Timer` di [BAB 16](../BAB-16/README.md). Nilai setelah tanda `=` di dalam `struct` (misalnya `int pin = -1;`) adalah nilai awal setiap anggota.
 - `saatDitekan` dan `saatDilepas` adalah dua *function pointer* bertipe `CallbackTombol`. Awalnya `nullptr` (kosong), lalu diisi di `setup()`. Di dalam `update()`, keduanya selalu diperiksa dulu sebelum dipanggil.
 - Logika `update()` sama dengan *debounce* Program 3 di [BAB 9](../BAB-09/README.md). Bedanya, setelah status stabil berubah, `update()` tidak melakukan aksi apa pun sendiri — ia hanya **memanggil *callback*** yang terdaftar.
 - *Callback* sebaiknya **singkat**, karena selama *callback* berjalan, `loop()` menunggu dan tombol tidak diperiksa. Karena itu `bipSaatDilepas()` tidak memakai `delay(50)`, melainkan hanya **memulai** bunyi lewat `mulaiBip()`. `urusBip()` di `loop()` mematikan *buzzer* setelah 50 ms — teknik *non-blocking* dari [BAB 16](../BAB-16/README.md).
@@ -1632,7 +1632,7 @@ Peta pin yang dipakai di BAB ini:
 5. **Perintah Serial sebagai *event*:** Tambahkan sumber *event* ketiga ke Program 5: saat kamu mengetik `led` atau `bip` di kolom pesan Serial Monitor lalu menekan Enter, program mengirim *event* `EVENT_PERINTAH_LED` atau `EVENT_PERINTAH_BIP`. Daftarkan pendengar yang sesuai.
    *Petunjuk:* Di Serial Monitor, pilih *line ending* **New Line**. Baca karakter dengan `Serial.available()` dan `Serial.read()` tanpa menunggu ([BAB 16](../BAB-16/README.md)), kumpulkan sampai menemukan `'\n'`, lalu bandingkan teksnya. Jangan lupa menambah jenis *event* baru di `enum JenisEvent` dan namanya di `namaEvent()`.
 6. **Pengatur waktu berbasis *callback*:** Buat `struct TimerEvent` berisi `interval` dan `std::function<void()> saatWaktunya` yang dipanggil setiap `interval` milidetik, mirip `setInterval()` di JavaScript. Pakai tiga objek: LED merah berkedip setiap 500 ms, tulisan `tik` setiap 1 detik, dan nilai LDR setiap 2 detik.
-   *Petunjuk:* Pola `isReady()` dari `struct Task` di [BAB 16](../BAB-16/README.md) bisa dipakai di dalam `update()`: kalau `millis() - waktuTerakhir >= interval`, perbarui `waktuTerakhir` lalu panggil *callback*-nya.
+   *Petunjuk:* Pola `sudahWaktunya()` dari `struct Timer` di [BAB 16](../BAB-16/README.md) bisa dipakai di dalam `update()`: kalau `millis() - waktuTerakhir >= interval`, perbarui `waktuTerakhir` lalu panggil *callback*-nya.
 
 ---
 
