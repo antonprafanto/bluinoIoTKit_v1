@@ -1,6 +1,6 @@
 # BAB 34: Pemrosesan Data Sensor
 
-> ✅ **Prasyarat:** Selesaikan **BAB 11 (Analog Input & ADC)**, **BAB 16 (Non-Blocking Programming)**, dan **BAB 26 (DHT11 — Suhu & Kelembapan)**. Program 5 juga memakai DS18B20 dan BMP180, jadi sebaiknya kamu sudah mencoba **BAB 25 (OneWire Protocol)** dan **BAB 28 (BMP180 — Tekanan Udara & Ketinggian)**. **BAB 32 (LDR — Sensor Cahaya)** membantu, tetapi tidak wajib.
+> ✅ **Prasyarat:** Selesaikan **BAB 11 (Analog Input & ADC)**, **BAB 16 (Non-Blocking Programming)**, dan **BAB 26 (DHT11 — Suhu & Kelembapan)**. Program 5 juga memakai DS18B20 dan BMP180, jadi sebaiknya kamu sudah mencoba **BAB 25 (OneWire & Sensor Suhu DS18B20)** dan **BAB 28 (BMP180 — Tekanan Udara & Ketinggian)**. **BAB 32 (LDR — Sensor Cahaya)** membantu, tetapi tidak wajib.
 
 Angka dari sensor jarang bisa langsung dipercaya. Bayangkan timbangan badan digital: angkanya bergoyang saat kamu bergeser sedikit, melonjak kalau ada yang ikut menginjak, dan bisa selalu kelebihan setengah kilo kalau belum diatur. Sensor di kit pun begitu: nilai potensiometer naik-turun sendiri, DHT11 sesekali gagal membaca, dan lampu otomatis bisa berkedip-kedip saat cahaya berada tepat di batas. Di BAB ini kamu belajar mengolah angka mentah menjadi data yang stabil, masuk akal, dan siap dipakai untuk mengambil keputusan — dengan menghaluskan derau, membuang lonjakan, mengalibrasi, memakai histeresis, dan menggabungkan beberapa sensor.
 

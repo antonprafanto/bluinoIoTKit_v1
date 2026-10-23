@@ -53,6 +53,22 @@ def strip_code(lines):
             yield i, line
 
 
+def rebase_links(caption, bab):
+    """Ubah tautan relatif di keterangan agar tetap benar dari folder utama repositori."""
+    def fix(m):
+        target = m.group(2)
+        if target.startswith(("http://", "https://", "mailto:")):
+            return m.group(0)
+        if target.startswith("../"):
+            target = target[3:]
+        elif target.startswith("#"):
+            target = f"{bab}/README.md{target}"
+        else:
+            target = f"{bab}/{target}"
+        return f"{m.group(1)}({target})"
+    return re.sub(r"(\[[^\]]*\])\(([^)\s]+)\)", fix, caption)
+
+
 def main():
     rows = []
     for readme in sorted(ROOT.glob("BAB-*/README.md")):
@@ -69,6 +85,7 @@ def main():
                         caption = nxt.strip().strip("*").strip()
                         break
                 link = f"[{Path(path).name}]({bab}/{path})" if not path.startswith("../") else f"[{Path(path).name}]({path[3:]})"
+                caption = rebase_links(caption, bab)
                 rows.append(f"| [{bab}]({bab}/README.md) | {link} | {caption.replace('|', '/')} |")
     out = HEADER + "\n".join(rows) + "\n"
     (ROOT / "SUMBER_GAMBAR.md").write_text(out, encoding="utf-8", newline="\n")

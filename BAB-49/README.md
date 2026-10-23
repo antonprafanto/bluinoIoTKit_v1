@@ -1,6 +1,6 @@
 # BAB 49: HTTPS & Keamanan
 
-> ✅ **Prasyarat:** Selesaikan **BAB 48 (HTTP Client & REST API)** — kamu sudah bisa mengirim permintaan GET/POST dengan `HTTPClient` dan membaca JSON dengan ArduinoJson. Kamu juga perlu **BAB 42 (WiFi Station Mode)**, termasuk bagian jam internet (NTP). Program 3 memakai DHT11 dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan tab tambahan dari **BAB 19 (Kode Terstruktur — Multi-File)**.
+> ✅ **Prasyarat:** Selesaikan **BAB 48 (HTTP Client & REST API — ESP32 Pergi ke Internet)** — kamu sudah bisa mengirim permintaan GET/POST dengan `HTTPClient` dan membaca JSON dengan ArduinoJson. Kamu juga perlu **BAB 42 (WiFi Station Mode — Koneksi Internet ESP32)**, termasuk bagian jam internet (NTP). Program 3 memakai DHT11 dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan tab tambahan dari **BAB 19 (Kode Terstruktur — Multi-File)**.
 
 Di BAB 48, ESP32 mengirim dan menerima data lewat HTTP biasa. Masalahnya, HTTP itu seperti **kartu pos**: siapa pun yang ikut "mengantar" — pemilik WiFi, orang lain di jaringan yang sama, sampai penyedia internet — bisa membaca isinya, termasuk kunci API yang kamu kirim. Di BAB ini kamu belajar **HTTPS**, yaitu HTTP yang dibungkus **TLS**: datanya dimasukkan ke **amplop tersegel**, dan sebelum amplop diserahkan, ESP32 memeriksa **KTP digital** (sertifikat) penerimanya. Kamu juga akan belajar kenapa jalan pintas `setInsecure()` berbahaya, cara mengambil sertifikat *root* CA dari *browser*, dan kebiasaan aman sederhana supaya kata sandi WiFi dan kunci API-mu tidak bocor.
 

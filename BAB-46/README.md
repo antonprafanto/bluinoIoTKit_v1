@@ -1,6 +1,6 @@
 # BAB 46: Web Server — Dashboard IoT Berbasis Browser
 
-> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** — ESP32-mu sudah bisa tersambung ke WiFi dan kamu tahu cara melihat alamat IP-nya di Serial Monitor. Program 2–4 memakai sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan pola `struct Timer` dari **BAB 16 (Non-Blocking Programming)**. Program 3 menyalakan *relay* seperti di **BAB 37 (*Relay* — Kontrol AC/DC)**, dan Program 4 memakai folder `data` dari **BAB 40 (SPIFFS / LittleFS)**.
+> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode — Koneksi Internet ESP32)** — ESP32-mu sudah bisa tersambung ke WiFi dan kamu tahu cara melihat alamat IP-nya di Serial Monitor. Program 2–4 memakai sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan pola `struct Timer` dari **BAB 16 (Non-Blocking Programming)**. Program 3 menyalakan *relay* seperti di **BAB 37 (*Relay* — Kontrol AC/DC)**, dan Program 4 memakai folder `data` dari **BAB 40 (LittleFS — Sistem File di Flash ESP32)**.
 
 Bayangkan kamu bisa melihat suhu ruangan dan menyalakan lampu cukup dari *browser* di HP, tanpa memasang aplikasi apa pun. Itulah yang dilakukan ***web server***: ESP32 "melayani" halaman web, persis seperti situs internet, tetapi di jaringan WiFi rumahmu sendiri. Di BAB ini kamu belajar dasar HTTP (cara *browser* dan *server* bercakap-cakap), membuat halaman web pertama di ESP32, menyediakan data sensor dalam format JSON, lalu menggabungkan semuanya menjadi *dashboard* IoT yang memperbarui angkanya sendiri dan punya tombol untuk mengontrol LED dan *relay*.
 

@@ -325,7 +325,7 @@ void loop() { ... }
 
 - Nama: `p` + nomor program + `_` + nama singkat huruf kecil (hanya huruf, angka, garis bawah).
 - Program multi-file: `<!-- sketch: p3_kode_modular/config.h -->` untuk file tambahan.
-- Opsi khusus: `<!-- sketch: p2_matter_light fqbn=esp32:esp32:esp32:PartitionScheme=huge_app -->`.
+- Opsi khusus: `<!-- sketch: p1_matter_lampu fqbn=esp32:esp32:esp32:PartitionScheme=huge_app -->`.
 - Kode yang bukan untuk Arduino IDE (misalnya contoh ESP-IDF): `<!-- sketch: nama nocompile -->` — sebaiknya dihindari.
 
 Perintah:

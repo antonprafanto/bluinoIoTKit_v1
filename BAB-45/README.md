@@ -1,6 +1,6 @@
 # BAB 45: mDNS — Akses ESP32 dengan Nama Domain Lokal
 
-> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** — ESP32 kamu sudah bisa terhubung ke WiFi dan menampilkan alamat IP-nya di Serial Monitor. Program 3 juga memakai `Preferences` dari **BAB 39 (NVS — Non-Volatile Storage)**.
+> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode — Koneksi Internet ESP32)** — ESP32 kamu sudah bisa terhubung ke WiFi dan menampilkan alamat IP-nya di Serial Monitor. Program 3 juga memakai `Preferences` dari **BAB 39 (NVS — Non-Volatile Storage)**.
 
 Di BAB 42, setiap kali ESP32 tersambung ke WiFi, kamu harus membuka Serial Monitor dulu untuk tahu alamat IP-nya — deretan angka seperti `192.168.1.105` yang bisa berubah sewaktu-waktu. Di BAB ini kamu akan memberi ESP32 sebuah **nama**, misalnya `bluino.local`, dengan **mDNS** (*Multicast DNS*). Ibaratnya seperti menelepon teman: kamu cukup memilih nama "Budi" di daftar kontak, tidak perlu menghafal nomor HP-nya. Bedanya, dengan mDNS "daftar kontak" itu selalu diperbarui otomatis — ESP32 sendiri yang mengumumkan alamatnya yang terbaru, sehingga laptop dan HP bisa membuka `http://bluino.local` tanpa perlu tahu alamat IP-nya.
 

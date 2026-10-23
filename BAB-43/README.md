@@ -1,6 +1,6 @@
 # BAB 43: WiFi Access Point — ESP32 sebagai Hotspot Mandiri
 
-> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** — kamu sudah mengenal SSID, alamat IP, dan cara ESP32 tersambung ke WiFi. Program 2 dan 3 membaca perintah dari Serial Monitor tanpa menunggu (**BAB 16 (Non-Blocking Programming)**), dan Program 3 menyimpan pengaturan di NVS (**BAB 39 (NVS — Non-Volatile Storage)**).
+> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode — Koneksi Internet ESP32)** — kamu sudah mengenal SSID, alamat IP, dan cara ESP32 tersambung ke WiFi. Program 2 dan 3 membaca perintah dari Serial Monitor tanpa menunggu (**BAB 16 (Non-Blocking Programming)**), dan Program 3 menyimpan pengaturan di NVS (**BAB 39 (NVS — Non-Volatile Storage)**).
 
 Di BAB 42, ESP32 menumpang di WiFi rumah atau kampus, sama seperti HP-mu. Di BAB ini perannya dibalik: ESP32 **menjadi "*router*"-nya sendiri**. ESP32 memancarkan nama WiFi, HP atau laptop menyambung ke sana, lalu kamu bisa mengendalikan LED dari *browser* — tanpa *router*, tanpa kuota, di mana pun. Cara kerjanya mirip fitur *hotspot* (*tethering*) di HP, bedanya *hotspot* ESP32 **tidak membagikan internet**. Pola ini dipakai banyak perangkat sungguhan, misalnya printer WiFi, kamera CCTV, dan lampu pintar yang saat pertama dipasang memancarkan WiFi sendiri untuk diatur lewat HP.
 

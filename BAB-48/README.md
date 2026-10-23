@@ -1,6 +1,6 @@
 # BAB 48: HTTP Client & REST API — ESP32 Pergi ke Internet
 
-> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** dan **BAB 46 (Web Server)** — ESP32-mu sudah bisa tersambung ke WiFi, dan kamu sudah mengenal dasar HTTP (*request*, *response*, GET/POST, kode status) serta JSON dengan ArduinoJson 7. Program 2 dan 3 memakai sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan pola `struct Timer` dari **BAB 16 (Non-Blocking Programming)**.
+> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode — Koneksi Internet ESP32)** dan **BAB 46 (Web Server — Dashboard IoT Berbasis Browser)** — ESP32-mu sudah bisa tersambung ke WiFi, dan kamu sudah mengenal dasar HTTP (*request*, *response*, GET/POST, kode status) serta JSON dengan ArduinoJson 7. Program 2 dan 3 memakai sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan pola `struct Timer` dari **BAB 16 (Non-Blocking Programming)**.
 
 Di BAB 46, ESP32 menjadi *web server*: ia diam menunggu *browser* datang meminta halaman, persis seperti warung yang menunggu pembeli. Di BAB ini perannya dibalik. ESP32 menjadi **pembeli** yang aktif pergi ke internet: menanyakan cuaca terkini ke layanan prakiraan cuaca, lalu menyetorkan data suhu kamarmu ke *cloud* supaya bisa dilihat dalam bentuk grafik dari mana saja. Peran ini disebut **HTTP *client***, dan hampir semua perangkat IoT sungguhan — dari jam pintar sampai meteran listrik pintar — bekerja dengan cara ini.
 

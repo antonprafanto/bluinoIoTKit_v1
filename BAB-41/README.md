@@ -1,6 +1,6 @@
 # BAB 41: MicroSD Card — Data Logging
 
-> ✅ **Prasyarat:** Selesaikan **BAB 24 (SPI — Serial Peripheral Interface)** — kartu microSD-mu sudah berhasil terbaca di Program 1 BAB 24 — dan **BAB 40 (SPIFFS / LittleFS)** — kamu sudah bisa membuka, menulis, dan membaca *file*. Program di BAB ini juga memakai `struct Timer` dari **BAB 16 (Non-Blocking Programming)**, sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)**, dan *debounce* tombol dari **BAB 9 (Digital Input — Push Button)**.
+> ✅ **Prasyarat:** Selesaikan **BAB 24 (SPI — Serial Peripheral Interface)** — kartu microSD-mu sudah berhasil terbaca di Program 1 BAB 24 — dan **BAB 40 (LittleFS — Sistem File di Flash ESP32)** — kamu sudah bisa membuka, menulis, dan membaca *file*. Program di BAB ini juga memakai `struct Timer` dari **BAB 16 (Non-Blocking Programming)**, sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)**, dan *debounce* tombol dari **BAB 9 (Digital Input — Push Button)**.
 
 Bayangkan petugas yang setiap jam mencatat angka meteran air di buku catatan, lengkap dengan jamnya. Setelah sebulan, buku itu bisa dibawa ke kantor dan diolah menjadi grafik pemakaian. ESP32 bisa melakukan pekerjaan yang sama tanpa pernah lelah: membaca sensor secara berkala, lalu mencatat hasilnya ke kartu microSD. Alat seperti ini disebut ***data logger*** (pencatat data). Di BAB ini kamu belajar membuat *data logger* yang benar: *file* CSV yang langsung bisa dibuka di Excel atau Google Sheets, data yang tidak hilang saat kartu dicabut, dan *file* yang tidak membengkak tanpa batas.
 
