@@ -1,1421 +1,2084 @@
 # BAB 46: Web Server — Dashboard IoT Berbasis Browser
 
-> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** dan **BAB 45 (mDNS)**. ESP32 harus sudah bisa terhubung ke WiFi dan diakses via `bluino.local`.
+> ✅ **Prasyarat:** Selesaikan **BAB 42 (WiFi Station Mode)** — ESP32-mu sudah bisa tersambung ke WiFi dan kamu tahu cara melihat alamat IP-nya di Serial Monitor. Program 2–4 memakai sensor dari **BAB 26 (DHT11 — Suhu & Kelembapan)** dan pola `struct Timer` dari **BAB 16 (Non-Blocking Programming)**. Program 3 menyalakan *relay* seperti di **BAB 37 (*Relay* — Kontrol AC/DC)**, dan Program 4 memakai folder `data` dari **BAB 40 (SPIFFS / LittleFS)**.
 
----
+Bayangkan kamu bisa melihat suhu ruangan dan menyalakan lampu cukup dari *browser* di HP, tanpa memasang aplikasi apa pun. Itulah yang dilakukan ***web server***: ESP32 "melayani" halaman web, persis seperti situs internet, tetapi di jaringan WiFi rumahmu sendiri. Di BAB ini kamu belajar dasar HTTP (cara *browser* dan *server* bercakap-cakap), membuat halaman web pertama di ESP32, menyediakan data sensor dalam format JSON, lalu menggabungkan semuanya menjadi *dashboard* IoT yang memperbarui angkanya sendiri dan punya tombol untuk mengontrol LED dan *relay*.
 
 ## 📌 Tujuan Pembelajaran
 
-Setelah mempelajari bab ini, kamu akan mampu:
-- Memahami arsitektur **request-response HTTP** pada jaringan lokal.
-- Membangun **Web Server** ESP32 dengan beberapa halaman dan routing URL.
-- Membuat **REST API** endpoint JSON yang dapat dibaca oleh aplikasi, browser, atau perangkat lain.
-- Membaca sensor **DHT11** secara *non-blocking* dan menyajikan datanya secara real-time.
-- Membangun **dashboard IoT interaktif** yang dapat mengontrol LED dan Relay dari browser tanpa aplikasi tambahan.
+Setelah mempelajari BAB ini, kamu bisa:
+
+- Menjelaskan cara kerja *web server*: *client* dan *server*, *request* dan *response*, URL, *method* GET dan POST, serta kode status HTTP.
+- Menjelaskan peran HTML, CSS, dan JavaScript dalam sebuah halaman web.
+- Membuat *web server* di ESP32 dengan *library* `WebServer` bawaan: mendaftarkan alamat dengan `server.on()`, menangani alamat yang tidak ada dengan `server.onNotFound()`, dan membaca parameter dengan `server.arg()`.
+- Menyimpan halaman HTML di dalam kode dengan *raw string literal* dan memahami pengaruh ukuran halaman terhadap memori.
+- Membuat API JSON dengan *library* ArduinoJson 7 dan mengujinya dengan *browser* serta `curl`.
+- Membuat *dashboard* yang memperbarui data sensor dengan `fetch()` tanpa memuat ulang halaman, dan tombol untuk mengontrol LED serta *relay*.
+- Menyajikan *file* HTML, CSS, dan JavaScript dari LittleFS dengan `server.serveStatic()`.
+- Memahami risiko keamanan *web server* tanpa kata sandi di jaringan lokal.
+
+## 🧰 Yang Perlu Disiapkan
+
+| Kebutuhan | Keterangan |
+|---|---|
+| *Hardware* | Kit Bluino ESP32 IoT Starter Shield + kabel USB **data** |
+| Kabel *jumper* | 4 kabel *female-female* (sudah ada di kit): `DHT` → IO27 dan `VR10K` → IO34 untuk Program 2–4, `LED1` (merah) → IO4 dan `RELAY` → IO26 untuk Program 3 |
+| Komponen tambahan | Tidak ada. *Relay* cukup dicoba tanpa beban — **jangan** menyambungkan listrik PLN 220 V |
+| *Software* | Arduino IDE 2.x + *board package* **esp32** versi 3.3.x (lihat [BAB 5](../BAB-05/README.md)); untuk Program 4 juga *plugin* **arduino-littlefs-upload** (cara memasangnya di [BAB 40](../BAB-40/README.md#4011-mengunggah-file-dari-komputer-folder-data)) |
+| *Library* | `WiFi`, `WebServer`, dan `LittleFS` bawaan *board package* (tidak perlu dipasang). Program 2–4: **DHT sensor library** by Adafruit + **Adafruit Unified Sensor** (lihat [BAB 26](../BAB-26/README.md)) dan **ArduinoJson** by Benoit Blanchon versi 7 (cara memasangnya di [46.6](#466-json-dan-api)) |
+| Alat uji | **Serial Monitor** (baud 115200) untuk melihat alamat IP; *browser* (Chrome, Firefox, Safari, Edge) di laptop atau HP; `curl` di **Command Prompt** (Windows) atau **Terminal** (macOS/Linux) untuk menguji API |
+| Jaringan | Router WiFi atau *hotspot* HP berfrekuensi **2,4 GHz**. Laptop/HP yang membuka halaman harus tersambung ke WiFi yang **sama** dengan ESP32. Tidak perlu internet |
+
+## 📑 Daftar Isi
+
+- [46.1 Apa Itu Web Server?](#461-apa-itu-web-server)
+- [46.2 Dasar HTTP untuk Pemula](#462-dasar-http-untuk-pemula)
+- [46.3 HTML, CSS, dan JavaScript](#463-html-css-dan-javascript)
+- [46.4 Library WebServer: Pola Dasar](#464-library-webserver-pola-dasar)
+- [46.5 Program 1: Web Server Pertama](#465-program-1-web-server-pertama)
+- [46.6 JSON dan API](#466-json-dan-api)
+- [46.7 Program 2: API JSON Sensor](#467-program-2-api-json-sensor)
+- [46.8 Memperbarui Halaman dengan fetch()](#468-memperbarui-halaman-dengan-fetch)
+- [46.9 Program 3: Dashboard IoT Interaktif](#469-program-3-dashboard-iot-interaktif)
+- [46.10 Program 4: Halaman Web dari LittleFS](#4610-program-4-halaman-web-dari-littlefs)
+- [46.11 Keamanan: Siapa Saja Bisa Mengontrol?](#4611-keamanan-siapa-saja-bisa-mengontrol)
+- [46.12 Batasan WebServer dan Langkah Berikutnya](#4612-batasan-webserver-dan-langkah-berikutnya)
+- [46.13 Troubleshooting](#4613-troubleshooting)
+- [📝 Rangkuman](#-rangkuman)
+- [💪 Latihan](#-latihan)
+- [📚 Referensi](#-referensi)
 
 ---
 
-## 46.1 Masalah: "Bagaimana Mengontrol ESP32 dari Browser?"
+## 46.1 Apa Itu Web Server?
 
+Bayangkan sebuah warung makan. Pelanggan datang dan memesan, "Nasi goreng satu!" Pelayan mencatat pesanan, dapur memasaknya, lalu pelayan mengantarkan piringnya ke meja. Kalau pelanggan memesan menu yang tidak ada, pelayan menjawab, "Maaf, menu itu tidak tersedia."
+
+Komunikasi di web bekerja dengan cara yang sama:
+
+| Di warung | Di web | Di BAB ini |
+|---|---|---|
+| Pelanggan | ***Client*** — pihak yang meminta | *Browser* di HP atau laptop, atau perintah `curl` |
+| Pelayan + dapur | ***Server*** — pihak yang melayani | ESP32 yang menjalankan program *web server* |
+| Pesanan | ***Request*** (permintaan) | "Tolong kirim halaman utama" |
+| Piring yang diantar | ***Response*** (jawaban) | Isi halaman HTML atau data sensor |
+| Daftar menu | Daftar alamat yang dikenal *server* | `/`, `/halo`, `/api/sensor`, … |
+| "Menu tidak tersedia" | Kode status **404 Not Found** | Alamat yang tidak didaftarkan di program |
+
+***Web server*** adalah program yang menunggu *request* dari *client*, lalu mengirim *response* yang sesuai. Situs besar seperti Wikipedia memakai komputer *server* yang besar, sedangkan di BAB ini *server*-nya adalah ESP32 kecil di kit-mu. Keuntungannya:
+
+- **Tidak perlu aplikasi khusus.** Semua HP dan laptop sudah punya *browser*, apa pun sistem operasinya (Android, iOS, Windows, macOS, Linux).
+- **Antarmuka bebas dirancang.** Kamu menentukan sendiri isi halamannya: angka sensor, tombol, warna, dan tata letaknya.
+- **Tidak perlu internet.** Cukup jaringan WiFi lokal (router rumah atau *hotspot* HP).
+
+### 46.1.1 Kenapa Harus WiFi yang Sama?
+
+Program di BAB ini memakai **mode Station** dari [BAB 42](../BAB-42/README.md): ESP32 bergabung ke router WiFi dan mendapat **alamat IP lokal** dari router, misalnya `192.168.1.23`. Alamat seperti ini hanya berlaku **di dalam** jaringan tersebut, mirip nomor kamar di sebuah hotel: tamu di hotel yang sama bisa mengetuk kamar 23, tetapi orang di luar hotel tidak bisa menemukannya hanya dengan nomor kamar.
+
+```mermaid
+flowchart LR
+    HP["HP (browser)"] -- WiFi --> R["Router WiFi"]
+    L["Laptop (browser)"] -- WiFi --> R
+    E["ESP32 (web server)<br/>192.168.1.23"] -- WiFi --> R
 ```
-SKENARIO IoT TANPA WEB SERVER:
 
-  Kamu punya ESP32 → Terhubung WiFi → Bisa di-ping via bluino.local
-  TAPI: Tidak ada cara untuk melihat data sensor atau mengontrol relay
-  tanpa membuka Serial Monitor atau upload kode baru!
+*Gambar 46.1 — HP, laptop, dan ESP32 tersambung ke router yang sama, sehingga HP dan laptop bisa membuka alamat IP ESP32. Sumber: dibuat untuk materi ini.*
 
-  Masalah 1: Tidak ada antarmuka pengguna (UI)
-  Masalah 2: Tidak bisa dikontrol dari HP atau Browser
-  Masalah 3: Tidak ada cara untuk mengambil data sensor dari jarak jauh
+Jadi, saat menguji program:
 
+- HP atau laptop harus tersambung ke WiFi yang **sama** dengan ESP32. Kalau HP memakai data seluler, matikan dulu data selulernya atau sambungkan HP ke WiFi tersebut.
+- Kalau ESP32 tersambung ke *hotspot* HP, buka halamannya dari HP itu sendiri atau dari laptop yang juga tersambung ke *hotspot* tersebut.
+- Dari luar rumah (lewat internet), *web server* ini **tidak** bisa dibuka. Untuk mengakses perangkat dari mana saja dipakai cara lain, misalnya MQTT di [BAB 50](../BAB-50/README.md).
 
-SOLUSI: Web Server Tertanam (Embedded Web Server)
-
-  ┌─────────────────────────────────────────────────────────────┐
-  │                    JARINGAN WiFi LOKAL                       │
-  │                                                              │
-  │   Browser HP/PC  ──── GET / ────►  ESP32 Web Server         │
-  │                  ◄── HTML Page ──  (Port 80)                 │
-  │                                                              │
-  │   App / curl     ── GET /api ──►   /api/sensors             │
-  │                  ◄─ JSON Data ──   {"temp":28.5,"hum":65}   │
-  │                                                              │
-  │   Browser        ─ POST /relay ►   /api/relay               │
-  │                  ◄─ {"ok":true} ─  Relay ON!                │
-  └─────────────────────────────────────────────────────────────┘
-
-  KEUNGGULAN:
-  ✅ Tidak butuh aplikasi khusus — browser bawaan HP sudah cukup
-  ✅ Platform-independent: Windows, Mac, Android, iOS
-  ✅ Data sensor bisa diakses dari mana saja di jaringan lokal
-  ✅ Kontrol aktuator (LED, Relay) secara real-time
-```
+> ⚠️ **Perhatian:** ESP32 hanya mendukung WiFi **2,4 GHz**, bukan 5 GHz. Nama dan kata sandi WiFi juga peka huruf besar-kecil (`RumahKu` berbeda dengan `rumahku`). Detailnya ada di [BAB 42](../BAB-42/README.md).
 
 ---
 
-## 46.2 Anatomi HTTP & Web Server ESP32
+## 46.2 Dasar HTTP untuk Pemula
 
+**HTTP** (*HyperText Transfer Protocol*) adalah aturan percakapan antara *browser* dan *web server*. Isi percakapannya berupa teks biasa yang dikirim lewat jaringan.
+
+### 46.2.1 Request dan Response
+
+Setiap kali kamu membuka sebuah alamat, *browser* mengirim satu *request* dan *server* membalas dengan satu *response*. Satu halaman bisa memicu beberapa *request* sekaligus, misalnya untuk halaman HTML-nya, *file* gaya (CSS), dan ikon kecil di tab *browser* (`/favicon.ico`).
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (HP/laptop)
+    participant E as ESP32 (web server)
+    B->>E: Request: GET / (minta halaman utama)
+    E-->>B: Response: 200 OK + halaman HTML
+    B->>E: Request: GET /api/sensor (minta data)
+    E-->>B: Response: 200 OK + data JSON
+    B->>E: Request: GET /xyz (alamat tidak ada)
+    E-->>B: Response: 404 Not Found
 ```
-SIKLUS REQUEST-RESPONSE HTTP:
 
-  Browser                           ESP32 Web Server
-  ───────                           ────────────────
-    │                                      │
-    │  GET / HTTP/1.1                      │
-    │  Host: bluino.local                  │
-    │─────────────────────────────────────►│
-    │                                      │  server.on("/", handler)
-    │                                      │  → buildHomePage()
-    │  HTTP/1.1 200 OK                     │
-    │  Content-Type: text/html             │
-    │  <html>...</html>                    │
-    │◄─────────────────────────────────────│
-    │                                      │
+*Gambar 46.2 — Setiap request dari browser dijawab dengan satu response oleh ESP32. Sumber: dibuat untuk materi ini.*
 
+Seperti apa isi percakapannya? Inilah contoh *request* yang dikirim *browser* saat kamu membuka `http://192.168.1.23/halo?nama=Budi`:
 
-HTTP METHODS YANG DIGUNAKAN DALAM BAB INI:
-
-  ┌────────────┬────────────────────────────┬──────────────────────┐
-  │ Method     │ Kegunaan                   │ Contoh               │
-  ├────────────┼────────────────────────────┼──────────────────────┤
-  │ GET        │ Ambil data / halaman       │ GET /api/sensors     │
-  │ POST       │ Kirim perintah / data      │ POST /api/relay      │
-  └────────────┴────────────────────────────┴──────────────────────┘
-
-HTTP STATUS CODES PENTING:
-
-  200 OK          → Sukses, ada konten yang dikembalikan
-  302 Found       → Redirect ke URL lain
-  404 Not Found   → URL tidak ditemukan di server
-  405 Method Not Allowed → Method salah (GET ke endpoint POST)
-
-
-ARSITEKTUR ROUTING WebServer.h:
-
-  WiFi Client Request
-         │
-         ▼
-  server.handleClient()   ← Dipanggil di loop() setiap iterasi
-         │
-         ├── server.on("/",            HTTP_GET,  handleRoot)
-         ├── server.on("/about",       HTTP_GET,  handleAbout)
-         ├── server.on("/api/sensors", HTTP_GET,  handleSensors)
-         ├── server.on("/api/led",     HTTP_POST, handleLed)
-         └── server.onNotFound(handleNotFound)
+```text
+GET /halo?nama=Budi HTTP/1.1
+Host: 192.168.1.23
+User-Agent: Mozilla/5.0 (Linux; Android 14) ...
+Accept: text/html
 ```
+
+Dan inilah *response* dari ESP32 yang menjalankan Program 1 nanti (isi halamannya disingkat):
+
+```text
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 333
+Connection: close
+
+<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8">...
+```
+
+Bagian-bagiannya:
+
+- **Baris pertama.** Pada *request*: *method* (`GET`), alamat yang diminta (`/halo?nama=Budi`), dan versi HTTP. Pada *response*: versi HTTP, **kode status** (`200`), dan artinya (`OK`).
+- ***Header*** — baris-baris `Nama: nilai` berisi keterangan tambahan, misalnya `Content-Type` (jenis isi) dan `Content-Length` (panjang isi dalam *byte*).
+- **Baris kosong** — tanda bahwa *header* sudah selesai.
+- ***Body*** (isi) — halaman HTML, data JSON, atau kosong.
+
+Kamu tidak perlu menulis teks ini sendiri; *library* `WebServer` yang menyusunnya. Namun, memahami bentuknya membantu saat mencari kesalahan.
+
+> 🧪 **Coba Sendiri:** Di *browser* laptop (Chrome, Edge, atau Firefox), tekan **F12** untuk membuka **Developer Tools**, lalu pilih tab **Network**. Buka situs apa saja: setiap baris di daftar itu adalah satu *request*, lengkap dengan *method*, kode status, dan jenis isinya. Nanti kamu akan memakai tab yang sama untuk mengintip *request* ke ESP32.
+
+### 46.2.2 Membaca Alamat (URL)
+
+**URL** (*Uniform Resource Locator*) adalah alamat lengkap yang kamu ketik di *browser*. Contoh `http://192.168.1.23:80/halo?nama=Budi` terdiri dari:
+
+| Bagian | Contoh | Arti |
+|---|---|---|
+| Skema | `http://` | Protokol yang dipakai. ESP32 di BAB ini melayani `http://`, **bukan** `https://` (HTTPS dibahas di [BAB 49](../BAB-49/README.md)) |
+| *Host* | `192.168.1.23` | Alamat IP ESP32, dilihat dari Serial Monitor. Kalau sudah mempelajari mDNS ([BAB 45](../BAB-45/README.md)), bisa diganti nama seperti `bluino.local` |
+| *Port* | `:80` | "Nomor pintu" layanan di perangkat itu. Port 80 adalah pintu bawaan HTTP, jadi boleh tidak ditulis |
+| *Path* | `/halo` | Halaman atau fitur yang diminta. Di ESP32, *path* dicocokkan dengan alamat yang didaftarkan lewat `server.on()` |
+| *Query* | `?nama=Budi` | Data tambahan berbentuk `nama=nilai`. Beberapa pasangan dipisah tanda `&`, misalnya `?nama=Budi&umur=20`. Di ESP32 dibaca dengan `server.arg("nama")` |
+
+> 💡 **Tips:** Ketik alamat ESP32 **lengkap dengan `http://`**. Kalau hanya mengetik angka IP, sebagian *browser* mencoba `https://` lebih dulu, padahal ESP32 tidak melayani HTTPS.
+
+### 46.2.3 Method GET dan POST
+
+***Method*** menyatakan maksud sebuah *request*. Di BAB ini kita memakai dua *method*:
+
+| *Method* | Maksud | Analogi warung | Contoh di BAB ini |
+|---|---|---|---|
+| **GET** | Meminta atau membaca sesuatu, tanpa mengubah apa pun | Melihat daftar menu | Membuka halaman `/`, membaca data `/api/sensor` |
+| **POST** | Mengirim data atau perintah yang **mengubah** sesuatu | Menyerahkan pesanan | Menyalakan LED atau *relay* lewat `/api/kontrol` |
+
+Saat kamu mengetik alamat di *browser* atau mengeklik sebuah tautan (*link*), *browser* selalu mengirim GET. Karena itu, perintah yang mengubah keadaan perangkat sebaiknya memakai POST. Alasannya: *browser* boleh mengulang, menyimpan (*cache*), atau bahkan memuat GET lebih dulu tanpa kamu sadari. Bayangkan *relay* yang tiba-tiba menyala hanya karena *browser* memuat ulang tab lama dari riwayat!
+
+### 46.2.4 Kode Status
+
+Setiap *response* membawa angka tiga digit yang memberi tahu hasil *request*:
+
+| Kode | Nama | Arti | Kapan muncul di BAB ini |
+|---|---|---|---|
+| **200** | OK | Berhasil, isi *response* adalah yang diminta | Halaman atau data berhasil dikirim |
+| **400** | Bad Request | *Request*-nya salah, misalnya data JSON rusak atau parameter kurang | Perintah ke `/api/kontrol` tidak valid |
+| **404** | Not Found | Alamat tidak dikenal oleh *server* | Mengetik *path* yang tidak didaftarkan |
+| **500** | Internal Server Error | *Server* gagal memproses *request* | Misalnya *file* halaman di LittleFS tidak bisa dibuka |
+
+Kode berawalan **2** berarti berhasil, **4** berarti kesalahan di pihak *client* (yang meminta), dan **5** berarti kesalahan di pihak *server*.
+
+> 📌 **Catatan:** Di *server* besar, *request* dengan *method* yang salah (misalnya GET ke alamat yang hanya menerima POST) dijawab **405 Method Not Allowed**. *Library* `WebServer` di ESP32 tidak melakukannya otomatis: *request* yang *method*-nya tidak cocok dianggap alamat tidak dikenal dan diteruskan ke penangan 404.
+
+### 46.2.5 Jenis Isi (Content-Type)
+
+*Header* `Content-Type` memberi tahu *browser* cara menampilkan *body*. Jenis yang dipakai di BAB ini:
+
+| Content-Type | Isi | Dipakai untuk |
+|---|---|---|
+| `text/html` | Halaman web (HTML) | Halaman utama dan *dashboard* |
+| `text/css` | Aturan tampilan (CSS) | *File* `style.css` di Program 4 |
+| `application/javascript` | Program JavaScript | *File* `app.js` di Program 4 |
+| `application/json` | Data JSON | API sensor dan kontrol |
+| `text/plain` | Teks biasa | Pesan kesalahan singkat |
+
+Kalau jenisnya salah, *browser* bisa menampilkan kode HTML mentah sebagai teks, atau menolak menjalankan JavaScript.
 
 ---
 
-## 46.3 Library & Pin yang Tersedia
+## 46.3 HTML, CSS, dan JavaScript
 
-```
-Library yang digunakan (semua bawaan / via Library Manager):
+Halaman web dibangun dari tiga bahasa yang masing-masing punya tugas. Bayangkan sebuah rumah:
 
-  WiFi.h       → Bawaan ESP32 Arduino Core
-  ESPmDNS.h    → Bawaan ESP32 Arduino Core (lihat BAB 45)
-  WebServer.h  → Bawaan ESP32 Arduino Core
-  Preferences.h→ Bawaan ESP32 Arduino Core (NVS, untuk Program 3)
-  DHT.h        → Install via Library Manager:
-                  "DHT sensor library" by Adafruit
-                  (Dependensi: "Adafruit Unified Sensor" — install otomatis)
-```
+| Bahasa | Analogi rumah | Tugas | Contoh |
+|---|---|---|---|
+| **HTML** (*HyperText Markup Language*) | Kerangka dan ruangan | Isi dan struktur halaman: judul, paragraf, tabel, tombol | `<h1>Dashboard</h1>` |
+| **CSS** (*Cascading Style Sheets*) | Cat dan dekorasi | Tampilan: warna, ukuran huruf, jarak, tata letak | `h1 { color: #1565c0; }` |
+| **JavaScript** | Listrik dan sakelar | Perilaku: bereaksi saat tombol ditekan, mengambil data baru dari *server* | `tombol.onclick = nyalakan;` |
 
-### GPIO yang Tersedia untuk Relay & Aktuator Eksternal
+Contoh halaman kecil yang memakai ketiganya:
 
-```
-BLUINO KIT — PIN YANG AMAN UNTUK RELAY / AKTUATOR (via kabel jumper):
-
-  ┌──────────┬──────────────────────────────────────────────────┐
-  │ GPIO     │ Keterangan                                        │
-  ├──────────┼──────────────────────────────────────────────────┤
-  │ IO4      │ ✅ AMAN — Digital I/O biasa, tidak ada restricsi  │
-  │ IO13     │ ✅ AMAN — Digital I/O, tidak ada restricsi        │
-  │ IO16     │ ✅ AMAN — Digital I/O, tidak ada restricsi        │
-  │ IO17     │ ✅ AMAN — Digital I/O, tidak ada restricsi        │
-  │ IO25     │ ✅ AMAN — Digital I/O / DAC1                      │
-  │ IO26     │ ✅ AMAN — Digital I/O / DAC2                      │
-  │ IO32     │ ✅ AMAN — Digital I/O / ADC1_CH4                  │
-  │ IO33     │ ✅ AMAN — Digital I/O / ADC1_CH5                  │
-  ├──────────┼──────────────────────────────────────────────────┤
-  │ IO0      │ ⚠️ HINDARI — Strapping pin (boot mode)           │
-  │ IO2      │ ⚠️ DIPAKAI — LED built-in kit (IO2)              │
-  │ IO5      │ ⚠️ DIPAKAI — MicroSD CS                          │
-  │ IO6-IO11 │ 🚫 DILARANG — Flash SPI internal                  │
-  │ IO12     │ ⚠️ DIPAKAI — WS2812 RGB LED                      │
-  │ IO14     │ ⚠️ DIPAKAI — DS18B20 sensor                      │
-  │ IO18,19  │ ⚠️ DIPAKAI — MicroSD CLK/MISO                    │
-  │ IO21,22  │ ⚠️ DIPAKAI — I2C Bus (OLED, MPU6050, BMP180)     │
-  │ IO23     │ ⚠️ DIPAKAI — MicroSD MOSI                        │
-  │ IO27     │ ⚠️ DIPAKAI — DHT11 sensor                        │
-  │ IO34-39  │ ℹ️ INPUT ONLY — Tidak bisa output                │
-  └──────────┴──────────────────────────────────────────────────┘
-
-  💡 REKOMENDASI untuk relay di Program 3:
-     Gunakan IO4, IO16, atau IO26 — paling aman dan bebas konflik.
-     Hubungkan dengan kabel jumper dari pin relay board ke IO yang dipilih.
-```
-
----
-
-## 46.4 Program 1: Web Server Statis Dasar
-
-Program paling sederhana: bangun web server dengan 2 halaman (`/` dan `/about`) dan handler 404 yang informatif.
-
-```cpp
-/*
- * BAB 46 - Program 1: Web Server Statis Dasar
- *
- * Fitur:
- *   ▶ GET /      → Halaman beranda: status perangkat (auto-refresh 10s)
- *   ▶ GET /about → Identitas chip ESP32 lengkap
- *   ▶ 404 handler yang informatif (bukan redirect)
- *   ▶ Integrasi mDNS: http://bluino.local
- *   ▶ LED IO2 berkedip saat ada HTTP request masuk
- *
- * Cara Uji:
- *   1. Upload, buka Serial Monitor (115200 baud)
- *   2. Browser: http://bluino.local  ATAU  http://<IP dari Serial>
- *   3. Klik "Tentang" untuk melihat halaman kedua
- *   4. Coba URL aneh misal http://bluino.local/xyz → lihat halaman 404
- *   5. Amati LED IO2 berkedip singkat setiap ada request masuk
- *
- * Library: WiFi.h, ESPmDNS.h, WebServer.h — Bawaan ESP32 Arduino Core
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
- */
-
-#include <WiFi.h>
-#include <ESPmDNS.h>
-#include <WebServer.h>
-
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID    = "NamaWiFiKamu";    // ← Ganti!
-const char* WIFI_PASS    = "PasswordWiFi";    // ← Ganti!
-const char* MDNS_NAME    = "bluino";          // Akses via bluino.local
-const char* DEVICE_MODEL = "Bluino IoT Kit v3.2";
-
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN 2   // LED built-in ESP32 (active HIGH)
-
-// ── Objek ────────────────────────────────────────────────────────
-WebServer server(80);
-
-// ─────────────────────────────────────────────────────────────────
-// HTML Builder: Halaman Beranda (/)
-// ─────────────────────────────────────────────────────────────────
-String buildHomePage() {
-  // ── Kalkulasi uptime tanpa String() constructor (zero-copy) ──
-  String uptime;
-  uint32_t s = millis() / 1000;
-  uint32_t h = s / 3600; s %= 3600;
-  uint32_t m = s / 60;   s %= 60;
-  uptime.reserve(20);
-  uptime += h; uptime += "j "; uptime += m; uptime += "m "; uptime += s; uptime += "d";
-
-  // ── Single-Shot Heap Allocation ───────────────────────────────
-  // Memesan seluruh memori buffer di awal untuk menghindari
-  // heap fragmentation akibat realokasi berulang.
-  String html;
-  html.reserve(2800);
-
-  html += R"rawhtml(
+```html
 <!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="10">
-  <title>Bluino IoT — Beranda</title>
+  <title>Coba HTML</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0d1a;
-           color: #e0e0e0; min-height: 100vh;
-           display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #1a1a2e; border-radius: 16px; padding: 32px;
-            width: 100%; max-width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-    h1 { color: #4fc3f7; font-size: 1.4rem; margin-bottom: 4px; }
-    .sub { color: #555; font-size: 0.8rem; margin-bottom: 24px; }
-    .row { display: flex; justify-content: space-between; align-items: center;
-           padding: 10px 0; border-bottom: 1px solid #1e2a3a; font-size: 0.88rem; }
-    .row:last-child { border-bottom: none; }
-    .label { color: #888; }
-    .value { color: #eee; font-weight: bold; }
-    .badge { background: #0f3460; color: #4fc3f7; padding: 2px 8px;
-             border-radius: 6px; font-size: 0.75rem; }
-    .online { color: #81c784; }
-    nav { margin-top: 20px; display: flex; gap: 10px; }
-    nav a { display: block; flex: 1; text-align: center; padding: 10px;
-            background: #0f3460; color: #4fc3f7; text-decoration: none;
-            border-radius: 8px; font-size: 0.85rem; }
-    nav a:hover { background: #1565c0; }
-    .footer { text-align: center; color: #333; font-size: 0.72rem; margin-top: 16px; }
+    body { font-family: Arial, sans-serif; padding: 16px; }
+    .angka { font-size: 2em; color: #1565c0; }
   </style>
 </head>
 <body>
-<div class="card">
-  <h1>⚡ Bluino IoT Kit</h1>
-  <p class="sub">Web Server Dasar — BAB 46 · Auto-refresh 10s</p>
-  <div class="row">
-    <span class="label">Status Jaringan</span>
-    <span class="value online">🟢 Online</span>
-  </div>
-)rawhtml";
-
-  // ── Bagian Dinamis: disuntikkan ke buffer yang sudah dipesan ──
-  html += "  <div class=\"row\"><span class=\"label\">Hostname mDNS</span>";
-  html += "<span class=\"value\"><span class=\"badge\">";
-  html += MDNS_NAME;
-  html += ".local</span></span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Alamat IP</span>";
-  html += "<span class=\"value\">";
-  html += WiFi.localIP().toString();
-  html += "</span></div>\n";
-
-  // Sanitasi XSS: escape karakter berbahaya pada nilai SSID
-  String safeSSID = WiFi.SSID();
-  safeSSID.replace("&", "&amp;");
-  safeSSID.replace("<", "&lt;");
-  safeSSID.replace(">", "&gt;");
-  html += "  <div class=\"row\"><span class=\"label\">SSID WiFi</span>";
-  html += "<span class=\"value\">";
-  html += safeSSID;
-  html += "</span></div>\n";
-
-  int rssi = WiFi.RSSI();
-  const char* rssiEmoji = (rssi >= -65) ? "🟢" : (rssi >= -80) ? "🟡" : "🔴";
-  html += "  <div class=\"row\"><span class=\"label\">Sinyal WiFi</span>";
-  html += "<span class=\"value\">";
-  html += rssiEmoji;
-  html += " ";
-  html += rssi;
-  html += " dBm</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Uptime</span>";
-  html += "<span class=\"value\">";
-  html += uptime;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Heap Bebas</span>";
-  html += "<span class=\"value\">";
-  html += (ESP.getFreeHeap() / 1024);
-  html += " KB</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Model Perangkat</span>";
-  html += "<span class=\"value\">";
-  html += DEVICE_MODEL;
-  html += "</span></div>\n";
-
-  html += R"rawhtml(
-  <nav>
-    <a href="/">🏠 Beranda</a>
-    <a href="/about">ℹ️ Tentang</a>
-  </nav>
-  <p class="footer">Bluino IoT Kit 2026 — BAB 46: Web Server</p>
-</div>
-</body>
-</html>
-)rawhtml";
-
-  return html;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// HTML Builder: Halaman Tentang (/about)
-// ─────────────────────────────────────────────────────────────────
-String buildAboutPage() {
-  String html;
-  html.reserve(2000);
-
-  // Chip ID: 48-bit dari eFuse MAC Address (unik per chip)
-  uint64_t chipId = ESP.getEfuseMac();
-  char cidBuf[13];
-  snprintf(cidBuf, 13, "%04X%08X", (uint16_t)(chipId >> 32), (uint32_t)chipId);
-
-  html += R"rawhtml(
-<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluino IoT — Tentang</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0d1a;
-           color: #e0e0e0; min-height: 100vh;
-           display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #1a1a2e; border-radius: 16px; padding: 32px;
-            width: 100%; max-width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-    h1 { color: #4fc3f7; font-size: 1.4rem; margin-bottom: 4px; }
-    .sub { color: #555; font-size: 0.8rem; margin-bottom: 24px; }
-    .row { display: flex; justify-content: space-between; align-items: center;
-           padding: 10px 0; border-bottom: 1px solid #1e2a3a; font-size: 0.88rem; }
-    .row:last-child { border-bottom: none; }
-    .label { color: #888; }
-    .value { color: #eee; font-weight: bold; word-break: break-all; text-align: right; max-width: 60%; }
-    nav { margin-top: 20px; }
-    nav a { display: block; text-align: center; padding: 10px;
-            background: #0f3460; color: #4fc3f7; text-decoration: none; border-radius: 8px; font-size: 0.85rem; }
-    nav a:hover { background: #1565c0; }
-  </style>
-</head>
-<body>
-<div class="card">
-  <h1>ℹ️ Tentang Perangkat</h1>
-  <p class="sub">Identitas Lengkap ESP32 Ini</p>
-)rawhtml";
-
-  html += "  <div class=\"row\"><span class=\"label\">Model Kit</span><span class=\"value\">";
-  html += DEVICE_MODEL;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Chip ID (MAC)</span><span class=\"value\">";
-  html += cidBuf;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">MAC Address</span><span class=\"value\">";
-  html += WiFi.macAddress();
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">SDK Version</span><span class=\"value\">";
-  html += ESP.getSdkVersion();
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">CPU Freq.</span><span class=\"value\">";
-  html += ESP.getCpuFreqMHz();
-  html += " MHz</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Flash Size</span><span class=\"value\">";
-  html += (ESP.getFlashChipSize() / 1024 / 1024);
-  html += " MB</span></div>\n";
-
-  html += R"rawhtml(
-  <nav><a href="/">← Kembali ke Beranda</a></nav>
-</div>
-</body>
-</html>
-)rawhtml";
-
-  return html;
-}
-
-// ─────────────────────────────────────────────────────────────────
-void setup() {
-  Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  delay(500);
-
-  Serial.println("\n=== BAB 46 Program 1: Web Server Statis Dasar ===");
-
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
+  <h1>Penghitung</h1>
+  <p>Tombol sudah ditekan <span id="jumlah" class="angka">0</span> kali.</p>
+  <button onclick="tambah()">Tekan aku</button>
+  <script>
+    let n = 0;
+    function tambah() {
+      n = n + 1;
+      document.getElementById("jumlah").textContent = n;
     }
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ IP: %s | SSID: %s\n",
-    WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
-    MDNS.addService("http", "tcp", 80);
-    Serial.printf("[mDNS] ✅ http://%s.local\n", MDNS_NAME);
-  } else {
-    Serial.println("[mDNS] ⚠️ Gagal — gunakan alamat IP langsung.");
-  }
-
-  // ── Routes ────────────────────────────────────────────────────
-  server.on("/", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW);    // Kedip: indikator request masuk
-    server.send(200, "text/html", buildHomePage());
-    digitalWrite(LED_PIN, HIGH);
-  });
-
-  server.on("/about", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW);
-    server.send(200, "text/html", buildAboutPage());
-    digitalWrite(LED_PIN, HIGH);
-  });
-
-  // 404 Handler: tampilkan halaman error yang informatif
-  server.onNotFound([]() {
-    String body;
-    body.reserve(500);
-    body += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
-    body += "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">";
-    body += "<title>404 — Tidak Ditemukan</title>";
-    body += "<style>body{background:#0d0d1a;color:#e0e0e0;font-family:Arial,sans-serif;";
-    body += "text-align:center;padding-top:80px;}h1{color:#ef5350;margin-bottom:12px;}";
-    body += "p{color:#888;margin-bottom:20px;}a{color:#4fc3f7;text-decoration:none;}</style></head>";
-    body += "<body><h1>404 — Halaman Tidak Ditemukan</h1>";
-
-    // XSS sanitasi pada URI sebelum tampil ke HTML
-    String safeUri = server.uri();
-    safeUri.replace("&", "&amp;");
-    safeUri.replace("<", "&lt;");
-    safeUri.replace(">", "&gt;");
-
-    body += "<p>URL <b style=\"color:#ef9a9a\">";
-    body += safeUri;
-    body += "</b> tidak tersedia di server ini.</p>";
-    body += "<a href=\"/\">← Kembali ke Beranda</a></body></html>";
-    server.send(404, "text/html", body);
-  });
-
-  server.begin();
-  Serial.println("[HTTP] Web Server aktif di port 80.");
-  Serial.printf("[INFO] Buka browser → http://%s.local\n", MDNS_NAME);
-
-  digitalWrite(LED_PIN, HIGH);
-}
-
-// ─────────────────────────────────────────────────────────────────
-void loop() {
-  server.handleClient();
-
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  // prevWiFiState = true: sudah konek sejak setup() selesai
-  // sehingga tidak memicu print "Reconnect!" palsu saat loop pertama
-  static bool prevWiFiState = true;
-  bool currWiFiState = (WiFi.status() == WL_CONNECTED);
-
-  if (!prevWiFiState && currWiFiState) {
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n",
-      WiFi.localIP().toString().c_str());
-    digitalWrite(LED_PIN, HIGH);
-  }
-  if (prevWiFiState && !currWiFiState) {
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-    digitalWrite(LED_PIN, LOW);
-  }
-  prevWiFiState = currWiFiState;
-
-  // ── Heartbeat Log (tiap 15 detik) ───────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 15000UL) {
-    tHb = millis();
-    Serial.printf("[Heartbeat] IP: %s | RSSI: %d | Heap: %u B | Uptime: %lu s\n",
-      WiFi.localIP().toString().c_str(), WiFi.RSSI(),
-      ESP.getFreeHeap(), millis() / 1000UL);
-  }
-}
+  </script>
+</body>
+</html>
 ```
 
-**Output Serial Monitor yang Diharapkan:**
-```
-=== BAB 46 Program 1: Web Server Statis Dasar ===
-[WiFi] Menghubungkan ke 'WiFiRumah'...
-....
-[WiFi] ✅ IP: 192.168.1.105 | SSID: WiFiRumah
-[mDNS] ✅ http://bluino.local
-[HTTP] Web Server aktif di port 80.
-[INFO] Buka browser → http://bluino.local
-[Heartbeat] IP: 192.168.1.105 | RSSI: -55 | Heap: 234560 B | Uptime: 15 s
-```
+Yang perlu diperhatikan:
+
+- ***Tag* HTML** ditulis berpasangan: `<p>` membuka paragraf dan `</p>` menutupnya. Bagian `<head>` berisi keterangan halaman, sedangkan `<body>` berisi yang tampil di layar.
+- `<meta charset="UTF-8">` membuat huruf khusus seperti `°` tampil benar. `<meta name="viewport" ...>` membuat halaman pas di layar HP; tanpa baris ini, HP menampilkan halaman seperti layar laptop yang diperkecil sehingga hurufnya kecil sekali.
+- **CSS** ditulis di dalam `<style>`. Aturan `.angka { ... }` berlaku untuk elemen yang punya `class="angka"`.
+- **JavaScript** ditulis di dalam `<script>`. `document.getElementById("jumlah")` mencari elemen yang punya `id="jumlah"`, lalu `textContent` mengganti teksnya. Pola inilah yang nanti dipakai *dashboard* untuk mengganti angka sensor.
+
+> 🧪 **Coba Sendiri:** Kamu bisa mencoba HTML tanpa ESP32. Buka **Notepad** (Windows) atau **TextEdit** (macOS; pilih **Format → Make Plain Text**), salin contoh di atas, lalu simpan dengan nama `coba.html` (di Notepad pilih **Save as type: All files** dan **Encoding: UTF-8**). Klik dua kali *file* itu: halamannya terbuka di *browser*. Ubah warnanya, simpan, lalu tekan **F5** di *browser* untuk melihat hasilnya.
 
 ---
 
-## 46.5 Program 2: REST API + Dashboard Sensor Real-Time
+## 46.4 Library WebServer: Pola Dasar
 
-Program ini menambahkan pembacaan **sensor DHT11 secara non-blocking** dan endpoint **REST API JSON**, sehingga data sensor dapat diakses oleh browser, curl, Node-RED, atau aplikasi apapun.
+*Board package* esp32 sudah menyertakan *library* `WebServer`, jadi tidak perlu memasang apa pun. Kerangka setiap program *web server* di BAB ini selalu sama (potongan kode; program lengkapnya ada di Program 1):
 
 ```cpp
+#include <WiFi.h>
+#include <WebServer.h>
+
+WebServer server(80);  // 1. Buat objek server di port 80
+
+void halamanUtama() {  // 2. Fungsi penangan (handler) untuk alamat "/"
+  server.send(200, "text/html", "<h1>Halo dari ESP32!</h1>");
+}
+
+// --- di dalam setup(), SETELAH WiFi tersambung (seperti di BAB 42) ---
+  server.on("/", HTTP_GET, halamanUtama);  // 3. Daftarkan alamat + method + handler
+  server.begin();                           // 4. Mulai menerima request
+
+// --- di dalam loop() ---
+  server.handleClient();  // 5. Layani request yang masuk (wajib sesering mungkin)
+```
+
+Penjelasannya:
+
+1. `WebServer server(80);` membuat objek *server* yang mendengarkan port 80.
+2. **Fungsi penangan** (*handler*) adalah fungsi biasa yang dipanggil saat sebuah alamat diminta. Di dalamnya kamu memanggil `server.send()` untuk mengirim *response*.
+3. `server.on("/", HTTP_GET, halamanUtama);` artinya: "kalau ada GET ke `/`, jalankan `halamanUtama()`". Pasangan alamat dan *handler* ini sering disebut ***route*** (rute). Kalau *method*-nya tidak ditulis, *route* menerima *method* apa saja.
+4. `server.begin();` mulai membuka "pintu" port 80. Panggil **setelah** WiFi tersambung dan semua *route* didaftarkan.
+5. `server.handleClient();` memeriksa apakah ada *request* yang masuk, lalu memanggil *handler* yang cocok.
+
+### 46.4.1 Kenapa loop() Tidak Boleh Tertahan
+
+`WebServer` bersifat **sinkron**: ia hanya bekerja saat `server.handleClient()` dipanggil, dan melayani satu *request* pada satu waktu. Ibaratnya warung dengan satu pelayan yang hanya mencatat pesanan setiap kali lewat di depan meja. Kalau pelayan itu tidur 5 detik (`delay(5000)`) di dapur, semua pelanggan menunggu 5 detik.
+
+Akibatnya:
+
+- **Jangan** memakai `delay()` panjang di `loop()`. Pakai pola `millis()` dan `struct Timer` dari [BAB 16](../BAB-16/README.md) untuk tugas berkala seperti membaca sensor.
+- *Handler* harus cepat selesai. Membaca sensor yang lambat (DHT11 butuh ±25 ms) sebaiknya dilakukan berkala di `loop()`, lalu hasilnya disimpan di variabel. *Handler* cukup mengirim nilai terakhir itu.
+- Kalau tidak ada *request*, `handleClient()` menunggu 1 ms lalu kembali. Itu wajar dan tidak mengganggu tugas lain.
+
+### 46.4.2 Fungsi Penting WebServer
+
+Semua fungsi di bawah sudah diperiksa pada *board package* esp32 versi 3.3.12:
+
+| Fungsi | Kegunaan | Contoh |
+|---|---|---|
+| `server.on(path, method, fungsi)` | Mendaftarkan *route* | `server.on("/api/sensor", HTTP_GET, kirimSensor);` |
+| `server.onNotFound(fungsi)` | *Handler* untuk alamat yang tidak terdaftar | `server.onNotFound(halaman404);` |
+| `server.begin()` | Mulai menerima *request* | `server.begin();` |
+| `server.handleClient()` | Melayani *request* yang masuk (di `loop()`) | `server.handleClient();` |
+| `server.send(kode, jenis, isi)` | Mengirim *response* lengkap | `server.send(200, "text/plain", "OK");` |
+| `server.sendHeader(nama, nilai)` | Menambah *header* sebelum `send()` | `server.sendHeader("Cache-Control", "no-store");` |
+| `server.hasArg(nama)` | Mengecek apakah parameter ada | `server.hasArg("nama")` |
+| `server.arg(nama)` | Mengambil nilai parameter (selalu berupa `String`) | `server.arg("nama")` |
+| `server.arg("plain")` | Mengambil *body* mentah, misalnya JSON yang dikirim dengan POST | `deserializeJson(doc, server.arg("plain"));` |
+| `server.uri()` | *Path* yang sedang diminta (tanpa *query*) | `"/halo"` |
+| `server.method()` | *Method* yang sedang dipakai | `HTTP_GET`, `HTTP_POST` |
+| `server.client().remoteIP()` | Alamat IP *client* yang meminta | `192.168.1.10` |
+| `server.streamFile(file, jenis)` | Mengirim isi *file* (misalnya dari LittleFS) | `server.streamFile(f, "text/html");` |
+| `server.serveStatic(path, fs, folder)` | Menyajikan *file* dari sistem *file* secara otomatis | `server.serveStatic("/", LittleFS, "/");` |
+
+### 46.4.3 Menyimpan HTML di Dalam Kode
+
+Halaman HTML panjang dan penuh tanda kutip (`"`). Kalau ditulis sebagai *string* C++ biasa, setiap tanda kutip harus ditulis `\"` dan setiap baris harus disambung — merepotkan dan mudah salah. Solusinya ***raw string literal*** (teks mentah):
+
+```cpp
+const char HALAMAN[] = R"rawliteral(
+<!DOCTYPE html>
+<html lang="id">
+<p class="judul">Tanda kutip "seperti ini" aman, tanpa \ di depannya.</p>
+</html>
+)rawliteral";
+```
+
+Semua yang ada di antara `R"rawliteral(` dan `)rawliteral"` dianggap teks apa adanya, termasuk tanda kutip dan baris baru. Kata `rawliteral` hanyalah penanda pembuka dan penutup; kamu boleh menggantinya dengan kata lain asalkan pasangannya sama dan kata itu tidak muncul di dalam HTML-nya.
+
+### 46.4.4 Ukuran Halaman dan Memori
+
+ESP32 punya dua jenis memori yang relevan di sini:
+
+| Memori | Kapasitas di ESP32 DEVKIT V1 | Isinya |
+|---|---|---|
+| ***Flash*** | 4 MB (bagian untuk program ±1,25 MB pada *partition scheme* bawaan) | Kode program dan data yang tidak berubah |
+| **RAM** | 520 KB total; setelah WiFi aktif biasanya tersisa ±150–250 KB untuk program | Variabel, `String`, dan data yang berubah |
+
+Hal-hal yang perlu kamu ketahui:
+
+- *Array* yang ditulis dengan `const`, misalnya `const char HALAMAN[] = R"rawliteral(...)rawliteral";`, **tetap tinggal di *flash*** dan dibaca langsung dari sana. Kamu tidak perlu kata kunci `PROGMEM` seperti di Arduino Uno; di ESP32, `PROGMEM` didefinisikan kosong dan hanya ada supaya kode lama tetap bisa di-*compile*.
+- Saat dikirim dengan `server.send(200, "text/html", HALAMAN)`, isi halaman **disalin sementara** ke RAM, lalu salinan itu dibuang setelah terkirim. Untuk halaman beberapa KB seperti di BAB ini, hal itu tidak masalah. Untuk halaman puluhan KB, pakai `server.send_P(200, "text/html", HALAMAN)` yang mengirim langsung dari *flash* tanpa menyalin, atau simpan halamannya sebagai *file* di LittleFS (Program 4).
+- **Hindari menyusun halaman besar dengan `String` dan `+=`** di setiap *request*. Setiap penyambungan bisa memesan ulang memori dan lama-lama membuat RAM terpecah-pecah (fragmentasi, lihat [BAB 20](../BAB-20/README.md)). Pola yang lebih baik: halaman HTML tetap (statis) di *flash*, lalu angka-angka yang berubah diambil terpisah dalam format JSON yang kecil. Pola inilah yang dipakai Program 3 dan 4.
+
+---
+
+## 46.5 Program 1: Web Server Pertama
+
+**Tujuan:** Membuat *web server* dengan tiga jenis alamat: halaman beranda (`/`) berisi formulir, halaman sapaan (`/halo?nama=...`) yang membaca parameter dari URL, dan halaman 404 untuk alamat yang tidak dikenal. Setiap *request* yang masuk dicatat di Serial Monitor, sehingga kamu bisa melihat percakapan HTTP-nya.
+
+**Rangkaian:**
+
+*Tidak perlu merangkai — program ini hanya memakai ESP32 dan WiFi.*
+
+**Cara Menjalankan:**
+
+1. Buka Arduino IDE → **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p1_basic.ino`](p1_basic/p1_basic.ino).
+2. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan nama dan kata sandi WiFi 2,4 GHz milikmu (perhatikan huruf besar-kecil).
+3. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu (misalnya `COM5` di Windows atau `/dev/ttyUSB0` di Linux).
+4. Klik tombol **Upload** dan tunggu sampai muncul tulisan **Done uploading**.
+5. Buka **Serial Monitor** (**Tools → Serial Monitor**) lalu pilih baud **115200**. Kalau tulisan alamat IP sudah terlewat, tekan tombol **EN** di *board* ESP32.
+6. Sambungkan HP atau laptop ke WiFi yang **sama**, buka *browser*, lalu ketik alamat yang tertulis di Serial Monitor, misalnya `http://192.168.1.23/` (pakai angka IP milikmu).
+7. Isi nama di formulir dan tekan **Kirim**. Coba juga tautan "alamat yang tidak ada", lalu perhatikan catatan di Serial Monitor.
+
+**Kode Program:**
+
+<!-- sketch: p1_basic -->
+```cpp
 /*
- * BAB 46 - Program 2: REST API + Dashboard Sensor Real-Time
- *
- * Fitur:
- *   ▶ GET /            → Dashboard HTML sensor (auto-refresh 5s)
- *   ▶ GET /api/sensors → Data JSON: suhu, kelembaban, RSSI, uptime, heap
- *   ▶ DHT11 dibaca secara NON-BLOCKING (setiap 2 detik via millis())
- *   ▶ Integrasi mDNS: http://bluino.local
- *   ▶ Format float via snprintf() — zero heap allocation
- *
- * Library yang Dibutuhkan (install via Arduino Library Manager):
- *   → "DHT sensor library" by Adafruit
- *   → "Adafruit Unified Sensor" (dependensi, install otomatis)
- *
- * Cara Uji:
- *   1. Upload, buka Serial Monitor (115200 baud)
- *   2. Browser: http://bluino.local → lihat dashboard auto-refresh
- *   3. API JSON: http://bluino.local/api/sensors
- *   4. Terminal: curl http://bluino.local/api/sensors
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * BAB 46 - Program 1: Web Server Pertama
+ * - http://<IP>/            -> halaman beranda (HTML tetap, disimpan di flash)
+ * - http://<IP>/halo?nama=X -> halaman sapaan yang membaca parameter "nama"
+ * - alamat lain             -> halaman 404
+ * Setiap request dicatat di Serial Monitor.
+ * Rangkaian: tidak perlu (cukup ESP32 dan WiFi 2,4 GHz)
  */
 
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
-#include <DHT.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID    = "NamaWiFiKamu";   // ← Ganti!
-const char* WIFI_PASS    = "PasswordWiFi";   // ← Ganti!
-const char* MDNS_NAME    = "bluino";
-const char* DEVICE_MODEL = "Bluino IoT Kit v3.2";
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN  2    // LED built-in ESP32
-#define DHT_PIN  27   // DHT11 — hardwired di Bluino Kit (pull-up 4K7Ω)
-#define DHT_TYPE DHT11
+WebServer server(80);  // port 80 = port bawaan HTTP
 
-// ── Objek ────────────────────────────────────────────────────────
-WebServer server(80);
-DHT       dht(DHT_PIN, DHT_TYPE);
-
-// ── State Sensor (Cache Non-Blocking) ────────────────────────────
-float lastTemp  = NAN;
-float lastHumid = NAN;
-bool  sensorOk  = false;
-
-// ─────────────────────────────────────────────────────────────────
-// HTML Builder: Dashboard Sensor
-// ─────────────────────────────────────────────────────────────────
-String buildDashboard() {
-  String uptime;
-  uint32_t s = millis() / 1000;
-  uint32_t h = s / 3600; s %= 3600;
-  uint32_t m = s / 60;   s %= 60;
-  uptime.reserve(20);
-  uptime += h; uptime += "j "; uptime += m; uptime += "m "; uptime += s; uptime += "d";
-
-  String html;
-  html.reserve(3200);
-
-  html += R"rawhtml(
+// Halaman beranda. Karena "const", teks ini tetap di flash, bukan di RAM.
+const char HALAMAN_BERANDA[] = R"rawliteral(
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="5">
-  <title>Bluino IoT — Dashboard Sensor</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0d1a;
-           color: #e0e0e0; min-height: 100vh; padding: 20px; }
-    .container { max-width: 480px; margin: 0 auto; }
-    h1 { color: #4fc3f7; font-size: 1.4rem; margin-bottom: 4px; padding-top: 20px; }
-    .sub { color: #555; font-size: 0.8rem; margin-bottom: 20px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-    .mc { background: #1a1a2e; border-radius: 12px; padding: 20px; text-align: center; }
-    .ml { color: #666; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 8px; }
-    .mv { font-size: 2rem; font-weight: bold; }
-    .mu { font-size: 0.85rem; color: #888; }
-    .hot  { color: #ef5350; } .warm { color: #ff9800; }
-    .cool { color: #4fc3f7; } .humid{ color: #26c6da; }
-    .table-card { background: #1a1a2e; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; }
-    td { padding: 8px 4px; border-bottom: 1px solid #1e2a3a; font-size: 0.85rem; }
-    td:first-child { color: #777; }
-    td:last-child { color: #eee; font-weight: bold; text-align: right; }
-    .badge { background: #0f3460; color: #4fc3f7; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; }
-    .api-hint { background: #060610; border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
-    .api-hint code { color: #81c784; font-size: 0.8rem; display: block; }
-    .footer { text-align: center; color: #333; font-size: 0.7rem; margin-top: 20px; padding-bottom: 20px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Bluino</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f2f4f7; color: #222;
+         max-width: 480px; margin: 0 auto; padding: 16px; }
+  .kartu { background: #fff; border-radius: 12px; padding: 16px;
+           box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+  h1 { font-size: 1.4em; color: #1565c0; margin-top: 0; }
+  input, button { font-size: 1em; padding: 10px; border-radius: 8px; }
+  input { border: 1px solid #999; width: 60%; }
+  button { border: none; background: #1565c0; color: #fff; }
+  a { color: #1565c0; }
+</style>
 </head>
-<body><div class="container">
-  <h1>🌡️ Dashboard Sensor</h1>
-  <p class="sub">Bluino IoT Kit — BAB 46 · Auto-refresh 5 detik</p>
-  <div class="grid">
-)rawhtml";
+<body>
+<div class="kartu">
+  <h1>Halo dari ESP32!</h1>
+  <p>Halaman ini dikirim oleh web server di kit Bluino.</p>
+  <form action="/halo" method="GET">
+    <p><label for="nama">Siapa namamu?</label></p>
+    <input id="nama" name="nama" maxlength="30" required>
+    <button type="submit">Kirim</button>
+  </form>
+  <p>Atau coba buka <a href="/tidak-ada">alamat yang tidak ada</a>.</p>
+</div>
+</body>
+</html>
+)rawliteral";
 
-  // ── Card Suhu ─────────────────────────────────────────────────
-  // tempBuf: eksklusif untuk float "±NNN.N" (max 7 chars + null).
-  // Nilai fallback "&mdash;" ditetapkan saat inisialisasi — tidak
-  // mencampur tujuan buffer float dengan HTML entity di satu snprintf().
-  char tempBuf[8] = "&mdash;";
-  const char* tempClass = "cool";
-  if (sensorOk && !isnan(lastTemp)) {
-    snprintf(tempBuf, sizeof(tempBuf), "%.1f", lastTemp);
-    tempClass = (lastTemp > 35) ? "hot" : (lastTemp > 28) ? "warm" : "cool";
-  }
-  html += "    <div class=\"mc\"><div class=\"ml\">🌡️ Suhu</div>\n";
-  html += "    <div class=\"mv "; html += tempClass; html += "\">";
-  html += tempBuf; html += "<span class=\"mu\">°C</span></div></div>\n";
-
-  // ── Card Kelembaban ───────────────────────────────────────────
-  char humBuf[8] = "&mdash;";
-  if (sensorOk && !isnan(lastHumid)) snprintf(humBuf, sizeof(humBuf), "%.0f", lastHumid);
-  html += "    <div class=\"mc\"><div class=\"ml\">💧 Kelembaban</div>\n";
-  html += "    <div class=\"mv humid\">"; html += humBuf;
-  html += "<span class=\"mu\">%%</span></div></div>\n";
-  html += "  </div>\n";
-
-  // ── Tabel Info Jaringan ───────────────────────────────────────
-  html += "  <div class=\"table-card\"><table>\n";
-  html += "    <tr><td>Status</td><td>🟢 Online</td></tr>\n";
-  html += "    <tr><td>Hostname mDNS</td><td><span class=\"badge\">";
-  html += MDNS_NAME; html += ".local</span></td></tr>\n";
-  html += "    <tr><td>Alamat IP</td><td>";
-  html += WiFi.localIP().toString(); html += "</td></tr>\n";
-
-  String safeSSID = WiFi.SSID();
-  safeSSID.replace("&","&amp;"); safeSSID.replace("<","&lt;"); safeSSID.replace(">","&gt;");
-  html += "    <tr><td>SSID WiFi</td><td>"; html += safeSSID; html += "</td></tr>\n";
-
-  int rssi = WiFi.RSSI();
-  const char* re = (rssi >= -65) ? "🟢" : (rssi >= -80) ? "🟡" : "🔴";
-  html += "    <tr><td>Sinyal WiFi</td><td>"; html += re; html += " "; html += rssi; html += " dBm</td></tr>\n";
-  html += "    <tr><td>Uptime</td><td>"; html += uptime; html += "</td></tr>\n";
-  html += "    <tr><td>Heap Bebas</td><td>"; html += (ESP.getFreeHeap() / 1024); html += " KB</td></tr>\n";
-  html += "    <tr><td>Sensor DHT11</td><td>";
-  html += sensorOk ? "🟢 OK" : "🔴 Error/Belum Baca";
-  html += "</td></tr>\n  </table>\n";
-  html += R"rawhtml(
-    <div class="api-hint">
-      <code>GET /api/sensors → JSON real-time (curl, Node-RED, dll)</code>
-    </div>
-  </div>
-  <p class="footer">Bluino IoT Kit 2026 — BAB 46: Web Server</p>
-</div></body></html>
-)rawhtml";
-  return html;
+// Mengganti karakter khusus HTML supaya teks dari pengguna
+// tampil apa adanya dan tidak dianggap sebagai kode HTML
+String amankanHtml(String teks) {
+  teks.replace("&", "&amp;");
+  teks.replace("<", "&lt;");
+  teks.replace(">", "&gt;");
+  teks.replace("\"", "&quot;");
+  return teks;
 }
 
-// ─────────────────────────────────────────────────────────────────
+// Mencetak satu baris catatan request di Serial Monitor
+void catatRequest(int kodeStatus) {
+  Serial.printf("[HTTP] %s %s -> %d (dari %s)\n",
+                http_method_str(server.method()), server.uri().c_str(),
+                kodeStatus, server.client().remoteIP().toString().c_str());
+}
+
+// Handler untuk GET /
+void halamanBeranda() {
+  server.send(200, "text/html", HALAMAN_BERANDA);
+  catatRequest(200);
+}
+
+// Handler untuk GET /halo?nama=...
+void halamanHalo() {
+  String nama = "tamu";  // dipakai kalau parameter "nama" tidak ada atau kosong
+  if (server.hasArg("nama") && server.arg("nama").length() > 0) {
+    nama = server.arg("nama").substring(0, 30);  // ambil paling banyak 30 karakter
+  }
+
+  // Halaman kecil yang isinya berubah-ubah disusun dengan String
+  String html;
+  html.reserve(500);  // pesan memori sekaligus supaya tidak berkali-kali
+  html += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>Halo</title></head>";
+  html += "<body style=\"font-family: Arial, sans-serif; padding: 16px;\">";
+  html += "<h1>Halo, ";
+  html += amankanHtml(nama);
+  html += "!</h1><p>ESP32 sudah menyala selama ";
+  html += String(millis() / 1000);
+  html += " detik.</p><p><a href=\"/\">Kembali ke beranda</a></p></body></html>";
+
+  server.send(200, "text/html", html);
+  catatRequest(200);
+  Serial.printf("       nama = %s\n", nama.c_str());
+}
+
+// Handler untuk semua alamat yang tidak didaftarkan
+void halaman404() {
+  String html;
+  html.reserve(400);
+  html += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>404</title></head>";
+  html += "<body style=\"font-family: Arial, sans-serif; padding: 16px;\">";
+  html += "<h1>404 - Tidak Ditemukan</h1><p>Alamat <b>";
+  html += amankanHtml(server.uri());
+  html += "</b> tidak ada di ESP32 ini.</p><p><a href=\"/\">Kembali ke beranda</a></p></body></html>";
+
+  server.send(404, "text/html", html);
+  catatRequest(404);
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya halaman lebih cepat dijawab
+}
+
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  dht.begin();
-  delay(500);
+  delay(1000);  // beri waktu Serial Monitor bersiap
+  Serial.println("\nBAB 46 - Program 1: Web Server Pertama");
 
-  Serial.println("\n=== BAB 46 Program 2: REST API + Dashboard Sensor ===");
+  sambungkanWiFi();
 
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ IP: %s\n", WiFi.localIP().toString().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
-    MDNS.addService("http", "tcp", 80);
-    MDNS.addServiceTxt("http", "tcp", "api", "/api/sensors");
-    Serial.printf("[mDNS] ✅ http://%s.local\n", MDNS_NAME);
-  }
-
-  // ── Routes ────────────────────────────────────────────────────
-  server.on("/", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW);
-    server.send(200, "text/html", buildDashboard());
-    digitalWrite(LED_PIN, HIGH);
-  });
-
-  server.on("/api/sensors", HTTP_GET, []() {
-    // snprintf ke stack → zero heap allocation
-    char tempStr[8] = "null", humStr[8] = "null";
-    if (sensorOk && !isnan(lastTemp))   snprintf(tempStr, sizeof(tempStr), "%.1f", lastTemp);
-    if (sensorOk && !isnan(lastHumid))  snprintf(humStr,  sizeof(humStr),  "%.0f", lastHumid);
-
-    char json[256];
-    snprintf(json, sizeof(json),
-      "{\"temp\":%s,\"humidity\":%s,\"rssi\":%d,"
-      "\"uptime\":%lu,\"freeHeap\":%u,\"cpuMHz\":%u,\"sensorOk\":%s}",
-      tempStr, humStr, WiFi.RSSI(), millis() / 1000UL,
-      ESP.getFreeHeap(), ESP.getCpuFreqMHz(),
-      sensorOk ? "true" : "false"
-    );
-
-    // Streaming murni — bypass String() implisit di server.send()
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    server.setContentLength(strlen(json));
-    server.send(200, "application/json", "");
-    server.sendContent(json);
-  });
-
-  // 404 & CORS Preflight (OPTIONS) Handler
-  server.onNotFound([]() {
-    if (server.method() == HTTP_OPTIONS) {
-      server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-      server.send(204);
-      return;
-    }
-    server.send(404, "text/plain", "404 Not Found");
-  });
-
+  // Daftar route: alamat + method + fungsi handler
+  server.on("/", HTTP_GET, halamanBeranda);
+  server.on("/halo", HTTP_GET, halamanHalo);
+  server.onNotFound(halaman404);
   server.begin();
-  Serial.println("[HTTP] Web Server aktif.");
-  Serial.printf("[INFO] Dashboard: http://%s.local\n", MDNS_NAME);
-  Serial.printf("[INFO] API JSON : http://%s.local/api/sensors\n", MDNS_NAME);
-  digitalWrite(LED_PIN, HIGH);
+
+  Serial.print("Web server siap. Buka di browser: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  server.handleClient();
-
-  // ── Baca DHT11 Non-Blocking (setiap 2 detik) ─────────────────
-  // DHT11 butuh min. 1 detik antar pembacaan.
-  // Loop() tidak boleh di-block — kita gunakan millis() timer.
-  static unsigned long tDHT = 0;
-  if (millis() - tDHT >= 2000UL) {
-    tDHT = millis();
-    float t = dht.readTemperature();
-    float h = dht.readHumidity();
-    if (!isnan(t) && !isnan(h)) {
-      if (!sensorOk) Serial.println("[DHT] ✅ Sensor kembali terbaca!");
-      lastTemp  = t;
-      lastHumid = h;
-      sensorOk  = true;
-    } else {
-      if (sensorOk) Serial.println("[DHT] ⚠️ Gagal baca sensor! Cek wiring IO27.");
-      sensorOk = false;
-    }
-  }
-
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  static bool prevWiFiState = true;
-  bool currWiFiState = (WiFi.status() == WL_CONNECTED);
-  if (!prevWiFiState && currWiFiState)
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n", WiFi.localIP().toString().c_str());
-  if (prevWiFiState && !currWiFiState) {
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-    digitalWrite(LED_PIN, LOW);
-  }
-  prevWiFiState = currWiFiState;
-
-  // ── Heartbeat Log (tiap 30 detik) ────────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 30000UL) {
-    tHb = millis();
-    Serial.printf("[Heartbeat] Temp: %.1f°C | Hum: %.0f%% | RSSI: %d | Heap: %u B\n",
-      lastTemp, lastHumid, WiFi.RSSI(), ESP.getFreeHeap());
-  }
+  server.handleClient();  // layani request yang masuk
 }
 ```
 
-**Contoh Response API JSON:**
+**Penjelasan Kode:**
+
+- **Halaman beranda** ditulis utuh di `HALAMAN_BERANDA` dengan *raw string literal* ([46.4.3](#4643-menyimpan-html-di-dalam-kode)). Isinya tidak pernah berubah, jadi cukup dikirim apa adanya dengan `server.send(200, "text/html", HALAMAN_BERANDA)`.
+- **Formulir** `<form action="/halo" method="GET">` mengirim isi kotak `name="nama"` sebagai *query*. Saat kamu mengetik `Budi` lalu menekan **Kirim**, *browser* membuka `http://192.168.1.23/halo?nama=Budi`. Spasi dan huruf khusus otomatis disandikan oleh *browser* (misalnya spasi menjadi `+`), lalu dikembalikan lagi oleh `WebServer` sehingga `server.arg("nama")` berisi teks aslinya.
+- **`halamanHalo()`** membaca parameter dengan `server.hasArg("nama")` dan `server.arg("nama")`. Hasilnya selalu `String`. Kalau parameter tidak ada (misalnya kamu membuka `/halo` saja), program memakai kata `tamu`. `substring(0, 30)` membatasi panjangnya supaya halaman tetap kecil.
+- **`amankanHtml()`** mengganti `<`, `>`, `&`, dan `"` dengan kode pengganti HTML. Tanpa fungsi ini, orang bisa mengirim `?nama=<script>...</script>` dan *browser* akan menjalankannya sebagai program. Kebiasaan ini penting: **jangan pernah menampilkan teks dari pengguna ke HTML tanpa diamankan**.
+- **Halaman sapaan dan 404** isinya berubah-ubah (nama, lama menyala, alamat), jadi disusun dengan `String`. Halamannya kecil, dan `html.reserve()` memesan memori sekali di awal supaya `+=` tidak berulang kali memesan ulang memori.
+- **`server.onNotFound(halaman404)`** menangkap semua alamat yang tidak didaftarkan dengan `server.on()`, lalu menjawab dengan kode **404**.
+- **`catatRequest()`** mencetak *method*, *path*, kode status, dan IP *client*. `http_method_str()` mengubah kode *method* (misalnya `HTTP_GET`) menjadi teks `GET`.
+- **`sambungkanWiFi()`** sama polanya dengan [BAB 42](../BAB-42/README.md): menunggu sampai tersambung, dan menyerah lalu *restart* kalau 20 detik belum berhasil. `WiFi.setSleep(false)` mematikan mode hemat daya WiFi. Dalam mode hemat daya, ESP32 hanya "bangun" berkala untuk menerima data, sehingga jawaban ke *browser* bisa terlambat ratusan milidetik. Sebagai gantinya, konsumsi arus sedikit lebih besar — tidak masalah kalau ESP32 dicolok ke USB atau adaptor.
+- **`loop()`** hanya berisi `server.handleClient()`. Tidak ada `delay()`, jadi setiap *request* segera dilayani.
+
+**Contoh Output:**
+
+```text
+BAB 46 - Program 1: Web Server Pertama
+Menyambung ke WiFi "NamaWiFiKamu"...... tersambung!
+Web server siap. Buka di browser: http://192.168.1.23/
+[HTTP] GET / -> 200 (dari 192.168.1.10)
+[HTTP] GET /favicon.ico -> 404 (dari 192.168.1.10)
+[HTTP] GET /halo -> 200 (dari 192.168.1.10)
+       nama = Budi
+[HTTP] GET /tidak-ada -> 404 (dari 192.168.1.10)
+```
+
+Nama WiFi, jumlah titik, dan alamat IP mengikuti jaringanmu (`192.168.1.23` = ESP32, `192.168.1.10` = HP atau laptop yang membuka halaman). Baris `/favicon.ico` muncul karena *browser* otomatis meminta ikon kecil untuk tab-nya. Kita tidak menyediakan ikon, jadi jawabannya 404 — itu wajar.
+
+Di *browser* muncul kartu putih bertuliskan **Halo dari ESP32!** dengan kotak isian nama. Setelah menekan **Kirim**, muncul halaman **Halo, Budi!** beserta lama ESP32 menyala dalam detik. Tekan **F5** (atau tarik layar ke bawah di HP) untuk memuat ulang, dan angka detiknya bertambah.
+
+> 🧪 **Coba Sendiri:** Ketik langsung di kolom alamat *browser* `http://192.168.1.23/halo?nama=<b>Tebal</b>` (pakai IP milikmu). Karena `amankanHtml()`, halaman menampilkan teks `<b>Tebal</b>` apa adanya, bukan huruf tebal. Lalu buka `http://192.168.1.23/halo` tanpa parameter dan perhatikan sapaan untuk `tamu`.
+
+> 💡 **Tips:** Bosan mencari alamat IP? Kalau sudah mempelajari [BAB 45](../BAB-45/README.md), tambahkan `#include <ESPmDNS.h>`, lalu panggil `MDNS.begin("bluino");` dan `MDNS.addService("http", "tcp", 80);` **setelah** WiFi tersambung (di `setup()`, sesudah `sambungkanWiFi()`). Halamannya kemudian bisa dibuka lewat `http://bluino.local/` dari perangkat yang mendukung mDNS.
+
+**Kalau Belum Berhasil:**
+
+- **Serial Monitor hanya menampilkan titik-titik, lalu `Gagal tersambung`** → nama atau kata sandi WiFi salah (ingat huruf besar-kecil), WiFi-nya 5 GHz, atau ESP32 terlalu jauh dari router. Coba dengan *hotspot* HP yang diatur ke 2,4 GHz.
+- ***Browser* menampilkan "Situs tidak dapat dijangkau" atau terus memuat** → HP/laptop tidak berada di WiFi yang sama (cek juga data seluler HP), alamat IP salah ketik, atau ada `https://` di depannya. Ketik lengkap `http://` + IP dari Serial Monitor.
+- **Sudah di WiFi yang sama tetapi tetap tidak bisa** → banyak WiFi kampus, kantor, kafe, dan jaringan tamu (*guest network*) menyalakan fitur *client isolation* (*AP isolation*) yang melarang perangkat saling berhubungan. Pakai *hotspot* HP atau router rumah.
+- **Alamat IP tidak terlihat** → Serial Monitor dibuka setelah pesannya lewat. Tekan tombol **EN** di *board* untuk menjalankan ulang program.
+
+---
+
+## 46.6 JSON dan API
+
+Halaman HTML cocok untuk dibaca manusia, tetapi sulit dibaca program lain. Misalnya, sebuah aplikasi di laptop ingin mengambil suhu dari ESP32. Kalau yang dikirim halaman HTML lengkap, aplikasi itu harus mencari angka suhu di antara *tag-tag* HTML — rumit dan mudah rusak saat tampilannya diubah. Lebih praktis kalau ESP32 menyediakan alamat khusus yang hanya berisi data.
+
+### 46.6.1 Apa Itu API?
+
+**API** (*Application Programming Interface*) adalah "pintu layanan" yang disediakan sebuah program untuk program lain. Kalau halaman HTML ibarat ruang makan untuk tamu, API ibarat loket pengambilan pesanan untuk kurir: tanpa hiasan, hanya barang yang dipesan. Alamat API seperti `/api/sensor` biasa disebut ***endpoint***.
+
+API yang memakai HTTP dengan alamat yang rapi (misalnya `GET /api/sensor` untuk membaca, `POST /api/kontrol` untuk memerintah) sering disebut **REST API**. Kamu tidak perlu menghafal teorinya; cukup ingat pola ini:
+
+| *Endpoint* | *Method* | Isi *request* | Isi *response* |
+|---|---|---|---|
+| `/api/sensor` (Program 2) | GET | — | Data sensor dalam JSON |
+| `/api/status` (Program 3) | GET | — | Data sensor + keadaan LED dan *relay* |
+| `/api/kontrol` (Program 3) | POST | Perintah dalam JSON, misalnya `{"led":true}` | Keadaan terbaru dalam JSON |
+
+### 46.6.2 Format JSON
+
+**JSON** (*JavaScript Object Notation*) adalah format teks untuk menyimpan data berpasangan nama dan nilai. Bentuknya mudah dibaca manusia sekaligus mudah diolah program:
+
 ```json
 {
-  "temp": 28.5,
-  "humidity": 65,
-  "rssi": -58,
-  "uptime": 1234,
-  "freeHeap": 218240,
-  "cpuMHz": 240,
-  "sensorOk": true
+  "suhu": 28.6,
+  "kelembapan": 70,
+  "dht_ok": true,
+  "potensiometer": 63,
+  "waktu_nyala": 125,
+  "rssi": -58
 }
 ```
 
-**Cara Uji dengan curl:**
-```bash
-# Windows PowerShell / Terminal Mac/Linux:
-curl http://bluino.local/api/sensors
+Aturannya:
+
+- Data diapit kurung kurawal `{ }`. Setiap pasangan ditulis `"nama": nilai`, dipisah koma.
+- Nama selalu diapit tanda kutip ganda `"..."`.
+- Nilai bisa berupa angka (`28.6`, `-58`; desimal memakai **titik**), teks (`"Bluino"`), `true`/`false`, atau `null` (artinya "tidak ada nilai").
+- Spasi dan baris baru tidak berpengaruh. ESP32 biasanya mengirim JSON dalam satu baris supaya ringkas: `{"suhu":28.6,"kelembapan":70,...}`.
+
+### 46.6.3 Library ArduinoJson 7
+
+Menyusun JSON dengan menyambung teks sendiri rawan salah (lupa koma, lupa tanda kutip). *Library* **ArduinoJson** melakukannya dengan rapi. Cara memasangnya:
+
+1. Buka **Sketch → Include Library → Manage Libraries…** (atau klik ikon buku di sisi kiri Arduino IDE).
+2. Ketik `ArduinoJson` di kotak pencarian.
+3. Pilih **ArduinoJson** yang pembuatnya **Benoit Blanchon**, pastikan versinya **7.x** (diuji dengan 7.4.3), lalu klik **INSTALL**.
+
+Contoh menyusun dan membaca JSON:
+
+```cpp
+#include <ArduinoJson.h>
+
+// Menyusun JSON (serialize)
+JsonDocument doc;          // wadah data; ukurannya diatur otomatis
+doc["suhu"] = 28.6;
+doc["dht_ok"] = true;
+doc["catatan"] = nullptr;  // menghasilkan null
+String json;
+serializeJson(doc, json);  // json berisi {"suhu":28.6,"dht_ok":true,"catatan":null}
+
+// Membaca JSON (deserialize)
+JsonDocument perintah;
+DeserializationError err = deserializeJson(perintah, "{\"led\":true}");
+if (!err && perintah["led"].is<bool>()) {  // pastikan "led" ada dan bernilai true/false
+  bool nyala = perintah["led"];             // nyala = true
+}
 ```
+
+> ⚠️ **Perhatian:** Banyak tutorial di internet masih memakai ArduinoJson versi 6 dengan `StaticJsonDocument<200>` atau `DynamicJsonDocument`. Di versi 7, keduanya sudah usang; cukup tulis `JsonDocument doc;`. Untuk mengecek apakah sebuah nilai ada dan jenisnya benar, pakai `doc["nama"].is<T>()`, misalnya `is<bool>()` atau `is<float>()`.
 
 ---
 
+## 46.7 Program 2: API JSON Sensor
 
-## 46.6 Program 3: Dashboard IoT Interaktif
+**Tujuan:** Menyediakan *endpoint* `GET /api/sensor` yang menjawab dengan data JSON: suhu dan kelembapan DHT11, posisi potensiometer, lama ESP32 menyala, dan kekuatan sinyal WiFi. DHT11 dibaca setiap 2 detik di `loop()` tanpa `delay()`, sedangkan *handler* cukup mengirim hasil bacaan terakhir. Kamu akan menguji API ini dengan *browser* dan dengan `curl`.
 
-Program lengkap: sensor real-time, JS `fetch()` untuk kontrol aktuator tanpa reload, NVS state persistence, dan Serial CLI.
+**Rangkaian:**
 
+| Pin **Custom** di kit | Sambungkan ke pin ESP32 |
+|---|---|
+| `DHT` — DHT11 (header hijau, pin ke-3 dari atas) | IO27 |
+| `VR10K` — potensiometer (header kuning, pin ke-5 dari kiri) | IO34 |
+
+![Skematik blok DHT11 pada kit Bluino: pin 1 VDD ke 3V3, pin 2 DAT ke kotak IO27 dengan resistor pull-up 4K7 ke 3V3, pin 3 N.C., pin 4 GND](../assets/kit/skematik-dht11.png)
+
+*Gambar 46.3 — Rangkaian DHT11 pada kit. Pin data tersambung ke header `DHT` dengan resistor pull-up 4,7 kΩ; sambungkan header itu ke IO27 dengan kabel jumper. Sumber: skematik ESP32 Starter Shield 3.2, [Bluino](http://www.bluino.com).*
+
+![Skematik potensiometer pada kit Bluino: kedua ujung ke 3V3 dan GND, kaki tengah ke pin Custom VR10K](../assets/kit/skematik-potensiometer.png)
+
+*Gambar 46.4 — Potensiometer 10 kΩ pada kit: kaki tengahnya (wiper) keluar di header `VR10K`. Sambungkan ke IO34 (ADC1, tetap bisa dibaca saat WiFi aktif). Sumber: skematik ESP32 Starter Shield 3.2, [Bluino](http://www.bluino.com).*
+
+**Cara Menjalankan:**
+
+1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas.
+2. Pasang *library* yang dibutuhkan lewat **Sketch → Include Library → Manage Libraries…** (lewati yang sudah terpasang):
+   - ketik `DHT sensor library`, pilih yang pembuatnya **Adafruit**, klik **INSTALL**, lalu klik **Install All** saat ditanya soal *library* pendukung (**Adafruit Unified Sensor**);
+   - ketik `ArduinoJson`, pilih yang pembuatnya **Benoit Blanchon** versi 7.x, klik **INSTALL**.
+3. Buka **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p2_api_sensor.ino`](p2_api_sensor/p2_api_sensor.ino).
+4. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan WiFi milikmu.
+5. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu, lalu klik **Upload** dan tunggu sampai muncul **Done uploading**.
+6. Buka **Serial Monitor** (baud **115200**) dan catat alamat IP-nya. Tekan **EN** kalau sudah terlewat.
+7. Di *browser* (HP/laptop di WiFi yang sama), buka `http://<IP>/api/sensor`, misalnya `http://192.168.1.23/api/sensor`. Putar potensiometer, lalu tekan **F5** untuk memuat ulang dan lihat angka `potensiometer` berubah.
+8. Uji juga dengan `curl` seperti di bagian **Menguji API dengan curl** di bawah.
+
+**Kode Program:**
+
+<!-- sketch: p2_api_sensor -->
+```cpp
+/*
+ * BAB 46 - Program 2: API JSON Sensor
+ * - GET /           -> halaman petunjuk singkat
+ * - GET /api/sensor -> data sensor dalam format JSON (ArduinoJson 7)
+ * DHT11 dibaca setiap 2 detik tanpa delay() (struct Timer dari BAB 16).
+ * Potensiometer dibaca langsung setiap kali ada request.
+ * Rangkaian: DHT (header hijau) -> IO27, VR10K (header kuning) -> IO34
+ */
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
+
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define PIN_POT 34  // potensiometer VR10K (ADC1, aman dipakai bersama WiFi)
+
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
+
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
+
+WebServer server(80);
+DHT dht(PIN_DHT, TIPE_DHT);
+Timer timerDHT = {2000, 0};  // baca DHT11 setiap 2 detik (jangan kurang dari 2000)
+
+// Hasil bacaan DHT11 terakhir, dipakai oleh handler
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
+
+const char HALAMAN_BERANDA[] = R"rawliteral(
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Sensor ESP32</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f2f4f7; color: #222;
+         max-width: 480px; margin: 0 auto; padding: 16px; }
+  .kartu { background: #fff; border-radius: 12px; padding: 16px;
+           box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+  h1 { font-size: 1.4em; color: #1565c0; margin-top: 0; }
+  code { background: #e8eaf6; padding: 2px 4px; border-radius: 4px; }
+  a { color: #1565c0; }
+</style>
+</head>
+<body>
+<div class="kartu">
+  <h1>API Sensor ESP32</h1>
+  <p>Data sensor tersedia dalam format JSON di <code>/api/sensor</code>.</p>
+  <p><a href="/api/sensor">Buka /api/sensor</a></p>
+  <p>Tekan F5 di halaman JSON untuk mengambil data terbaru.</p>
+</div>
+</body>
+</html>
+)rawliteral";
+
+void catatRequest(int kodeStatus) {
+  Serial.printf("[HTTP] %s %s -> %d (dari %s)\n",
+                http_method_str(server.method()), server.uri().c_str(),
+                kodeStatus, server.client().remoteIP().toString().c_str());
+}
+
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  // Cetak pesan hanya pada bacaan pertama atau saat status berubah
+  if (bacaanPertama || berhasil != dhtOk) {
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
+    } else {
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+    }
+  }
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
+  }
+}
+
+// Posisi potensiometer dalam persen (0-100)
+int bacaPotPersen() {
+  return analogRead(PIN_POT) * 100 / 4095;
+}
+
+// Menyusun data sensor menjadi teks JSON
+String buatJsonSensor() {
+  JsonDocument doc;
+  if (dhtOk) {
+    doc["suhu"] = suhu;              // °C
+    doc["kelembapan"] = kelembapan;  // %RH
+  } else {
+    doc["suhu"] = nullptr;  // null = belum ada data valid
+    doc["kelembapan"] = nullptr;
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["potensiometer"] = bacaPotPersen();  // %
+  doc["waktu_nyala"] = millis() / 1000;    // detik sejak ESP32 menyala
+  doc["rssi"] = WiFi.RSSI();               // kekuatan sinyal WiFi (dBm)
+
+  String json;
+  serializeJson(doc, json);
+  return json;
+}
+
+// Handler untuk GET /
+void halamanBeranda() {
+  server.send(200, "text/html", HALAMAN_BERANDA);
+  catatRequest(200);
+}
+
+// Handler untuk GET /api/sensor
+void kirimSensor() {
+  server.sendHeader("Cache-Control", "no-store");  // minta browser tidak menyimpan data lama
+  server.send(200, "application/json", buatJsonSensor());
+  catatRequest(200);
+}
+
+void halaman404() {
+  server.send(404, "text/plain", "404 - alamat tidak ditemukan. Coba /api/sensor");
+  catatRequest(404);
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya halaman lebih cepat dijawab
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\nBAB 46 - Program 2: API JSON Sensor");
+
+  dht.begin();
+  sambungkanWiFi();
+
+  server.on("/", HTTP_GET, halamanBeranda);
+  server.on("/api/sensor", HTTP_GET, kirimSensor);
+  server.onNotFound(halaman404);
+  server.begin();
+
+  Serial.print("Web server siap. Buka di browser: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
+  Serial.print("API JSON: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/api/sensor");
+}
+
+void loop() {
+  server.handleClient();  // tugas 1: layani request
+
+  if (timerDHT.sudahWaktunya(millis())) {  // tugas 2: baca DHT11 setiap 2 detik
+    bacaDHT();
+  }
+}
 ```
-Routing:
-  GET  /            -> HTML dashboard (PROGMEM, zero heap)
-  GET  /api/sensors -> JSON suhu, kelembaban, ledState, relayState
-  POST /api/led     -> Kontrol LED IO2  (?state=1 / ?state=0)
-  POST /api/relay   -> Kontrol Relay    (?state=1 / ?state=0)
+
+**Penjelasan Kode:**
+
+- **Dua tugas di `loop()`.** `server.handleClient()` dipanggil terus-menerus, sedangkan `bacaDHT()` hanya dijalankan setiap 2 detik oleh `timerDHT` ([BAB 16](../BAB-16/README.md)). Satu kali pembacaan DHT11 menahan program sekitar 25 ms — masih jauh lebih singkat daripada `delay(2000)`, sehingga *request* tetap dilayani dengan cepat.
+- **`dht.read(true)`** memaksa *library* membaca sensor sekarang. Alasannya sama dengan Program 4 di [BAB 26](../BAB-26/README.md#2612-program-4-membaca-dht11-tanpa-delay): *timer* kita sudah menjamin jeda 2 detik, jadi pengaman bawaan *library* tidak perlu menolak pembacaan.
+- **Variabel `suhu`, `kelembapan`, dan `dhtOk`** menyimpan bacaan terakhir. *Handler* `kirimSensor()` tidak pernah menghubungi DHT11; ia hanya membaca variabel ini, jadi jawabannya instan.
+- **`buatJsonSensor()`** menyusun JSON dengan ArduinoJson. Kalau DHT11 belum pernah terbaca atau sedang gagal, `suhu` dan `kelembapan` diisi `nullptr` sehingga JSON-nya berisi `null`. Program penerima jadi tahu bahwa datanya tidak ada, alih-alih menerima angka palsu.
+- **`bacaPotPersen()`** mengubah hasil `analogRead()` (0–4095, ADC 12 bit dari [BAB 11](../BAB-11/README.md)) menjadi persen 0–100. IO34 termasuk ADC1, yang tetap bisa dipakai saat WiFi aktif; pin ADC2 tidak bisa.
+- **`server.sendHeader("Cache-Control", "no-store")`** meminta *browser* tidak menyimpan jawaban lama, supaya setiap kali dimuat ulang yang tampil adalah data terbaru. *Header* tambahan harus dipasang **sebelum** `server.send()`.
+- **`"application/json"`** sebagai jenis isi memberi tahu *browser* dan program lain bahwa *body*-nya JSON. Firefox, misalnya, langsung menampilkannya dengan rapi dan berwarna (tab **JSON**); tab **Raw Data** menampilkan teks aslinya.
+- **`halaman404()`** kali ini cukup mengirim teks biasa (`text/plain`) karena alamatnya ditujukan untuk program, bukan manusia.
+
+**Contoh Output:**
+
+```text
+BAB 46 - Program 2: API JSON Sensor
+Menyambung ke WiFi "NamaWiFiKamu"..... tersambung!
+Web server siap. Buka di browser: http://192.168.1.23/
+API JSON: http://192.168.1.23/api/sensor
+[DHT11] OK: 28.6 °C, 70 %RH
+[HTTP] GET / -> 200 (dari 192.168.1.10)
+[HTTP] GET /api/sensor -> 200 (dari 192.168.1.10)
+[HTTP] GET /api/sensor -> 200 (dari 192.168.1.10)
 ```
 
+Di *browser*, alamat `/api/sensor` menampilkan satu baris JSON seperti ini:
+
+```json
+{"suhu":28.6,"kelembapan":70,"dht_ok":true,"potensiometer":63,"waktu_nyala":125,"rssi":-58}
+```
+
+Angka suhu, kelembapan, posisi potensiometer, lama menyala, dan RSSI hanyalah contoh — angkamu bisa berbeda. Kelembapan tampil tanpa desimal (`70`) karena DHT11 hanya mengukur kelembapan dalam bilangan bulat. Arti setiap nilai:
+
+| Nama | Satuan | Arti |
+|---|---|---|
+| `suhu` | °C | Suhu udara dari DHT11, atau `null` kalau belum ada data valid |
+| `kelembapan` | %RH | Kelembapan relatif dari DHT11, atau `null` |
+| `dht_ok` | — | `true` kalau bacaan DHT11 terakhir berhasil |
+| `potensiometer` | % | Posisi kenop potensiometer, 0 (habis ke satu sisi) sampai 100 (habis ke sisi lain) |
+| `waktu_nyala` | detik | Lama ESP32 menyala sejak terakhir *reset* |
+| `rssi` | dBm | Kekuatan sinyal WiFi; makin mendekati 0 makin kuat (−50 sangat baik, −80 lemah) |
+
+### 46.7.1 Menguji API dengan curl
+
+`curl` adalah program baris perintah untuk mengirim *request* HTTP. Ia sudah tersedia di Windows 10/11, macOS, dan kebanyakan Linux, jadi tidak perlu dipasang. Cara membukanya:
+
+- **Windows:** tekan tombol **Start**, ketik `cmd`, lalu tekan **Enter** untuk membuka **Command Prompt**.
+- **macOS:** buka **Terminal** (tekan **Cmd+Spasi**, ketik `Terminal`, lalu **Enter**).
+- **Linux:** buka aplikasi **Terminal** (di banyak distribusi: **Ctrl+Alt+T**).
+
+Laptop harus tersambung ke WiFi yang sama dengan ESP32. Ketik perintah berikut (ganti IP-nya dengan IP ESP32 milikmu), lalu tekan **Enter**. Perintahnya sama di Command Prompt, Terminal macOS, dan Terminal Linux:
+
+```bash
+curl http://192.168.1.23/api/sensor
+```
+
+Hasilnya adalah teks JSON yang sama dengan yang tampil di *browser*. Tambahkan `-i` untuk melihat juga baris status dan *header* *response*:
+
+```bash
+curl -i http://192.168.1.23/api/sensor
+```
+
+```text
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-store
+Content-Length: 91
+Connection: close
+
+{"suhu":28.6,"kelembapan":70,"dht_ok":true,"potensiometer":63,"waktu_nyala":125,"rssi":-58}
+```
+
+Coba juga alamat yang tidak ada, misalnya `curl -i http://192.168.1.23/api/salah`, dan perhatikan baris pertamanya berubah menjadi `HTTP/1.1 404 Not Found`.
+
+> 📌 **Catatan:** Di **Windows PowerShell** (bukan Command Prompt), kata `curl` adalah nama lain untuk perintah `Invoke-WebRequest` yang cara kerjanya berbeda. Kalau kamu memakai PowerShell, ketik **`curl.exe`**, misalnya `curl.exe -i http://192.168.1.23/api/sensor`. Di Command Prompt, `curl` dan `curl.exe` sama saja.
+
+**Kalau Belum Berhasil:**
+
+- ***Compile* gagal: `ArduinoJson.h: No such file or directory`** → *library* ArduinoJson belum terpasang. Pasang lewat Library Manager (langkah 2).
+- ***Compile* gagal: `StaticJsonDocument` atau `DynamicJsonDocument` *is deprecated*** → kamu memakai contoh ArduinoJson versi 6 dari tempat lain. Ganti dengan `JsonDocument doc;`.
+- **`"suhu":null` dan Serial Monitor menampilkan `[DHT11] Gagal membaca`** → kabel `DHT` → `27` belum terpasang atau bergeser satu pin. Cocokkan dengan [BAB 26](../BAB-26/README.md#264-rangkaian-dht11-di-kit).
+- **`potensiometer` selalu 0 atau 100** → kabel `VR10K` belum terpasang ke `34`, atau terpasang ke pin lain.
+- **`curl` menjawab `Failed to connect` atau `Could not resolve host`** → laptop tidak di WiFi yang sama, IP salah ketik, atau ada spasi di dalam alamat.
+
+---
+
+## 46.8 Memperbarui Halaman dengan fetch()
+
+Di Program 2, kamu harus menekan **F5** untuk mendapat data baru. Cara lama untuk mengotomatiskannya adalah *tag* `<meta http-equiv="refresh" content="5">`, yang membuat *browser* memuat ulang **seluruh** halaman setiap 5 detik. Hasilnya kurang nyaman: layar berkedip, posisi gulir kembali ke atas, dan ESP32 harus mengirim ulang seluruh HTML padahal yang berubah hanya beberapa angka.
+
+Cara yang lebih baik: halaman HTML dimuat **sekali saja**, lalu JavaScript di dalamnya mengambil data JSON kecil secara berkala dan hanya mengganti angka-angkanya. Teknik "bertanya berkala" ini disebut ***polling***. Fungsi JavaScript untuk mengirim *request* dari dalam halaman adalah **`fetch()`**.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant E as ESP32
+    B->>E: GET / (sekali saja)
+    E-->>B: Halaman HTML + CSS + JavaScript
+    loop setiap 2 detik
+        B->>E: fetch GET /api/status
+        E-->>B: JSON kecil (±120 byte)
+        Note over B: JavaScript mengganti angka di layar
+    end
+    B->>E: fetch POST /api/kontrol {"led":true}
+    E-->>B: JSON keadaan terbaru
+```
+
+*Gambar 46.5 — Halaman dimuat sekali, lalu JavaScript mengambil data JSON berkala (polling) dan mengirim perintah saat tombol ditekan. Sumber: dibuat untuk materi ini.*
+
+Kerangka JavaScript-nya:
+
+```javascript
+async function perbarui() {
+  try {
+    const jawaban = await fetch("/api/status", { cache: "no-store" });
+    const data = await jawaban.json();  // ubah teks JSON menjadi objek
+    document.getElementById("suhu").textContent = data.suhu;
+  } catch (e) {
+    // gagal: ESP32 mati, WiFi putus, dsb.
+  }
+  setTimeout(perbarui, 2000);  // jadwalkan pengambilan berikutnya 2 detik lagi
+}
+perbarui();
+```
+
+- `fetch("/api/status")` mengirim GET ke alamat itu. Karena alamatnya diawali `/` tanpa IP, *browser* otomatis mengirimnya ke *server* yang sama dengan asal halaman, yaitu ESP32.
+- `await` artinya "tunggu sampai jawabannya datang", tanpa membekukan halaman. Fungsi yang memakai `await` harus ditandai `async`.
+- `jawaban.json()` mengubah teks JSON menjadi objek JavaScript, sehingga nilai `"suhu"` bisa diambil dengan `data.suhu`.
+- `setTimeout(perbarui, 2000)` dipasang **setelah** jawaban diterima. Dengan begitu *request* tidak pernah menumpuk walaupun ESP32 sedang lambat menjawab. (`setInterval` akan terus mengirim setiap 2 detik walaupun *request* sebelumnya belum selesai.)
+
+> 💡 **Tips:** Interval *polling* 1–5 detik cukup untuk *dashboard* sensor. Makin pendek intervalnya, makin sering ESP32 sibuk menjawab, apalagi kalau halamannya dibuka di beberapa HP sekaligus. Untuk data yang harus tampil seketika (misalnya tombol fisik yang ditekan), ada cara yang lebih efisien: WebSocket di [BAB 47](../BAB-47/README.md).
+
+---
+
+## 46.9 Program 3: Dashboard IoT Interaktif
+
+**Tujuan:** Menggabungkan semuanya menjadi satu *dashboard*: halaman HTML dikirim sekali, lalu JavaScript mengambil `GET /api/status` setiap 2 detik untuk memperbarui suhu, kelembapan, dan posisi potensiometer **tanpa memuat ulang halaman**. Dua tombol mengirim `POST /api/kontrol` untuk menyalakan atau mematikan LED merah dan *relay*. Halaman ini nyaman dibuka di HP dan tidak membutuhkan internet.
+
+**Rangkaian:**
+
+| Pin **Custom** di kit | Sambungkan ke pin ESP32 |
+|---|---|
+| `DHT` — DHT11 (header hijau, pin ke-3 dari atas) | IO27 |
+| `VR10K` — potensiometer (header kuning, pin ke-5 dari kiri) | IO34 |
+| `LED1` — LED merah (header LED) | IO4 |
+| `RELAY` (header biru, di **kanan** `BUZZ`) | IO26 |
+
+Kabel `DHT` dan `VR10K` dari Program 2 tetap terpasang; tambahkan dua kabel untuk LED merah dan *relay*. Letak pin `RELAY` dan pin `26` bisa kamu lihat di Gambar 37.4 pada [BAB 37](../BAB-37/README.md#375-rangkaian-untuk-seluruh-bab).
+
+> 🚨 **Bahaya:** Coba *relay* **tanpa beban**. Bunyi "klik" dan LED indikator kecil di dekat *relay* sudah cukup sebagai tanda bahwa *relay* bekerja. **Jangan pernah menyambungkan listrik PLN 220 V ke *relay* kit** — kit ini papan belajar terbuka yang tidak dirancang untuk tegangan itu ([BAB 37.4](../BAB-37/README.md#374-keselamatan-kit-ini-bukan-untuk-listrik-pln)). Apalagi *web server* ini bisa dikontrol siapa saja di WiFi yang sama (lihat [46.11](#4611-keamanan-siapa-saja-bisa-mengontrol)).
+
+**Cara Menjalankan:**
+
+1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas.
+2. Pastikan *library* **DHT sensor library**, **Adafruit Unified Sensor**, dan **ArduinoJson** (versi 7) sudah terpasang seperti di Program 2.
+3. Buka **File → New Sketch**, hapus isinya, lalu salin kode di bawah. Kode yang sama juga tersedia di *file* [`p3_dashboard.ino`](p3_dashboard/p3_dashboard.ino).
+4. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan WiFi milikmu.
+5. Pastikan **Tools → Board** = **ESP32 Dev Module** dan **Tools → Port** = *port* ESP32 kamu, lalu klik **Upload** dan tunggu sampai muncul **Done uploading**.
+6. Buka **Serial Monitor** (baud **115200**) dan catat alamat IP-nya.
+7. Buka `http://<IP>/` di *browser* HP atau laptop yang tersambung ke WiFi yang sama. Putar potensiometer dan perhatikan angkanya berubah sendiri dalam 2 detik. Tekan tombol **Nyalakan** pada LED merah dan *relay*.
+8. Coba juga mengontrol dari `curl` seperti di bagian **Mengontrol dengan curl** di bawah, lalu lihat tombol di *dashboard* ikut berubah.
+
+**Kode Program:**
+
+<!-- sketch: p3_dashboard -->
 ```cpp
 /*
  * BAB 46 - Program 3: Dashboard IoT Interaktif
- *
- * Fitur:
- *   > GET /            -> Dashboard HTML via PROGMEM (zero heap!)
- *   > GET /api/sensors -> JSON sensor + state aktuator
- *   > POST /api/led    -> Kontrol LED IO2 (?state=0/1)
- *   > POST /api/relay  -> Kontrol Relay (?state=0/1)
- *   > NVS: state relay disimpan, bertahan setelah reboot
- *   > DHT11 non-blocking (IO27, hardwired di Bluino Kit)
- *   > Serial CLI: help, status, led on/off, relay on/off, restart
- *   > mDNS: http://bluino.local
- *
- * Pin Relay (CUSTOM):
- *   Pilih dari: IO4, IO13, IO16, IO17, IO25, IO26, IO32, IO33
- *   Sambungkan kabel jumper dari pin relay ke GPIO yang dipilih.
- *   Ubah #define RELAY_PIN sesuai pin kamu!
- *
- * Library (install via Arduino Library Manager):
- *   "DHT sensor library" by Adafruit
- *   "Adafruit Unified Sensor" (dependensi, install otomatis)
- *
- * PERINGATAN: ESP32 hanya mendukung WiFi 2.4 GHz!
- * PERINGATAN: Ganti SSID, PASSWORD, dan RELAY_PIN!
+ * - GET  /             -> halaman dashboard (HTML + CSS + JavaScript, dikirim sekali)
+ * - GET  /api/status   -> data sensor + keadaan LED dan relay (JSON)
+ * - POST /api/kontrol  -> perintah JSON, misalnya {"led":true} atau {"relay":false}
+ * Halaman memperbarui angkanya sendiri dengan fetch() setiap 2 detik.
+ * Rangkaian: DHT -> IO27, VR10K -> IO34, LED1 (merah) -> IO4, RELAY -> IO26
  */
 
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
-#include <Preferences.h>
+#include <ArduinoJson.h>
 #include <DHT.h>
 
-// -- Konfigurasi WiFi -------------------------------------------------
-const char* WIFI_SSID = "NamaWiFiKamu";   // <- Ganti!
-const char* WIFI_PASS = "PasswordWiFi";   // <- Ganti!
-const char* MDNS_NAME = "bluino";
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// -- Pin --------------------------------------------------------------
-#define LED_PIN   2     // LED built-in IO2 (hardwired)
-#define DHT_PIN   27    // DHT11 IO27 (hardwired di Bluino Kit)
-#define DHT_TYPE  DHT11
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define PIN_POT 34    // potensiometer VR10K (ADC1)
+#define PIN_LED 4     // LED1 (merah), aktif HIGH
+#define PIN_RELAY 26  // RELAY, aktif HIGH
 
-// Ganti sesuai kabel jumper relay kamu!
-// Pilih dari: 4, 13, 16, 17, 25, 26, 32, 33
-#define RELAY_PIN 4     // <- Ganti jika perlu!
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
 
-// -- NVS --------------------------------------------------------------
-const char* NVS_NS        = "iot-ctrl";
-const char* NVS_KEY_RELAY = "relay";
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
 
-// -- Objek Global -----------------------------------------------------
-WebServer   server(80);
-DHT         dht(DHT_PIN, DHT_TYPE);
-Preferences prefs;
+WebServer server(80);
+DHT dht(PIN_DHT, TIPE_DHT);
+Timer timerDHT = {2000, 0};  // baca DHT11 setiap 2 detik
 
-// -- State ------------------------------------------------------------
-float  lastTemp   = NAN;
-float  lastHumid  = NAN;
-bool   sensorOk   = false;
-bool   ledState   = false;
-bool   relayState = false;
-String inputBuffer;          // CLI buffer (pre-alokasi di setup)
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
+bool ledNyala = false;
+bool relayNyala = false;
 
-// -- NVS: Muat & Simpan -----------------------------------------------
-void loadRelayState() {
-  prefs.begin(NVS_NS, true);
-  relayState = prefs.getBool(NVS_KEY_RELAY, false);
-  prefs.end();
-}
-void saveRelayState(bool state) {
-  prefs.begin(NVS_NS, false);
-  prefs.putBool(NVS_KEY_RELAY, state);
-  prefs.end();
-}
-
-// -- HTML Dashboard disimpan di PROGMEM (Flash Memory) ----------------
-// Keuntungan vs html.reserve(N):
-//   - HTML statis sama sekali tidak memakan heap
-//   - JavaScript fetch() memperbarui sensor tiap 5 detik tanpa reload
-// ---------------------------------------------------------------------
-const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
+// Halaman dashboard: HTML + CSS + JavaScript dalam satu raw string literal.
+// Tidak memakai CDN, jadi tetap berjalan tanpa internet.
+const char HALAMAN_DASHBOARD[] = R"rawliteral(
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluino IoT Control</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Arial,sans-serif;background:#0a0a14;
-         color:#e0e0e0;min-height:100vh;padding:16px}
-    .c{max-width:500px;margin:0 auto}
-    h1{color:#4fc3f7;font-size:1.3rem;padding:16px 0 4px}
-    .sub{color:#444;font-size:.78rem;margin-bottom:18px}
-    .sec{color:#555;font-size:.7rem;text-transform:uppercase;
-         letter-spacing:1px;margin:16px 0 8px}
-    .g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .card{background:#141424;border-radius:12px;padding:16px}
-    .cl{color:#444;font-size:.72rem;text-transform:uppercase;margin-bottom:6px}
-    .cv{font-size:1.9rem;font-weight:700}
-    .cu{font-size:.8rem;color:#666}
-    .hot{color:#ef5350}.warm{color:#ff9800}
-    .cool{color:#4fc3f7}.humid{color:#26c6da}
-    .ctrl{background:#141424;border-radius:12px;padding:16px;
-          display:flex;justify-content:space-between;
-          align-items:center;margin-bottom:10px}
-    .ci{flex:1}.cn{font-size:.95rem;font-weight:600;color:#ddd}
-    .cp{font-size:.7rem;color:#444;margin-top:2px}
-    .cs{font-size:.8rem;margin-top:4px}
-    .on{color:#81c784}.off{color:#444}
-    .btn{border:none;border-radius:8px;padding:10px 18px;
-         font-size:.82rem;font-weight:600;cursor:pointer;
-         transition:all .15s;min-width:70px;
-         user-select:none;-webkit-tap-highlight-color:transparent}
-    .bon{background:#1b5e20;color:#81c784}
-    .boff{background:#b71c1c;color:#ef9a9a}
-    .btn:active{transform:scale(.95);opacity:.8}
-    .info{background:#141424;border-radius:12px;padding:14px;margin-bottom:10px}
-    table{width:100%;border-collapse:collapse}
-    td{padding:7px 4px;border-bottom:1px solid #18182a;font-size:.82rem}
-    td:first-child{color:#555}td:last-child{color:#ccc;text-align:right}
-    #live{float:right;font-size:.72rem;color:#81c784;padding-top:20px}
-    .footer{text-align:center;color:#1e1e2e;font-size:.65rem;padding:20px 0}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard Bluino</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #f2f4f7;
+         color: #222; margin: 0; padding: 16px; }
+  .wadah { max-width: 520px; margin: 0 auto; }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  h1 { font-size: 1.3em; margin: 0; color: #1565c0; }
+  h2 { font-size: 1em; color: #555; margin: 20px 0 8px; }
+  .koneksi { font-size: 0.85em; padding: 4px 10px; border-radius: 999px;
+             background: #e0e0e0; color: #555; }
+  .koneksi.ok { background: #e8f5e9; color: #2e7d32; }
+  .koneksi.putus { background: #ffebee; color: #c62828; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          gap: 10px; }
+  .kartu { background: #fff; border-radius: 12px; padding: 14px;
+           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+  .label { font-size: 0.9em; color: #666; }
+  .nilai { font-size: 2em; font-weight: bold; margin-top: 4px; }
+  .satuan { font-size: 0.5em; color: #666; font-weight: normal; }
+  .batang { height: 8px; background: #e0e0e0; border-radius: 4px;
+            margin-top: 8px; overflow: hidden; }
+  .isi { height: 100%; width: 0; background: #1565c0; }
+  .baris { display: flex; justify-content: space-between; align-items: center;
+           gap: 10px; margin-bottom: 10px; }
+  .lencana { display: inline-block; margin-top: 6px; font-size: 0.85em;
+             padding: 2px 10px; border-radius: 999px; background: #eceff1; color: #546e7a; }
+  .lencana.nyala { background: #fff3e0; color: #e65100; }
+  button { font-size: 1em; padding: 12px 16px; min-width: 120px; border: none;
+           border-radius: 8px; background: #1565c0; color: #fff; cursor: pointer; }
+  button.matikan { background: #455a64; }
+  button:disabled { background: #90a4ae; cursor: wait; }
+  .peringatan { color: #c62828; font-size: 0.9em; min-height: 1.2em; margin: 8px 0 0; }
+  .info { font-size: 0.85em; color: #666; line-height: 1.6; }
+</style>
 </head>
 <body>
-<div class="c">
-  <span id="live">&#9679; Live</span>
-  <h1>&#127911; Bluino IoT &#8212; Control Dashboard</h1>
-  <p class="sub">BAB 46 &#183; Update tiap 5 detik via fetch()</p>
+<div class="wadah">
+  <header>
+    <h1>Dashboard Bluino</h1>
+    <span id="koneksi" class="koneksi">Memuat...</span>
+  </header>
 
-  <p class="sec">&#127777; Sensor</p>
-  <div class="g2">
-    <div class="card">
-      <div class="cl">Suhu</div>
-      <div id="temp" class="cv cool">&#8212;<span class="cu">&#176;C</span></div>
+  <h2>Sensor</h2>
+  <div class="grid">
+    <div class="kartu">
+      <div class="label">Suhu</div>
+      <div class="nilai"><span id="suhu">--</span> <span class="satuan">°C</span></div>
     </div>
-    <div class="card">
-      <div class="cl">Kelembaban</div>
-      <div id="hum" class="cv humid">&#8212;<span class="cu">%</span></div>
+    <div class="kartu">
+      <div class="label">Kelembapan</div>
+      <div class="nilai"><span id="lembap">--</span> <span class="satuan">%RH</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Potensiometer</div>
+      <div class="nilai"><span id="pot">--</span> <span class="satuan">%</span></div>
+      <div class="batang"><div id="potBatang" class="isi"></div></div>
     </div>
   </div>
+  <p id="dhtPesan" class="peringatan"></p>
 
-  <p class="sec">&#128268; Kontrol Aktuator</p>
-  <div class="ctrl">
-    <div class="ci">
-      <div class="cn">&#128161; LED Built-in</div>
-      <div class="cp">Pin IO2 (hardwired board)</div>
-      <div id="ls" class="cs off">&#9679; Mati</div>
+  <h2>Kontrol</h2>
+  <div class="kartu baris">
+    <div>
+      <div class="label">LED Merah (LED1, IO4)</div>
+      <span id="ledStatus" class="lencana">...</span>
     </div>
-    <button id="lb" class="btn bon" onclick="toggleLed()">Nyalakan</button>
+    <button id="ledTombol" onclick="kirim('led')" disabled>Memuat...</button>
   </div>
-  <div class="ctrl">
-    <div class="ci">
-      <div class="cn">&#9889; Relay</div>
-      <div class="cp">Pin Custom (lihat kode)</div>
-      <div id="rs" class="cs off">&#9679; Mati</div>
+  <div class="kartu baris">
+    <div>
+      <div class="label">Relay (IO26)</div>
+      <span id="relayStatus" class="lencana">...</span>
     </div>
-    <button id="rb" class="btn bon" onclick="toggleRelay()">Aktifkan</button>
+    <button id="relayTombol" onclick="kirim('relay')" disabled>Memuat...</button>
   </div>
+  <p id="pesan" class="peringatan"></p>
 
-  <p class="sec">&#128225; Jaringan &amp; Sistem</p>
-  <div class="info">
-    <table>
-      <tr><td>Sinyal WiFi</td><td id="rssi">&#8212;</td></tr>
-      <tr><td>Uptime</td><td id="uptime">&#8212;</td></tr>
-      <tr><td>Heap Bebas</td><td id="heap">&#8212;</td></tr>
-      <tr><td>Sensor DHT11</td><td id="sok">&#8212;</td></tr>
-    </table>
+  <h2>Info Perangkat</h2>
+  <div class="kartu info">
+    Sinyal WiFi: <span id="rssi">--</span><br>
+    Lama menyala: <span id="lama">--</span><br>
+    Diperbarui pukul: <span id="jam">--</span>
   </div>
-  <p class="footer">Bluino IoT Kit 2026 &#8212; BAB 46: Web Server</p>
 </div>
+
 <script>
-let ledOn=false,relayOn=false;
-function setLedUI(s){
-  ledOn=s;
-  document.getElementById("ls").textContent=s?"\u25cf Menyala":"\u25cf Mati";
-  document.getElementById("ls").className="cs "+(s?"on":"off");
-  document.getElementById("lb").textContent=s?"Matikan":"Nyalakan";
-  document.getElementById("lb").className="btn "+(s?"boff":"bon");
-}
-function setRelayUI(s){
-  relayOn=s;
-  document.getElementById("rs").textContent=s?"\u25cf Aktif":"\u25cf Mati";
-  document.getElementById("rs").className="cs "+(s?"on":"off");
-  document.getElementById("rb").textContent=s?"Nonaktifkan":"Aktifkan";
-  document.getElementById("rb").className="btn "+(s?"boff":"bon");
-}
-async function update(){
-  try{
-    const abort = new AbortController();
-    setTimeout(()=>abort.abort(), 3000); // Batasi timeout 3 detik
-    const d=await(await fetch("/api/sensors?_t="+Date.now(), {signal: abort.signal})).json();
-    const te=document.getElementById("temp");
-    if(d.temp!==null){
-      te.innerHTML=d.temp.toFixed(1)+"\u00b0C";
-      te.className="cv "+(d.temp>35?"hot":d.temp>28?"warm":"cool");
-    }
-    if(d.humidity!==null)
-      document.getElementById("hum").innerHTML=d.humidity.toFixed(0)+"%";
-    let ri="\u1F534";
-    if (d.rssi>=-65) ri="\u1F7E2";
-    else if (d.rssi>=-80) ri="\u1F7E1";
-    document.getElementById("rssi").textContent=ri+" "+d.rssi+" dBm";
-    document.getElementById("heap").textContent=(d.freeHeap/1024).toFixed(0)+" KB";
-    document.getElementById("sok").textContent=d.sensorOk?"\u2705 OK":"\u274C Error";
-    const u=d.uptime,uh=Math.floor(u/3600),um=Math.floor((u%3600)/60),us=u%60;
-    document.getElementById("uptime").textContent=uh+"j "+um+"m "+us+"d";
-    setLedUI(d.ledState);setRelayUI(d.relayState);
-    document.getElementById("live").textContent="\u25cf Live";
-    document.getElementById("live").style.color="#81c784";
-  }catch(e){
-    document.getElementById("live").textContent="\u26a0 Offline";
-    document.getElementById("live").style.color="#ef5350";
+function el(id) { return document.getElementById(id); }
+
+// Mengirim request dan mengembalikan isi JSON-nya (batas tunggu 6 detik)
+async function ambilJson(url, opsi) {
+  const kendali = new AbortController();
+  const batas = setTimeout(function () { kendali.abort(); }, 6000);
+  try {
+    const r = await fetch(url, Object.assign({ cache: "no-store", signal: kendali.signal }, opsi));
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } finally {
+    clearTimeout(batas);
   }
 }
-async function toggleLed(){
-  const ns=ledOn?0:1;
-  setLedUI(ns); // Optimistic UI update!
-  try{
-    const d=await(await fetch("/api/led?state="+ns,{method:"POST"})).json();
-    setLedUI(d.state);
-  }catch(e){ setLedUI(!ns); }
+
+function aturKoneksi(ok) {
+  el("koneksi").textContent = ok ? "● Terhubung" : "● Terputus";
+  el("koneksi").className = "koneksi " + (ok ? "ok" : "putus");
 }
-async function toggleRelay(){
-  const ns=relayOn?0:1;
-  setRelayUI(ns); // Optimistic UI update!
-  try{
-    const d=await(await fetch("/api/relay?state="+ns,{method:"POST"})).json();
-    setRelayUI(d.state);
-  }catch(e){ setRelayUI(!ns); }
+
+// Tulisan dan warna tombol mengikuti keadaan: "Nyalakan" (biru) atau "Matikan" (abu-abu)
+function pulihkanTombol(tombol) {
+  const nyala = tombol.dataset.nyala === "1";
+  tombol.textContent = nyala ? "Matikan" : "Nyalakan";
+  tombol.className = nyala ? "matikan" : "";
+  tombol.disabled = false;
 }
-(async function loop(){ await update(); setTimeout(loop, 5000); })();
+
+function aturTombol(nama, nyala, teksNyala) {
+  const status = el(nama + "Status");
+  const tombol = el(nama + "Tombol");
+  status.textContent = nyala ? teksNyala : "Mati";
+  status.className = "lencana" + (nyala ? " nyala" : "");
+  tombol.dataset.nyala = nyala ? "1" : "0";
+  if (tombol.dataset.kirim !== "1") {  // jangan ganggu tombol yang sedang mengirim
+    pulihkanTombol(tombol);
+  }
+}
+
+function tampilkan(d) {
+  el("suhu").textContent = d.suhu === null ? "--" : d.suhu.toFixed(1).replace(".", ",");
+  el("lembap").textContent = d.kelembapan === null ? "--" : d.kelembapan.toFixed(0);
+  el("pot").textContent = d.potensiometer;
+  el("potBatang").style.width = d.potensiometer + "%";
+  el("dhtPesan").textContent = d.dht_ok ? "" : "DHT11 belum terbaca. Periksa kabel DHT ke IO27.";
+  aturTombol("led", d.led, "Menyala");
+  aturTombol("relay", d.relay, "Aktif");
+  el("rssi").textContent = d.rssi + " dBm";
+  const s = d.waktu_nyala;
+  el("lama").textContent = Math.floor(s / 3600) + " jam " + Math.floor((s % 3600) / 60) +
+                           " menit " + (s % 60) + " detik";
+  el("jam").textContent = new Date().toLocaleTimeString("id-ID");
+}
+
+// Polling: ambil status, tampilkan, lalu jadwalkan lagi 2 detik kemudian
+async function perbarui() {
+  try {
+    tampilkan(await ambilJson("/api/status"));
+    aturKoneksi(true);
+  } catch (e) {
+    aturKoneksi(false);
+  }
+  setTimeout(perbarui, 2000);
+}
+
+// Dipanggil saat tombol ditekan: kirim perintah kebalikan dari keadaan sekarang
+async function kirim(nama) {
+  const tombol = el(nama + "Tombol");
+  const perintah = {};
+  perintah[nama] = tombol.dataset.nyala !== "1";
+  tombol.dataset.kirim = "1";
+  tombol.disabled = true;
+  tombol.textContent = "Mengirim...";
+  el("pesan").textContent = "";
+  try {
+    const d = await ambilJson("/api/kontrol", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(perintah)
+    });
+    tombol.dataset.kirim = "0";
+    tampilkan(d);
+    aturKoneksi(true);
+  } catch (e) {
+    tombol.dataset.kirim = "0";
+    pulihkanTombol(tombol);
+    el("pesan").textContent = "Perintah gagal dikirim. Periksa koneksi, lalu coba lagi.";
+  }
+}
+
+perbarui();
 </script>
 </body>
 </html>
-)rawhtml";
+)rawliteral";
 
-// -- Serial CLI -------------------------------------------------------
-void processSerialCommand(const String& raw){
-  String cmd=raw; cmd.trim();
-  if(cmd.length()==0) return;
-  Serial.println("[CLI] > "+cmd);
-  String lc=cmd; lc.toLowerCase();
+void catatRequest(int kodeStatus) {
+  Serial.printf("[HTTP] %s %s -> %d (dari %s)\n",
+                http_method_str(server.method()), server.uri().c_str(),
+                kodeStatus, server.client().remoteIP().toString().c_str());
+}
 
-  if(lc=="help"||lc=="?"){
-    Serial.println("Perintah: status | led on | led off | relay on | relay off | restart | help");
-  } else if(lc=="status"){
-    Serial.println("-- Status ------------------------------------------");
-    Serial.printf("  WiFi    : %s\n", WiFi.status()==WL_CONNECTED?"Terhubung":"Terputus");
-    Serial.printf("  IP      : %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("  RSSI    : %d dBm\n", WiFi.RSSI());
-    Serial.printf("  LED     : %s\n", ledState?"ON":"OFF");
-    Serial.printf("  Relay   : %s (IO%d)\n", relayState?"ON":"OFF", RELAY_PIN);
-    Serial.printf("  Suhu    : %.1f C\n", lastTemp);
-    Serial.printf("  Hum     : %.0f %%\n", lastHumid);
-    Serial.printf("  Heap    : %u bytes\n", ESP.getFreeHeap());
-    Serial.printf("  Uptime  : %lu s\n", millis()/1000UL);
-    Serial.println("----------------------------------------------------");
-  } else if(lc=="led on"){
-    ledState=true; digitalWrite(LED_PIN,HIGH);
-    Serial.println("[CLI] LED ON");
-  } else if(lc=="led off"){
-    ledState=false; digitalWrite(LED_PIN,LOW);
-    Serial.println("[CLI] LED OFF");
-  } else if(lc=="relay on"){
-    relayState=true; digitalWrite(RELAY_PIN,HIGH); saveRelayState(true);
-    Serial.println("[CLI] Relay ON -- disimpan ke NVS");
-  } else if(lc=="relay off"){
-    relayState=false; digitalWrite(RELAY_PIN,LOW); saveRelayState(false);
-    Serial.println("[CLI] Relay OFF -- disimpan ke NVS");
-  } else if(lc=="restart"){
-    Serial.println("[CLI] Restart dalam 2 detik...");
-    MDNS.end(); delay(2000); ESP.restart();
-  } else {
-    Serial.printf("[CLI] Tidak dikenal: '%s'. Ketik 'help'.\n", cmd.c_str());
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  if (bacaanPertama || berhasil != dhtOk) {
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
+    } else {
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+    }
+  }
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
   }
 }
 
-// -- setup ------------------------------------------------------------
-void setup(){
+int bacaPotPersen() {
+  return analogRead(PIN_POT) * 100 / 4095;
+}
+
+void aturLed(bool nyala) {
+  ledNyala = nyala;
+  digitalWrite(PIN_LED, nyala ? HIGH : LOW);
+}
+
+void aturRelay(bool nyala) {
+  relayNyala = nyala;
+  digitalWrite(PIN_RELAY, nyala ? HIGH : LOW);
+}
+
+// Menyusun status lengkap (sensor + aktuator) menjadi JSON
+String buatJsonStatus() {
+  JsonDocument doc;
+  if (dhtOk) {
+    doc["suhu"] = suhu;
+    doc["kelembapan"] = kelembapan;
+  } else {
+    doc["suhu"] = nullptr;
+    doc["kelembapan"] = nullptr;
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["potensiometer"] = bacaPotPersen();
+  doc["led"] = ledNyala;
+  doc["relay"] = relayNyala;
+  doc["waktu_nyala"] = millis() / 1000;
+  doc["rssi"] = WiFi.RSSI();
+
+  String json;
+  serializeJson(doc, json);
+  return json;
+}
+
+void kirimJson(int kodeStatus, const String &json) {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(kodeStatus, "application/json", json);
+}
+
+// Mengirim pesan kesalahan dalam format {"error":"..."}
+void kirimKesalahan(int kodeStatus, const char *pesan) {
+  JsonDocument doc;
+  doc["error"] = pesan;
+  String json;
+  serializeJson(doc, json);
+  kirimJson(kodeStatus, json);
+  catatRequest(kodeStatus);
+  Serial.printf("       %s\n", pesan);
+}
+
+// Handler untuk GET /
+void halamanDashboard() {
+  server.send(200, "text/html", HALAMAN_DASHBOARD);
+  catatRequest(200);
+}
+
+// Handler untuk GET /api/status (dipanggil dashboard setiap 2 detik,
+// sengaja tidak dicatat supaya Serial Monitor tidak penuh)
+void kirimStatus() {
+  kirimJson(200, buatJsonStatus());
+}
+
+// Handler untuk POST /api/kontrol
+void terimaKontrol() {
+  // Body JSON tersedia di argumen khusus "plain"
+  if (!server.hasArg("plain")) {
+    kirimKesalahan(400, "Body kosong. Kirim JSON dengan header Content-Type: application/json");
+    return;
+  }
+
+  JsonDocument perintah;
+  DeserializationError err = deserializeJson(perintah, server.arg("plain"));
+  if (err) {
+    kirimKesalahan(400, "JSON tidak valid");
+    return;
+  }
+
+  bool adaPerintah = false;
+  if (perintah["led"].is<bool>()) {
+    aturLed(perintah["led"]);
+    adaPerintah = true;
+  }
+  if (perintah["relay"].is<bool>()) {
+    aturRelay(perintah["relay"]);
+    adaPerintah = true;
+  }
+  if (!adaPerintah) {
+    kirimKesalahan(400, "Isi \"led\" atau \"relay\" dengan true atau false");
+    return;
+  }
+
+  kirimJson(200, buatJsonStatus());  // jawab dengan keadaan terbaru
+  catatRequest(200);
+  Serial.printf("       LED %s, relay %s\n", ledNyala ? "MENYALA" : "MATI",
+                relayNyala ? "AKTIF" : "MATI");
+}
+
+void halaman404() {
+  server.send(404, "text/plain", "404 - alamat tidak ditemukan");
+  catatRequest(404);
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya halaman lebih cepat dijawab
+}
+
+void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN,OUTPUT);   digitalWrite(LED_PIN,LOW);
-  pinMode(RELAY_PIN,OUTPUT); digitalWrite(RELAY_PIN,LOW);
-  dht.begin(); delay(500);
+  delay(1000);
+  Serial.println("\nBAB 46 - Program 3: Dashboard IoT Interaktif");
 
-  Serial.println("\n=== BAB 46 Program 3: Dashboard IoT Interaktif ===");
-  Serial.println("[INFO] Ketik 'help' di Serial Monitor.");
-  Serial.printf("[INFO] Relay PIN: IO%d -- sambungkan kabel jumper!\n", RELAY_PIN);
+  pinMode(PIN_LED, OUTPUT);  // pinMode dulu, baru digitalWrite (core 3.x)
+  pinMode(PIN_RELAY, OUTPUT);
+  aturLed(false);
+  aturRelay(false);
+  dht.begin();
 
-  inputBuffer.reserve(128); // Pre-alokasi CLI buffer
+  sambungkanWiFi();
 
-  // Muat state relay dari NVS
-  loadRelayState();
-  digitalWrite(RELAY_PIN, relayState?HIGH:LOW);
-  Serial.printf("[NVS] Relay state dimuat: %s\n", relayState?"ON":"OFF");
-
-  // Koneksi WiFi
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA); WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true); WiFi.begin(WIFI_SSID,WIFI_PASS);
-
-  uint32_t tS=millis();
-  while(WiFi.status()!=WL_CONNECTED){
-    if(millis()-tS>=20000UL){
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    if(Serial.available()){
-      String inp=Serial.readStringUntil('\n'); inp.trim();
-      if(inp.length()>0) Serial.println("\n[CLI] Tunggu WiFi terhubung...");
-    }
-    Serial.print("."); delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] Terhubung! IP: %s | SSID: %s\n",
-    WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // mDNS
-  if(MDNS.begin(MDNS_NAME)){
-    MDNS.addService("http","tcp",80);
-    MDNS.addServiceTxt("http","tcp","api","/api/sensors");
-    Serial.printf("[mDNS] http://%s.local\n", MDNS_NAME);
-  }
-
-  // GET / -- HTML dari PROGMEM, zero heap!
-  server.on("/",HTTP_GET,[](){
-    server.send_P(200, PSTR("text/html"), DASHBOARD_HTML);
-  });
-
-  // GET /api/sensors -- JSON stack-allocated
-  server.on("/api/sensors",HTTP_GET,[](){
-    char tS[8]="null", hS[8]="null";
-    if(sensorOk&&!isnan(lastTemp))   snprintf(tS,sizeof(tS),"%.1f",lastTemp);
-    if(sensorOk&&!isnan(lastHumid))  snprintf(hS,sizeof(hS),"%.0f",lastHumid);
-    char json[300];
-    snprintf(json,sizeof(json),
-      "{\"temp\":%s,\"humidity\":%s,\"rssi\":%d,\"uptime\":%lu,"
-      "\"freeHeap\":%u,\"cpuMHz\":%u,\"sensorOk\":%s,"
-      "\"ledState\":%s,\"relayState\":%s}",
-      tS,hS, WiFi.RSSI(), millis()/1000UL,
-      ESP.getFreeHeap(), ESP.getCpuFreqMHz(),
-      sensorOk  ?"true":"false",
-      ledState  ?"true":"false",
-      relayState?"true":"false"
-    );
-    server.sendHeader("Access-Control-Allow-Origin","*");
-    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    server.setContentLength(strlen(json));
-    server.send(200,"application/json","");
-    server.sendContent(json);
-  });
-
-  // POST /api/led?state=1 atau ?state=0
-  server.on("/api/led",HTTP_POST,[](){
-    server.sendHeader("Access-Control-Allow-Origin","*");
-    server.sendHeader("Cache-Control","no-store");
-    if(!server.hasArg("state")){
-      // CORS header sudah dikirim — browser bisa baca respons 400 ini
-      server.send(400,"application/json","{\"error\":\"missing state\"}"); return;
-    }
-    ledState=(server.arg("state")=="1");
-    digitalWrite(LED_PIN, ledState?HIGH:LOW);
-    Serial.printf("[HTTP] LED %s via API\n", ledState?"ON":"OFF");
-    char resp[40];
-    snprintf(resp,sizeof(resp),"{\"ok\":true,\"state\":%s}", ledState?"true":"false");
-    server.setContentLength(strlen(resp));
-    server.send(200,"application/json",""); server.sendContent(resp);
-  });
-
-  // POST /api/relay?state=1 atau ?state=0
-  server.on("/api/relay",HTTP_POST,[](){
-    server.sendHeader("Access-Control-Allow-Origin","*");
-    server.sendHeader("Cache-Control","no-store");
-    if(!server.hasArg("state")){
-      // CORS header sudah dikirim — browser bisa baca respons 400 ini
-      server.send(400,"application/json","{\"error\":\"missing state\"}"); return;
-    }
-    relayState=(server.arg("state")=="1");
-    digitalWrite(RELAY_PIN, relayState?HIGH:LOW);
-    saveRelayState(relayState); // Simpan NVS -- bertahan setelah reboot!
-    Serial.printf("[HTTP] Relay %s via API -- disimpan NVS\n", relayState?"ON":"OFF");
-    char resp[40];
-    snprintf(resp,sizeof(resp),"{\"ok\":true,\"state\":%s}", relayState?"true":"false");
-    server.setContentLength(strlen(resp));
-    server.send(200,"application/json",""); server.sendContent(resp);
-  });
-
-  // 404 & CORS Preflight (OPTIONS) Handler
-  server.onNotFound([](){
-    if(server.method() == HTTP_OPTIONS){
-      server.sendHeader("Access-Control-Allow-Origin", "*");
-      server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
-      server.send(204);
-      return;
-    }
-    server.send(404,"text/plain","404 Not Found");
-  });
+  server.on("/", HTTP_GET, halamanDashboard);
+  server.on("/api/status", HTTP_GET, kirimStatus);
+  server.on("/api/kontrol", HTTP_POST, terimaKontrol);
+  server.onNotFound(halaman404);
   server.begin();
 
-  Serial.println("\n==========================================");
-  Serial.printf(" Dashboard  : http://%s.local\n", MDNS_NAME);
-  Serial.printf(" Sensor API : http://%s.local/api/sensors\n", MDNS_NAME);
-  Serial.printf(" LED API    : POST http://%s.local/api/led?state=1\n", MDNS_NAME);
-  Serial.printf(" Relay API  : POST http://%s.local/api/relay?state=1\n", MDNS_NAME);
-  Serial.println("==========================================");
+  Serial.print("Dashboard siap. Buka di browser: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
 }
 
-// -- loop -------------------------------------------------------------
-void loop(){
+void loop() {
   server.handleClient();
 
-  // DHT11 Non-Blocking (setiap 2 detik)
-  static unsigned long tDHT=0;
-  if(millis()-tDHT>=2000UL){
-    tDHT=millis();
-    float t=dht.readTemperature(), h=dht.readHumidity();
-    if(!isnan(t)&&!isnan(h)){
-      if(!sensorOk) Serial.println("[DHT] Sensor pulih!");
-      lastTemp=t; lastHumid=h; sensorOk=true;
-    } else {
-      if(sensorOk) Serial.println("[DHT] Gagal baca! Cek wiring IO27.");
-      sensorOk=false;
-    }
-  }
-
-  // Serial CLI
-  while(Serial.available()){
-    char c=(char)Serial.read();
-    if(c=='\n'||c=='\r'){
-      if(inputBuffer.length()>0){ processSerialCommand(inputBuffer); inputBuffer=""; }
-    } else if(inputBuffer.length()<128){ inputBuffer+=c; }
-  }
-
-  // Deteksi transisi WiFi (prevWiFiState=true: sudah konek di setup)
-  static bool prev=true;
-  bool curr=(WiFi.status()==WL_CONNECTED);
-  if(!prev&&curr) Serial.printf("[WiFi] Reconnect! IP: %s\n", WiFi.localIP().toString().c_str());
-  if(prev&&!curr) Serial.println("[WiFi] Koneksi terputus...");
-  prev=curr;
-
-  // Heartbeat tiap 30 detik
-  static unsigned long tHb=0;
-  if(millis()-tHb>=30000UL){
-    tHb=millis();
-    Serial.printf("[HB] %.1fC %.0f%% LED:%s Relay:%s Heap:%u B\n",
-      lastTemp, lastHumid,
-      ledState?"ON":"OFF", relayState?"ON":"OFF",
-      ESP.getFreeHeap());
+  if (timerDHT.sudahWaktunya(millis())) {
+    bacaDHT();
   }
 }
 ```
 
-**Contoh Output Serial Monitor:**
+**Penjelasan Kode:**
+
+*Bagian ESP32 (C++):*
+
+- **Tiga *route*.** `GET /` mengirim halaman *dashboard* sekali saja. `GET /api/status` mengirim data terbaru dalam JSON. `POST /api/kontrol` menerima perintah. Pembagian ini membuat halaman yang besar (±6,7 KB) tidak perlu dikirim ulang; yang bolak-balik setiap 2 detik hanya JSON berukuran ±120 *byte*.
+- **`terimaKontrol()`** mengambil *body* JSON dengan `server.arg("plain")`, lalu membacanya dengan `deserializeJson()`. Setiap kunci dicek dengan `is<bool>()`, sehingga perintah seperti `{"led":"ya"}` atau `{"lampu":true}` ditolak dengan kode **400** dan pesan yang jelas. Satu perintah boleh berisi dua kunci sekaligus, misalnya `{"led":true,"relay":true}`.
+- **Jawaban POST berisi status terbaru**, bukan sekadar "OK". Dengan begitu tombol di halaman langsung menampilkan keadaan yang **sebenarnya** di ESP32.
+- **`kirimStatus()` sengaja tidak mencetak apa pun** ke Serial Monitor. *Dashboard* memanggilnya setiap 2 detik, jadi mencatat setiap panggilan akan membanjiri Serial Monitor. Yang dicatat hanya pembukaan halaman, perintah kontrol, dan kesalahan.
+- **`aturLed()` dan `aturRelay()`** mengubah pin sekaligus menyimpan keadaannya di variabel `ledNyala` dan `relayNyala`, sehingga status yang dikirim ke *browser* selalu sesuai dengan keadaan pin. Di `setup()`, `pinMode()` dipanggil lebih dulu karena di core 3.x `digitalWrite()` sebelum `pinMode()` diabaikan.
+
+*Bagian halaman (HTML, CSS, JavaScript):*
+
+- **HTML** menyediakan "wadah" kosong bertanda `id`, misalnya `<span id="suhu">--</span>`. Tanda `--` tampil sampai data pertama datang.
+- **CSS** membuat kartu-kartu yang otomatis tersusun: `grid-template-columns: repeat(auto-fit, minmax(140px, 1fr))` artinya "isi sebanyak mungkin kolom selebar minimal 140 px", sehingga di laptop tiga kartu sensor berjajar dan di HP sebagian turun ke baris berikutnya.
+- **`ambilJson()`** membungkus `fetch()`: memasang batas tunggu 6 detik dengan `AbortController` (kalau ESP32 tidak menjawab, *request* dibatalkan; alasan angka 6 detik ada di [46.12](#4612-batasan-webserver-dan-langkah-berikutnya)), memeriksa kode status dengan `r.ok`, lalu mengubah jawaban menjadi objek dengan `r.json()`.
+- **`perbarui()`** adalah *polling* dari [46.8](#468-memperbarui-halaman-dengan-fetch). Kalau berhasil, label di pojok kanan atas menjadi **● Terhubung** (hijau); kalau gagal, **● Terputus** (merah), dan *polling* terus mencoba lagi setiap 2 detik.
+- **`kirim()`** dipanggil saat tombol ditekan. Ia membuat perintah kebalikan dari keadaan sekarang (`{"led":true}` kalau LED sedang mati), menonaktifkan tombol dan mengganti tulisannya menjadi **Mengirim...** supaya tidak ditekan dua kali, lalu menampilkan keadaan dari jawaban ESP32. Kalau gagal, tombol dipulihkan dan pesan merah muncul di bawahnya.
+- **`aturTombol()`** menulis status (**Menyala**/**Aktif** berlatar jingga, atau **Mati** berlatar abu-abu), lalu `pulihkanTombol()` mengatur tulisan dan warna tombol: **Nyalakan** berwarna biru, **Matikan** berwarna abu-abu tua, dan tombol yang sedang menunggu jawaban berwarna abu-abu muda. Jadi, status menunjukkan keadaan **sekarang**, sedangkan tombol menunjukkan **aksi** yang akan terjadi kalau ditekan. Tombol yang sedang mengirim (`dataset.kirim`) tidak diubah oleh *polling*, supaya tulisan **Mengirim...** tidak tertimpa.
+- **`toFixed(1).replace(".", ",")`** membulatkan suhu menjadi satu angka desimal, lalu mengganti titik dengan koma sesuai penulisan angka di Indonesia (`28,6`). Di dalam JSON, angka tetap memakai titik (`28.6`) karena itulah aturan format JSON.
+- **`textContent`** dipakai (bukan `innerHTML`) supaya data yang masuk selalu dianggap teks biasa, tidak pernah dijalankan sebagai HTML.
+- **Tanpa CDN.** Semua CSS dan JavaScript ditulis langsung di halaman, tidak mengambil *file* dari internet (CDN, *Content Delivery Network*). Jadi *dashboard* tetap berjalan walaupun router tidak tersambung ke internet, atau saat ESP32 menjadi *Access Point* sendiri ([BAB 43](../BAB-43/README.md)).
+
+**Contoh Output:**
+
+```text
+BAB 46 - Program 3: Dashboard IoT Interaktif
+Menyambung ke WiFi "NamaWiFiKamu"..... tersambung!
+Dashboard siap. Buka di browser: http://192.168.1.23/
+[DHT11] OK: 28.6 °C, 70 %RH
+[HTTP] GET / -> 200 (dari 192.168.1.10)
+[HTTP] GET /favicon.ico -> 404 (dari 192.168.1.10)
+[HTTP] POST /api/kontrol -> 200 (dari 192.168.1.10)
+       LED MENYALA, relay MATI
+[HTTP] POST /api/kontrol -> 200 (dari 192.168.1.10)
+       LED MENYALA, relay AKTIF
 ```
-=== BAB 46 Program 3: Dashboard IoT Interaktif ===
-[INFO] Ketik 'help' di Serial Monitor.
-[INFO] Relay PIN: IO4 -- sambungkan kabel jumper!
-[NVS] Relay state dimuat: OFF
-[WiFi] Terhubung! IP: 192.168.1.105 | SSID: WiFiRumah
-[mDNS] http://bluino.local
-==========================================
- Dashboard  : http://bluino.local
- Sensor API : http://bluino.local/api/sensors
-==========================================
-[HTTP] LED ON via API
-[HTTP] Relay ON via API -- disimpan NVS
-[HB] 28.5C 65% LED:ON Relay:ON Heap:195240 B
+
+Contoh di atas terjadi saat halaman dibuka, lalu tombol LED merah dan tombol *relay* ditekan berurutan. Alamat IP dan angka sensor bisa berbeda di jaringanmu.
+
+Di *browser* muncul *dashboard* berjudul **Dashboard Bluino** dengan label **● Terhubung** berwarna hijau. Kartu **Suhu**, **Kelembapan**, dan **Potensiometer** menampilkan angka beserta satuannya; saat potensiometer diputar, angka dan batang birunya berubah dalam 2 detik tanpa layar berkedip. Di bawahnya ada dua baris kontrol: **LED Merah (LED1, IO4)** dan **Relay (IO26)**, masing-masing dengan status **Mati** dan tombol **Nyalakan**. Setelah tombol LED ditekan, LED merah di kit menyala, statusnya berubah menjadi **Menyala**, dan tombolnya menjadi **Matikan**. Tombol *relay* membuat *relay* berbunyi "klik" dan LED indikator *relay* menyala. Kartu **Info Perangkat** menampilkan sinyal WiFi, lama ESP32 menyala, dan jam terakhir data diperbarui.
+
+![Tampilan dashboard Program 3 di layar HP: judul Dashboard Bluino dengan label hijau Terhubung, kartu Suhu 28,6 °C, Kelembapan 70 %RH, dan Potensiometer 63 % dengan batang biru, baris kontrol LED Merah berstatus Menyala dengan tombol Matikan, baris Relay berstatus Mati dengan tombol Nyalakan, serta kartu Info Perangkat](img/dashboard-p3-hp.png)
+
+*Gambar 46.6 — Contoh tampilan dashboard Program 3 di layar HP (lebar 390 piksel) setelah LED merah dinyalakan. Angka-angkanya hanya contoh. Sumber: tangkapan layar halaman Program 3, dibuat untuk materi ini.*
+
+> 🧪 **Coba Sendiri:** Buka *dashboard* di HP **dan** laptop sekaligus. Tekan tombol LED di HP, lalu perhatikan tombol di laptop ikut berubah paling lambat 2 detik kemudian, karena keduanya membaca status yang sama dari ESP32. Lalu cabut kabel USB ESP32 sebentar: label berubah menjadi **● Terputus**, dan kembali **● Terhubung** sendiri setelah ESP32 menyala lagi (selama alamat IP-nya tetap).
+
+### 46.9.1 Mengontrol dengan curl
+
+Karena kontrolnya berupa API, program lain juga bisa memakainya, misalnya `curl`. Perintah POST dengan JSON harus menyertakan *header* `Content-Type: application/json` (`-H`) dan isi JSON (`-d`). Cara menulis tanda kutipnya berbeda di Windows dan macOS/Linux.
+
+**Windows — Command Prompt** (tanda kutip ganda di dalam JSON ditulis `\"`):
+
+```bat
+curl -X POST -H "Content-Type: application/json" -d "{\"led\":true}" http://192.168.1.23/api/kontrol
 ```
+
+**macOS / Linux — Terminal** (JSON diapit tanda kutip tunggal):
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{"led":true}' http://192.168.1.23/api/kontrol
+```
+
+Jawabannya adalah status terbaru, dan LED merah di kit menyala:
+
+```json
+{"suhu":28.6,"kelembapan":70,"dht_ok":true,"potensiometer":63,"led":true,"relay":false,"waktu_nyala":312,"rssi":-58}
+```
+
+Variasi yang bisa dicoba (ganti bagian JSON-nya saja):
+
+| JSON yang dikirim | Hasil |
+|---|---|
+| `{"led":false}` | LED merah mati |
+| `{"relay":true}` | *Relay* aktif |
+| `{"led":true,"relay":true}` | Keduanya menyala sekaligus |
+| `{"led":"ya"}` | Ditolak: `400` dengan `{"error":"Isi \"led\" atau \"relay\" dengan true atau false"}` |
+| `{"led":true` | Ditolak: `400` dengan `{"error":"JSON tidak valid"}` (kurung kurawal penutup hilang) |
+
+Untuk membaca status saja, cukup `curl http://192.168.1.23/api/status` (sama di semua sistem operasi).
+
+> 📌 **Catatan:** Kalau `-H "Content-Type: application/json"` lupa ditulis, `curl` mengirim data sebagai isian formulir biasa, sehingga `server.hasArg("plain")` bernilai `false` dan ESP32 menjawab `400` dengan pesan `Body kosong...`. Di **PowerShell**, aturan tanda kutipnya berbeda lagi dan rawan salah, jadi pakai **Command Prompt** untuk perintah di atas.
+
+**Kalau Belum Berhasil:**
+
+- **Angka sensor muncul, tetapi tombol tetap bertuliskan "Memuat..."** → JavaScript berhenti karena salah ketik saat menyalin kode. Di laptop, tekan **F12** → tab **Console** untuk melihat pesan kesalahannya, lalu salin ulang kodenya utuh.
+- **Tombol ditekan, status berubah, tetapi LED atau *relay* di kit diam** → kabel `LED1` → `4` atau `RELAY` → `26` belum terpasang atau tertukar dengan `BUZZ`. Kalau *buzzer* yang berbunyi, kabelnya ada di `BUZZ`.
+- **Label selalu "● Terputus"** → halaman dibuka dari alamat yang salah, atau ESP32 *restart* dan mendapat IP baru. Periksa IP di Serial Monitor, lalu buka ulang halamannya.
+- **Muncul "Perintah gagal dikirim"** → koneksi WiFi HP/laptop atau ESP32 terputus sesaat. Tunggu label kembali **● Terhubung**, lalu tekan tombolnya lagi.
 
 ---
 
-## 46.7 Konsep Lanjutan: WebServer.h vs AsyncWebServer
+## 46.10 Program 4: Halaman Web dari LittleFS
 
+**Tujuan:** Menyimpan halaman web sebagai *file* terpisah — `index.html`, `style.css`, dan `app.js` — di LittleFS ([BAB 40](../BAB-40/README.md)), lalu menyajikannya dengan `server.streamFile()` dan `server.serveStatic()`. Isinya *dashboard* sensor sederhana yang memakai API `/api/sensor` dari Program 2.
+
+Kenapa repot memindahkan halaman ke *file*?
+
+| Halaman di dalam kode (Program 1–3) | Halaman sebagai *file* di LittleFS (Program 4) |
+|---|---|
+| Satu *file* `.ino`, mudah disalin | Ada folder `data` yang harus diunggah terpisah |
+| Mengubah tampilan = *compile* dan *upload* ulang seluruh program | Mengubah tampilan cukup mengunggah ulang folder `data`, tanpa *compile* |
+| HTML, CSS, dan JavaScript bercampur dengan kode C++ | Setiap bahasa di *file*-nya sendiri, bisa diedit dengan editor web biasa dan dicoba dulu di komputer |
+| Halaman ikut memakan ruang program (±1,25 MB) | Halaman memakai partisi LittleFS (±1,4 MB) yang terpisah |
+
+Untuk *dashboard* kecil, cara Program 3 sudah cukup. Cara Program 4 berguna saat halamannya makin besar, punya gambar, atau sering diubah tampilannya.
+
+**Rangkaian:**
+
+Sama dengan Program 2:
+
+| Pin **Custom** di kit | Sambungkan ke pin ESP32 |
+|---|---|
+| `DHT` — DHT11 (header hijau, pin ke-3 dari atas) | IO27 |
+| `VR10K` — potensiometer (header kuning, pin ke-5 dari kiri) | IO34 |
+
+### 46.10.1 Menyiapkan Folder data
+
+Struktur folder *sketch*-nya:
+
+```text
+p4_web_littlefs/                <- folder sketch
+├── p4_web_littlefs.ino
+└── data/                       <- diunggah ke LittleFS dengan plugin
+    ├── index.html              <- di ESP32 menjadi /index.html
+    ├── style.css               <- di ESP32 menjadi /style.css
+    └── app.js                  <- di ESP32 menjadi /app.js
 ```
-PERBANDINGAN LIBRARY WEB SERVER ESP32:
 
-  Fitur               WebServer.h     ESPAsyncWebServer
-  ─────────────────   ───────────     ─────────────────
-  Terinstall default  Bawaan          Install manual
-  Arsitektur          Synchronous     Asynchronous (RTOS)
-  Concurrent request  1 per loop      Multiple sekaligus
-  RAM usage           Lebih hemat     Lebih boros
-  Cocok untuk         IoT dasar-mng   Web app kompleks
+Kalau kamu mengunduh repositori ini, folder [`p4_web_littlefs/data`](p4_web_littlefs/data/) sudah berisi ketiga *file* tersebut. Kalau membuat sendiri:
 
+1. Simpan *sketch* Program 4 (kode di [46.10.2](#46102-kode-program-4)) dengan nama `p4_web_littlefs` lewat **File → Save As…**.
+2. Pilih **Sketch → Show Sketch Folder** (Ctrl+Alt+K). Folder *sketch* terbuka di File Explorer/Finder. Buat folder baru bernama `data` (huruf kecil) di sana.
+3. Buat tiga *file* di folder `data` dengan **Notepad** (Windows) atau **TextEdit** (macOS; pilih **Format → Make Plain Text**). Saat menyimpan di Notepad, pilih **Save as type: All files** dan **Encoding: UTF-8**. Kalau tidak, Notepad menamainya `index.html.txt` dan *file* itu tidak akan ditemukan ESP32.
 
-TEKNIK PROGMEM (digunakan di Program 3):
+> 💡 **Tips:** Di Windows, nyalakan **View → Show → File name extensions** di File Explorer supaya akhiran nama *file* (`.html`, `.txt`) terlihat. Kamu juga bisa membuka `index.html` dengan klik dua kali untuk melihat tampilannya di *browser* komputer. Angkanya tetap `--` karena tidak ada ESP32 yang menjawab `/api/sensor`, tetapi tata letak dan warnanya bisa dicek dulu.
 
-  HTML di heap (Program 1 dan 2):
-    String html; html.reserve(3000); html += "...";  // Pakai heap!
+***File* `data/index.html`** — isi dan struktur halaman:
 
-  HTML di Flash PROGMEM (Program 3):
-    const char HTML[] PROGMEM = R"rawhtml(...)rawhtml";
-    server.send_P(200, PSTR("text/html"), HTML);     // ZERO heap!
-
-  Keunggulan:
-  - HTML 3-5KB tidak memakan heap sama sekali
-  - Flash 4MB jauh lebih besar dari 320KB DRAM ESP32
-  - Ideal: halaman statis besar + API JSON dinamis terpisah
+```html
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor Bluino</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wadah">
+  <header>
+    <h1>Sensor Bluino</h1>
+    <span id="koneksi" class="koneksi">Memuat...</span>
+  </header>
+  <p class="keterangan">Halaman ini disajikan dari file di LittleFS.</p>
+  <div class="grid">
+    <div class="kartu">
+      <div class="label">Suhu</div>
+      <div class="nilai"><span id="suhu">--</span> <span class="satuan">°C</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Kelembapan</div>
+      <div class="nilai"><span id="lembap">--</span> <span class="satuan">%RH</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Potensiometer</div>
+      <div class="nilai"><span id="pot">--</span> <span class="satuan">%</span></div>
+    </div>
+  </div>
+  <p class="keterangan">Diperbarui pukul <span id="jam">--</span></p>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
 ```
+
+***File* `data/style.css`** — tampilan:
+
+```css
+* { box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; background: #f2f4f7;
+       color: #222; margin: 0; padding: 16px; }
+.wadah { max-width: 520px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: center; }
+h1 { font-size: 1.3em; margin: 0; color: #2e7d32; }
+.keterangan { color: #666; font-size: 0.9em; }
+.koneksi { font-size: 0.85em; padding: 4px 10px; border-radius: 999px;
+           background: #e0e0e0; color: #555; }
+.koneksi.ok { background: #e8f5e9; color: #2e7d32; }
+.koneksi.putus { background: #ffebee; color: #c62828; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px; }
+.kartu { background: #fff; border-radius: 12px; padding: 14px;
+         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.label { font-size: 0.9em; color: #666; }
+.nilai { font-size: 2em; font-weight: bold; margin-top: 4px; }
+.satuan { font-size: 0.5em; color: #666; font-weight: normal; }
+```
+
+***File* `data/app.js`** — perilaku (*polling* `/api/sensor` setiap 2 detik):
+
+```javascript
+function el(id) { return document.getElementById(id); }
+
+function aturKoneksi(ok) {
+  el("koneksi").textContent = ok ? "● Terhubung" : "● Terputus";
+  el("koneksi").className = "koneksi " + (ok ? "ok" : "putus");
+}
+
+async function perbarui() {
+  try {
+    const r = await fetch("/api/sensor", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    el("suhu").textContent = d.suhu === null ? "--" : d.suhu.toFixed(1).replace(".", ",");
+    el("lembap").textContent = d.kelembapan === null ? "--" : d.kelembapan.toFixed(0);
+    el("pot").textContent = d.potensiometer;
+    el("jam").textContent = new Date().toLocaleTimeString("id-ID");
+    aturKoneksi(true);
+  } catch (e) {
+    aturKoneksi(false);
+  }
+  setTimeout(perbarui, 2000);
+}
+
+perbarui();
+```
+
+Perhatikan bahwa `index.html` memanggil dua *file* lainnya: `<link rel="stylesheet" href="style.css">` meminta CSS, dan `<script src="app.js">` meminta JavaScript. Jadi saat halaman dibuka, *browser* mengirim tiga *request*: `/`, `/style.css`, dan `/app.js`.
+
+### 46.10.2 Kode Program 4
+
+**Cara Menjalankan:**
+
+1. Sambungkan kabel *jumper* sesuai tabel **Rangkaian** di atas.
+2. Pastikan *plugin* **arduino-littlefs-upload** sudah terpasang (langkahnya di [BAB 40](../BAB-40/README.md#4011-mengunggah-file-dari-komputer-folder-data)) dan *library* DHT serta ArduinoJson sudah terpasang seperti di Program 2.
+3. Buka *file* [`p4_web_littlefs.ino`](p4_web_littlefs/p4_web_littlefs.ino) dari repositori lewat **File → Open…**, atau buat *sketch* baru bernama `p4_web_littlefs`, salin kode di bawah, dan siapkan folder `data` seperti di [46.10.1](#46101-menyiapkan-folder-data).
+4. Ganti `NamaWiFiKamu` dan `PasswordWiFiKamu` dengan WiFi milikmu.
+5. Pastikan **Tools → Board** = **ESP32 Dev Module**, **Tools → Port** = *port* ESP32 kamu, dan **Tools → Partition Scheme** = **Default 4MB with spiffs**.
+6. Klik **Upload** dan tunggu sampai muncul **Done uploading**.
+7. **Tutup Serial Monitor** (klik tanda **×** pada tab-nya), lalu tekan **Ctrl+Shift+P** (macOS: **Cmd+Shift+P**), ketik `Upload LittleFS`, pilih **Upload LittleFS to Pico/ESP8266/ESP32**, dan tekan **Enter**. Tunggu sampai panel bawah menampilkan **Completed upload.**
+8. Buka lagi **Serial Monitor** (baud **115200**), tekan tombol **EN**, lalu catat alamat IP-nya.
+9. Buka `http://<IP>/` di *browser* HP atau laptop yang tersambung ke WiFi yang sama.
+
+> 📌 **Catatan:** Urutan langkah 6 dan 7 boleh dibalik. Meng-*upload* program tidak menghapus isi LittleFS, dan mengunggah LittleFS tidak menghapus program. Namun, *plugin* menulis ulang **seluruh** partisi LittleFS, jadi *file* lain yang pernah dibuat program sebelumnya (misalnya log dari [BAB 40](../BAB-40/README.md)) akan hilang.
+
+**Kode Program:**
+
+<!-- sketch: p4_web_littlefs -->
+```cpp
+/*
+ * BAB 46 - Program 4: Halaman Web dari LittleFS
+ * File halaman (index.html, style.css, app.js) ada di folder "data" dan
+ * diunggah ke LittleFS dengan plugin arduino-littlefs-upload (BAB 40).
+ * - GET /           -> /index.html dari LittleFS (server.streamFile)
+ * - GET /style.css, /app.js, dll. -> file dari LittleFS (server.serveStatic)
+ * - GET /api/sensor -> data sensor dalam JSON (sama dengan Program 2)
+ * Rangkaian: DHT (header hijau) -> IO27, VR10K (header kuning) -> IO34
+ * Tools -> Partition Scheme: Default 4MB with spiffs
+ */
+
+#include <WiFi.h>
+#include <WebServer.h>
+#include <LittleFS.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
+
+#define PIN_DHT 27
+#define TIPE_DHT DHT11
+#define PIN_POT 34  // potensiometer VR10K (ADC1)
+
+// struct Timer dari BAB 16
+struct Timer {
+  unsigned long interval;   // ms
+  unsigned long waktuLalu;  // hasil millis() saat terakhir dijalankan
+
+  // Mengembalikan true kalau sudah waktunya, lalu mencatat waktunya
+  bool sudahWaktunya(unsigned long sekarang) {
+    if (sekarang - waktuLalu >= interval) {
+      waktuLalu = sekarang;
+      return true;
+    }
+    return false;
+  }
+};
+
+WebServer server(80);
+DHT dht(PIN_DHT, TIPE_DHT);
+Timer timerDHT = {2000, 0};  // baca DHT11 setiap 2 detik
+
+float suhu = NAN;
+float kelembapan = NAN;
+bool dhtOk = false;
+bool bacaanPertama = true;
+
+void catatRequest(int kodeStatus) {
+  Serial.printf("[HTTP] %s %s -> %d (dari %s)\n",
+                http_method_str(server.method()), server.uri().c_str(),
+                kodeStatus, server.client().remoteIP().toString().c_str());
+}
+
+void bacaDHT() {
+  dht.read(true);  // paksa membaca sensor sekarang (±25 ms), lihat BAB 26
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  bool berhasil = !isnan(h) && !isnan(t);
+
+  if (bacaanPertama || berhasil != dhtOk) {
+    if (berhasil) {
+      Serial.printf("[DHT11] OK: %.1f °C, %.0f %%RH\n", t, h);
+    } else {
+      Serial.println("[DHT11] Gagal membaca. Periksa kabel DHT -> IO27.");
+    }
+  }
+  bacaanPertama = false;
+  dhtOk = berhasil;
+  if (berhasil) {
+    suhu = t;
+    kelembapan = h;
+  }
+}
+
+int bacaPotPersen() {
+  return analogRead(PIN_POT) * 100 / 4095;
+}
+
+// Handler untuk GET /api/sensor (dipanggil app.js setiap 2 detik, tidak dicatat)
+void kirimSensor() {
+  JsonDocument doc;
+  if (dhtOk) {
+    doc["suhu"] = suhu;
+    doc["kelembapan"] = kelembapan;
+  } else {
+    doc["suhu"] = nullptr;
+    doc["kelembapan"] = nullptr;
+  }
+  doc["dht_ok"] = dhtOk;
+  doc["potensiometer"] = bacaPotPersen();
+  doc["waktu_nyala"] = millis() / 1000;
+  doc["rssi"] = WiFi.RSSI();
+
+  String json;
+  serializeJson(doc, json);
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", json);
+}
+
+// Handler untuk GET /: kirim isi file /index.html
+void halamanUtama() {
+  File f = LittleFS.open("/index.html", "r");
+  if (!f) {
+    server.send(500, "text/plain",
+                "File /index.html tidak ada di LittleFS. Unggah folder data dulu (lihat BAB 40).");
+    catatRequest(500);
+    return;
+  }
+  server.streamFile(f, "text/html");  // kirim isi file sedikit demi sedikit
+  f.close();
+  catatRequest(200);
+}
+
+void halaman404() {
+  server.send(404, "text/plain", "404 - alamat tidak ditemukan");
+  catatRequest(404);
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya halaman lebih cepat dijawab
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\nBAB 46 - Program 4: Halaman Web dari LittleFS");
+
+  // true = format otomatis kalau partisi belum pernah dipakai
+  if (!LittleFS.begin(true)) {
+    Serial.println("[LittleFS] Gagal dipasang. Periksa Tools -> Partition Scheme.");
+  } else if (!LittleFS.exists("/index.html")) {
+    Serial.println("[LittleFS] /index.html belum ada. Unggah folder data dulu (BAB 40).");
+  } else {
+    Serial.println("[LittleFS] OK: /index.html ditemukan.");
+  }
+
+  dht.begin();
+  sambungkanWiFi();
+
+  // Urutan penting: route khusus didaftarkan SEBELUM serveStatic
+  server.on("/api/sensor", HTTP_GET, kirimSensor);
+  server.on("/", HTTP_GET, halamanUtama);
+  server.serveStatic("/", LittleFS, "/");  // /style.css, /app.js, dll. dari LittleFS
+  server.onNotFound(halaman404);
+  server.begin();
+
+  Serial.print("Web server siap. Buka di browser: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
+}
+
+void loop() {
+  server.handleClient();
+
+  if (timerDHT.sudahWaktunya(millis())) {
+    bacaDHT();
+  }
+}
+```
+
+**Penjelasan Kode:**
+
+- **`LittleFS.begin(true)`** memasang (*mount*) sistem *file* seperti di [BAB 40](../BAB-40/README.md). Setelah itu program memeriksa apakah `/index.html` ada, supaya kamu langsung tahu kalau folder `data` belum diunggah.
+- **`halamanUtama()`** membuka `/index.html` lalu mengirimnya dengan `server.streamFile(f, "text/html")`. Isi *file* dibaca dan dikirim sedikit demi sedikit, jadi *file* sebesar apa pun tidak perlu dimuat utuh ke RAM. Kalau *file*-nya tidak ada, *browser* menerima kode **500** dengan pesan yang menjelaskan apa yang harus dilakukan.
+- **`server.serveStatic("/", LittleFS, "/")`** artinya: "untuk *request* GET yang alamatnya diawali `/`, cari *file* dengan nama yang sama di LittleFS". `GET /style.css` menjadi *file* `/style.css`, `GET /app.js` menjadi `/app.js`. Jenis isinya ditentukan otomatis dari akhiran nama *file* (`.css` → `text/css`, `.js` → `application/javascript`). *File* baru di folder `data`, misalnya gambar `logo.png`, langsung bisa diakses tanpa menambah kode.
+- **Kenapa `/` tidak diserahkan ke `serveStatic` saja?** Untuk alamat yang berakhiran `/`, `serveStatic` mencari *file* bernama **`index.htm`** (tanpa huruf `l`), bukan `index.html`. Karena itu `/` ditangani sendiri oleh `halamanUtama()`.
+- **Urutan pendaftaran penting.** `WebServer` memeriksa *route* sesuai urutan didaftarkan, dan `serveStatic("/")` cocok dengan **semua** alamat GET. Kalau `serveStatic` didaftarkan lebih dulu, `GET /api/sensor` akan dicari sebagai *file* `/api/sensor`, tidak ditemukan, lalu berakhir di 404.
+- **`kirimSensor()`** sama dengan Program 2, hanya saja JSON-nya langsung disusun di dalam *handler*. Pengambilan `/style.css`, `/app.js`, dan `/api/sensor` tidak dicatat ke Serial Monitor.
+
+**Contoh Output:**
+
+```text
+BAB 46 - Program 4: Halaman Web dari LittleFS
+[LittleFS] OK: /index.html ditemukan.
+Menyambung ke WiFi "NamaWiFiKamu"..... tersambung!
+Web server siap. Buka di browser: http://192.168.1.23/
+[DHT11] OK: 28.6 °C, 70 %RH
+[HTTP] GET / -> 200 (dari 192.168.1.10)
+[HTTP] GET /favicon.ico -> 404 (dari 192.168.1.10)
+```
+
+Kalau folder `data` belum diunggah, baris kedua menjadi `[LittleFS] /index.html belum ada. Unggah folder data dulu (BAB 40).` dan *browser* menampilkan pesan yang sama dengan kode 500.
+
+Di *browser* muncul halaman berjudul **Sensor Bluino** (judulnya berwarna hijau, berbeda dengan Program 3) dengan label **● Terhubung**, tiga kartu **Suhu**, **Kelembapan**, dan **Potensiometer**, serta jam pembaruan terakhir. Angkanya berubah sendiri setiap 2 detik.
+
+> 🧪 **Coba Sendiri:** Ubah warna judul di `data/style.css`, misalnya `color: #2e7d32;` menjadi `color: #c62828;` (merah). Simpan, tutup Serial Monitor, lalu jalankan lagi **Upload LittleFS to Pico/ESP8266/ESP32** — **tanpa** meng-*upload* ulang program. Muat ulang halaman di *browser* (**Ctrl+F5** di laptop supaya *file* lama tidak dipakai lagi): judulnya kini merah.
+
+**Kalau Belum Berhasil:**
+
+- ***Browser* menampilkan "File /index.html tidak ada di LittleFS..."** → folder `data` belum diunggah, nama foldernya bukan `data` (huruf kecil), atau *file*-nya bernama `index.html.txt`. Periksa dengan **Sketch → Show Sketch Folder**, lalu ulangi langkah 7.
+- **Halaman tampil polos tanpa warna, atau angkanya tetap `--`** → `style.css` atau `app.js` tidak terunggah atau salah nama. Buka `http://<IP>/style.css` dan `http://<IP>/app.js` di *browser*; keduanya harus menampilkan isi *file*, bukan `404`.
+- **Perintah `Upload LittleFS...` tidak ada di Command Palette** → *plugin* belum terpasang atau Arduino IDE belum dibuka ulang. Ikuti [BAB 40](../BAB-40/README.md#4011-mengunggah-file-dari-komputer-folder-data).
+- ***Plugin* gagal dengan pesan *port* sibuk** → Serial Monitor masih terbuka. Tutup tab Serial Monitor, lalu ulangi.
 
 ---
 
-## 46.8 Tabel Fungsi `WebServer.h`
+## 46.11 Keamanan: Siapa Saja Bisa Mengontrol?
 
-| Fungsi | Keterangan | Contoh |
-|--------|------------|--------|
-| `WebServer server(80)` | Buat server port 80 | `WebServer server(80)` |
-| `server.begin()` | Mulai server | `server.begin()` |
-| `server.handleClient()` | Proses request (panggil di loop) | `server.handleClient()` |
-| `server.on(url, method, fn)` | Daftarkan route handler | `server.on("/", HTTP_GET, fn)` |
-| `server.onNotFound(fn)` | Handler 404 | `server.onNotFound(fn)` |
-| `server.send(code, type, body)` | Kirim respons | `server.send(200, "text/html", html)` |
-| `server.sendHeader(k, v)` | Tambah HTTP header | `server.sendHeader("Allow-Origin","*")` |
-| `server.setContentLength(n)` | Set panjang respons | `server.setContentLength(len)` |
-| `server.sendContent(data)` | Streaming zero-copy | `server.sendContent(json)` |
-| `server.send_P(code, type, pgm)` | Kirim dari PROGMEM | `server.send_P(200, type, HTML)` |
-| `server.hasArg(key)` | Cek query parameter ada? | `server.hasArg("state")` |
-| `server.arg(key)` | Ambil nilai query parameter | `server.arg("state")` |
-| `server.uri()` | URL dari request aktif | `server.uri()` |
-| `server.client().remoteIP()` | IP klien pengirim | `server.client().remoteIP()` |
+Semua program di BAB ini **tidak memakai kata sandi**. Artinya, siapa pun yang tersambung ke WiFi yang sama dan tahu alamat IP ESP32 bisa membuka *dashboard*, menyalakan *relay*, atau mengirim perintah dengan `curl`. Mencari alamat IP pun mudah: aplikasi pemindai jaringan di HP bisa menampilkan semua perangkat di WiFi itu dalam hitungan detik.
+
+Selain itu, HTTP **tidak terenkripsi**. Isi *request* dan *response* berupa teks biasa yang bisa diintip oleh perangkat lain di jaringan yang sama, mirip kartu pos yang bisa dibaca siapa saja yang memegangnya.
+
+Untuk belajar di rumah, hal ini bisa diterima. Namun, biasakan langkah-langkah berikut:
+
+1. **Pakai jaringan pribadi** yang kata sandinya kuat. Jangan menaruh perangkat yang mengontrol sesuatu di WiFi publik (kampus, kafe).
+2. **Jangan membuka akses dari internet**, misalnya dengan *port forwarding* di router. *Web server* ESP32 tidak dirancang untuk menghadapi serangan dari internet.
+3. **Periksa setiap masukan**, seperti yang sudah dilakukan: `amankanHtml()` di Program 1, batas panjang teks, dan pemeriksaan `is<bool>()` di Program 3.
+4. **Jangan menyambung beban berbahaya.** *Relay* di kit hanya untuk latihan dengan beban DC kecil; listrik PLN 220 V dilarang ([BAB 37](../BAB-37/README.md#374-keselamatan-kit-ini-bukan-untuk-listrik-pln)). Pada perangkat sungguhan yang dibuat dengan modul dan wadah yang layak, tetap pasang sakelar manual dan sekering, dan jangan mengandalkan halaman web sebagai satu-satunya pengaman.
+5. **Tambahkan login sederhana** kalau *dashboard* dipakai bersama orang lain (lihat di bawah).
+
+### 46.11.1 Login dengan HTTP Basic Authentication
+
+`WebServer` menyediakan **HTTP Basic Authentication**: *browser* menampilkan kotak isian nama pengguna dan kata sandi sebelum halaman dibuka. Contoh menambahkannya ke Program 3:
+
+```cpp
+const char *USER_WEB = "admin";
+const char *PASS_WEB = "GantiSandiIni";  // ← ganti dengan kata sandi buatanmu
+
+// Panggil di awal setiap handler yang perlu dilindungi
+bool sudahLogin() {
+  if (server.authenticate(USER_WEB, PASS_WEB)) {
+    return true;
+  }
+  server.requestAuthentication();  // kirim kode 401: browser menampilkan kotak login
+  return false;
+}
+
+void halamanDashboard() {
+  if (!sudahLogin()) return;
+  server.send(200, "text/html", HALAMAN_DASHBOARD);
+}
+// Lakukan hal yang sama di awal kirimStatus() dan terimaKontrol()
+```
+
+Setelah login berhasil, *browser* menyimpan nama dan kata sandinya untuk alamat itu, sehingga `fetch()` di *dashboard* ikut mengirimkannya secara otomatis. Di `curl`, tambahkan `-u nama:sandi`, misalnya `curl -u admin:GantiSandiIni http://192.168.1.23/api/status`.
+
+> ⚠️ **Perhatian:** Pada Basic Authentication lewat HTTP, kata sandi hanya disandikan dengan Base64 — **bukan** dienkripsi — sehingga masih bisa dibaca orang lain di jaringan yang sama. Cara ini hanya mencegah orang iseng, bukan penyerang yang serius. Perlindungan yang lebih kuat membutuhkan HTTPS ([BAB 49](../BAB-49/README.md)).
 
 ---
 
-## 46.9 Latihan & Tantangan
+## 46.12 Batasan WebServer dan Langkah Berikutnya
+
+*Library* `WebServer` sederhana dan sudah cukup untuk *dashboard* pribadi. Namun, kenali batasannya:
+
+| Batasan | Akibatnya | Jalan keluar |
+|---|---|---|
+| Melayani **satu koneksi** pada satu waktu, hanya saat `handleClient()` dipanggil | *Handler* yang lambat atau `delay()` di `loop()` membuat semua *client* menunggu | Jaga `loop()` tetap cepat dengan pola [BAB 16](../BAB-16/README.md) |
+| Koneksi yang dibuka tetapi belum mengirim *request* ditunggu sampai **5 detik** | Kadang *browser* (terutama Chrome) membuka koneksi cadangan lebih dulu, sehingga *request* lain sesekali tertunda beberapa detik | Itulah sebabnya batas tunggu `fetch()` di Program 3 dibuat 6 detik, lebih lama dari 5 detik tersebut |
+| *Polling*: *browser* yang harus bertanya | Perubahan baru terlihat setelah *polling* berikutnya; banyak *request* walaupun datanya tidak berubah | WebSocket, ESP32 yang mengirim data begitu ada perubahan ([BAB 47](../BAB-47/README.md)) |
+| Hanya HTTP, tanpa enkripsi | Data dan kata sandi bisa diintip | HTTPS ([BAB 49](../BAB-49/README.md)) |
+| Diakses dengan alamat IP yang bisa berubah | Alamat harus dicari lagi di Serial Monitor setelah IP berubah | Nama `bluino.local` dengan mDNS ([BAB 45](../BAB-45/README.md)), atau atur *DHCP reservation* di router |
+
+> 💡 **Tips:** Program di BAB ini juga bisa berjalan tanpa router. Ganti bagian WiFi dengan mode *Access Point* dari [BAB 43](../BAB-43/README.md) (`WiFi.softAP(...)`), sambungkan HP ke WiFi buatan ESP32, lalu buka `http://192.168.4.1/`. Karena halaman di BAB ini tidak memakai CDN, *dashboard* tetap tampil utuh walaupun tidak ada internet sama sekali.
+
+<details>
+<summary><b>🔬 Pendalaman (opsional): WebServer, AsyncWebServer, dan ESP-IDF HTTP Server</b></summary>
+
+Selain `WebServer` bawaan, ada dua pilihan lain yang sering kamu temui di tutorial:
+
+| | `WebServer` (BAB ini) | ESPAsyncWebServer | `esp_http_server` (ESP-IDF) |
+|---|---|---|---|
+| Cara kerja | Sinkron; dilayani saat `handleClient()` dipanggil di `loop()` | Asinkron; *request* dilayani di *task* jaringan terpisah, tanpa `handleClient()` | *Server* berjalan di *task* FreeRTOS sendiri, tanpa `handleClient()` |
+| Pemasangan | Bawaan *board package* | *Library* tambahan (ESPAsyncWebServer + Async TCP dari ESP32Async) | Bawaan ESP-IDF, bisa dipanggil dari Arduino |
+| Banyak koneksi sekaligus | Satu per satu | Ya | Ya (bawaannya sampai 7 koneksi terbuka) |
+| Kerumitan | Paling mudah | Sedang: *handler* tidak boleh memanggil fungsi yang menahan lama, dan data bersama harus dijaga | Paling rumit (API bahasa C) |
+
+Untuk *dashboard* di kit ini, `WebServer` sudah memadai. Kalau kelak butuh banyak pengguna sekaligus atau *file* besar, pelajari ESPAsyncWebServer.
+
+</details>
+
+---
+
+## 46.13 Troubleshooting
+
+| Masalah | Kemungkinan Penyebab | Solusi |
+|---|---|---|
+| Serial Monitor menampilkan titik-titik lalu `Gagal tersambung` | Nama/kata sandi WiFi salah (huruf besar-kecil), WiFi 5 GHz, atau sinyal terlalu lemah | Periksa ejaan, pakai WiFi 2,4 GHz atau *hotspot* HP, dekatkan ESP32 ke router |
+| Alamat IP tidak terlihat di Serial Monitor | Pesannya sudah lewat sebelum Serial Monitor dibuka, atau baud bukan 115200 | Pilih **115200**, lalu tekan tombol **EN** |
+| *Browser*: "Situs tidak dapat dijangkau" / `ERR_CONNECTION_TIMED_OUT` | HP/laptop di WiFi lain atau memakai data seluler, IP salah ketik, atau *browser* memakai `https://` | Sambungkan ke WiFi yang sama, matikan data seluler, ketik lengkap `http://<IP>/` |
+| WiFi sudah sama, tetapi tetap tidak bisa dibuka | Jaringan memakai *client isolation* (sering di WiFi kampus, kantor, kafe, *guest network*) | Pakai *hotspot* HP atau router rumah |
+| Kemarin bisa, sekarang tidak | ESP32 mendapat alamat IP baru dari router | Lihat IP terbaru di Serial Monitor; pakai mDNS ([BAB 45](../BAB-45/README.md)) atau *DHCP reservation* |
+| Halaman kadang lambat atau tertahan beberapa detik | Ada `delay()` di `loop()`, mode hemat daya WiFi aktif, atau koneksi cadangan *browser* sedang ditunggu | Hapus `delay()` dari `loop()`, pastikan ada `WiFi.setSleep(false)`, lihat [46.12](#4612-batasan-webserver-dan-langkah-berikutnya) |
+| Muncul 404 padahal alamatnya sudah didaftarkan | Salah ketik *path* (huruf besar-kecil berpengaruh), *method* berbeda (GET ke *route* POST), atau `serveStatic("/")` didaftarkan lebih dulu | Samakan *path* dan *method*; daftarkan `server.on()` sebelum `serveStatic()` |
+| Tanda `°` tampil sebagai `Â°` atau karakter aneh | Halaman tidak punya `<meta charset="UTF-8">` | Tambahkan baris itu di `<head>` |
+| Halaman tampil sangat kecil di HP | Tidak ada `<meta name="viewport" ...>` | Tambahkan `<meta name="viewport" content="width=device-width, initial-scale=1">` |
+| Tampilan tidak berubah setelah halaman diperbarui | *Browser* masih memakai *file* lama dari *cache* | Tekan **Ctrl+F5** (laptop) atau tutup lalu buka lagi tab di HP |
+| `"suhu":null` dan `[DHT11] Gagal membaca` | Kabel `DHT` → `27` belum terpasang atau bergeser | Periksa kabel ([BAB 26](../BAB-26/README.md)) |
+| POST dijawab `400` dengan `Body kosong...` | `curl` tanpa `-H "Content-Type: application/json"` | Tambahkan *header* tersebut |
+| POST dijawab `400` dengan `JSON tidak valid` atau `Isi "led" atau "relay"...` | JSON rusak, atau tanda kutipnya hilang karena cara menulis tanda kutip tidak cocok dengan terminal (misalnya memakai tanda kutip tunggal `'...'` di Command Prompt) | Salin contoh di [46.9.1](#4691-mengontrol-dengan-curl) persis, sesuai sistem operasimu |
+| PowerShell: `Invoke-WebRequest : A parameter cannot be found...` | Di PowerShell, `curl` adalah nama lain `Invoke-WebRequest` | Ketik `curl.exe`, atau pakai Command Prompt |
+| *Compile* gagal: `ArduinoJson.h: No such file or directory` | *Library* ArduinoJson belum terpasang | Pasang lewat Library Manager ([46.6.3](#4663-library-arduinojson-7)) |
+| *Compile* gagal: `StaticJsonDocument` *is deprecated* | Contoh kode ArduinoJson versi 6 | Ganti dengan `JsonDocument doc;` |
+| *Upload* gagal (`Failed to connect to ESP32`) | *Port* salah, kabel USB hanya untuk mengisi daya, atau *driver* belum terpasang | Lihat [BAB 5](../BAB-05/README.md); tahan tombol **BOOT** saat muncul `Connecting...` |
+
+---
+
+## 📝 Rangkuman
+
+- ***Web server*** menunggu *request* dari *client* (*browser*, `curl`) dan menjawab dengan *response*. ESP32 dengan alamat IP lokal hanya bisa dibuka dari perangkat di **WiFi yang sama**.
+- **URL** terdiri dari skema (`http://`), *host* (IP), *port* (80, boleh tidak ditulis), *path* (`/halo`), dan *query* (`?nama=Budi`).
+- **GET** untuk membaca, **POST** untuk perintah yang mengubah keadaan. Kode status: **200** berhasil, **400** *request* salah, **404** alamat tidak ada, **500** *server* gagal.
+- **HTML** = isi dan struktur, **CSS** = tampilan, **JavaScript** = perilaku. Selalu sertakan `<meta charset="UTF-8">` dan `<meta name="viewport" ...>`.
+- Pola `WebServer`: `server.on(path, method, handler)` → `server.onNotFound()` → `server.begin()` → `server.handleClient()` di `loop()`. **`loop()` tidak boleh tertahan**; baca sensor berkala dengan `struct Timer`.
+- HTML ditulis dengan *raw string literal* `R"rawliteral(...)rawliteral"` dan disimpan sebagai `const char[]` di *flash* (`PROGMEM` tidak diperlukan di ESP32). `send()` menyalin halaman sementara ke RAM; `send_P()` dan LittleFS menghindarinya.
+- Teks dari pengguna harus diamankan sebelum ditampilkan sebagai HTML, dan di JavaScript pakai `textContent`.
+- **JSON** dengan ArduinoJson 7: `JsonDocument`, `serializeJson()`, `deserializeJson()`, `is<T>()`. Data yang tidak ada dikirim sebagai `null`. *Body* POST dibaca dengan `server.arg("plain")`.
+- *Dashboard* yang baik memuat HTML sekali, lalu memperbarui angka dengan `fetch()` (*polling* memakai `setTimeout` setelah jawaban datang), menampilkan status koneksi, dan menonaktifkan tombol selama perintah dikirim.
+- `server.serveStatic()` dan `server.streamFile()` menyajikan *file* dari LittleFS. Daftarkan *route* khusus sebelum `serveStatic("/")`, dan ingat bahwa `serveStatic` mencari `index.htm` untuk alamat berakhiran `/`.
+- Tanpa login dan HTTPS, siapa pun di WiFi yang sama bisa mengontrol perangkat. Basic Authentication hanya pengaman ringan.
+
+## 💪 Latihan
 
 ### Latihan Dasar
-1. **Upload Program 1**, buka `http://bluino.local` di browser HP. Klik "Tentang" — bandingkan Chip ID dengan yang tampil di Serial Monitor.
-2. **Upload Program 2**, buka `http://bluino.local/api/sensors` di browser. Tiup hangat ke DHT11 dan refresh — amati perubahan nilai suhu.
-3. **Uji curl**: Di PowerShell/Terminal, ketik `curl http://bluino.local/api/sensors`.
+
+1. **Halaman Tentang.** Tambahkan halaman `/tentang` di Program 1 yang berisi namamu dan nama kit, lalu beri tautan ke halaman itu dari beranda.
+   *Petunjuk:* Buat *handler* baru, daftarkan dengan `server.on("/tentang", HTTP_GET, ...)`, dan tambahkan `<a href="/tentang">Tentang</a>` di `HALAMAN_BERANDA`.
+2. **Dua parameter.** Tambahkan kotak isian umur di formulir Program 1 sehingga halaman sapaan menampilkan "Halo, Budi (20 tahun)!".
+   *Petunjuk:* Tambahkan `<input name="umur" type="number">`, lalu baca dengan `server.hasArg("umur")` dan `server.arg("umur").toInt()`. URL-nya menjadi `/halo?nama=Budi&umur=20`.
+3. **Sensor cahaya di API.** Tambahkan nilai LDR ke JSON Program 2 dengan nama `"cahaya"`. Uji dengan `curl` sambil menutup LDR dengan jari.
+   *Petunjuk:* Pasang kabel `LDR` → IO35 (ADC1). Ingat, di kit ini makin gelap nilai ADC makin besar ([BAB 32](../BAB-32/README.md)).
 
 ### Latihan Menengah
-4. **Upload Program 3**, sambungkan kabel jumper dari relay board ke IO4. Buka dashboard di HP dan kontrol relay. Restart ESP32 — apakah relay langsung menyala sesuai state terakhir?
-5. **Uji NVS Persistence**: Ketik `relay on` di Serial Monitor CLI, lalu power off ESP32. Nyalakan kembali — apakah relay tetap ON?
-6. **Modifikasi**: Tambahkan field `"model":"Bluino IoT Kit v3.2"` ke response JSON `/api/sensors` pada Program 2.
+
+4. **Tombol buzzer.** Tambahkan kontrol *buzzer* (`BUZZ` → IO13) ke *dashboard* Program 3.
+   *Petunjuk:* Tambahkan kunci `"buzzer"` di `buatJsonStatus()` dan `terimaKontrol()`, satu baris `kartu baris` baru di HTML, serta `aturTombol("buzzer", d.buzzer, "Berbunyi")` di `tampilkan()`.
+5. **Tombol fisik ikut tampil.** Saat tombol S1 di kit ditekan, LED merah berganti keadaan, dan *dashboard* ikut menampilkan keadaan barunya.
+   *Petunjuk:* Pasang `SW1` → IO15 dengan `pinMode(15, INPUT)` (ditekan = HIGH), deteksi perubahan dari LOW ke HIGH seperti di [BAB 9](../BAB-09/README.md), lalu panggil `aturLed(!ledNyala)`. *Polling* akan menampilkan keadaan barunya paling lambat 2 detik kemudian.
+6. **Pasang login.** Lindungi semua *route* Program 3 dengan Basic Authentication seperti di [46.11.1](#46111-login-dengan-http-basic-authentication), lalu uji dengan `curl -u`.
+   *Petunjuk:* Coba juga tanpa `-u` dan perhatikan kode statusnya menjadi `401`.
 
 ### Tantangan Lanjutan
-7. **Endpoint chip info**: Buat `GET /api/chip` yang merespons JSON berisi `chipId`, `sdkVersion`, `cpuMHz`, `flashSize`. Gunakan `char json[]` stack-allocated.
-8. **Multi-sensor**: Tambahkan pembacaan LDR (IO35, jumper + resistor 10K) ke Program 2. Tampilkan nilai ADC dan persentase kecerahan di dashboard.
 
-### Kata Kunci Penelitian Mandiri
-- `REST API` — Arsitektur standar komunikasi client-server
-- `PROGMEM` — Menyimpan data statis di Flash ESP32 alih-alih RAM
-- `ESPAsyncWebServer` — Library web server asinkron (preview BAB 47)
-- `CORS` — Cross-Origin Resource Sharing, keamanan fetch lintas domain
+7. **Dashboard Program 3 di LittleFS.** Pindahkan HTML, CSS, dan JavaScript Program 3 ke folder `data` seperti Program 4, lengkap dengan `/api/status` dan `/api/kontrol`.
+   *Petunjuk:* Isi `<style>` menjadi `style.css`, isi `<script>` menjadi `app.js`, dan `/` dikirim dengan `server.streamFile()`.
+8. **Grafik suhu tanpa CDN.** Tampilkan grafik garis 30 data suhu terakhir di *dashboard*.
+   *Petunjuk:* Simpan data di *array* JavaScript (`push()`, lalu `shift()` kalau lebih dari 30), lalu gambar dengan elemen `<canvas>` dan fungsi `moveTo()`/`lineTo()`. Jangan memakai *library* grafik dari CDN supaya tetap jalan tanpa internet.
+9. **Alamat IP di OLED.** Tampilkan alamat IP ESP32 di OLED ([BAB 35](../BAB-35/README.md)) supaya kamu tidak perlu membuka Serial Monitor untuk mengetahuinya.
+   *Petunjuk:* Cek dulu apakah OLED menjawab di alamat `0x3C` seperti di BAB 35, lalu tulis `WiFi.localIP().toString()` setelah WiFi tersambung.
 
----
+## 📚 Referensi
 
-## 46.10 Referensi
-
-| Sumber | Link |
-|--------|------|
-| WebServer.h Source | https://github.com/espressif/arduino-esp32/tree/master/libraries/WebServer |
-| ESP-IDF HTTP Server | https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/protocols/esp_http_server.html |
-| RFC 7230 HTTP/1.1 | https://datatracker.ietf.org/doc/html/rfc7230 |
-| PROGMEM Reference | https://www.arduino.cc/reference/en/language/variables/utilities/progmem/ |
-| MDN Fetch API | https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API |
-
----
-
-> Selesai! ESP32 Bluino Kit kamu sekarang adalah web server penuh: menyajikan halaman HTML, REST API JSON, dan mengontrol aktuator dari browser manapun di jaringan lokal tanpa aplikasi tambahan!
->
-> **Langkah Selanjutnya:** [BAB 47 — WebSocket](../BAB-47/) untuk komunikasi dua arah *real-time* antara browser dan ESP32 tanpa perlu polling setiap 5 detik.
+- [WebServer library — Espressif arduino-esp32 (GitHub)](https://github.com/espressif/arduino-esp32/tree/master/libraries/WebServer) — kode sumber dan contoh resmi (`HelloServer`, `FSBrowser`, `HttpBasicAuth`); perilaku `serveStatic()`, batas waktu 5 detik, dan urutan *route* di BAB ini diperiksa dari kode sumber versi 3.3.12.
+- [An overview of HTTP — MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Overview) — penjelasan *client*, *server*, *request*, dan *response*.
+- [HTTP response status codes — MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status) — daftar lengkap kode status.
+- [RFC 9110: HTTP Semantics — IETF](https://www.rfc-editor.org/rfc/rfc9110) — standar resmi *method*, kode status, dan *header* HTTP.
+- [Using the Fetch API — MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch) — cara memakai `fetch()`, `async`/`await`, dan `AbortController`.
+- [Viewport meta tag — MDN Web Docs](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/name/viewport) — kenapa halaman perlu `<meta name="viewport">` agar pas di HP.
+- [ArduinoJson 7 Documentation — Benoit Blanchon](https://arduinojson.org/v7/) — `JsonDocument`, `serializeJson()`, `deserializeJson()`, dan `is<T>()`.
+- [arduino-littlefs-upload — Earle F. Philhower III (GitHub)](https://github.com/earlephilhower/arduino-littlefs-upload) — *plugin* pengunggah folder `data` untuk Arduino IDE 2.x.
+- [Wi-Fi Performance and Power Save: Power-saving Mode — Espressif ESP-IDF Programming Guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/wifi-driver/wifi-performance-and-power-save.html#esp32-wi-fi-power-saving-mode) — mode hemat daya WiFi yang dimatikan dengan `WiFi.setSleep(false)`.
+- [curl man page — curl.se](https://curl.se/docs/manpage.html) — arti opsi `-i`, `-X`, `-H`, `-d`, dan `-u`.
+- [Cross Site Scripting Prevention Cheat Sheet — OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html) — kenapa teks dari pengguna harus diamankan sebelum ditampilkan.
 
 ---
 

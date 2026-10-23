@@ -1,0 +1,18 @@
+* { box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; background: #f2f4f7;
+       color: #222; margin: 0; padding: 16px; }
+.wadah { max-width: 520px; margin: 0 auto; }
+header { display: flex; justify-content: space-between; align-items: center; }
+h1 { font-size: 1.3em; margin: 0; color: #2e7d32; }
+.keterangan { color: #666; font-size: 0.9em; }
+.koneksi { font-size: 0.85em; padding: 4px 10px; border-radius: 999px;
+           background: #e0e0e0; color: #555; }
+.koneksi.ok { background: #e8f5e9; color: #2e7d32; }
+.koneksi.putus { background: #ffebee; color: #c62828; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px; }
+.kartu { background: #fff; border-radius: 12px; padding: 14px;
+         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.label { font-size: 0.9em; color: #666; }
+.nilai { font-size: 2em; font-weight: bold; margin-top: 4px; }
+.satuan { font-size: 0.5em; color: #666; font-weight: normal; }

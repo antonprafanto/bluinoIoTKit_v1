@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensor Bluino</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wadah">
+  <header>
+    <h1>Sensor Bluino</h1>
+    <span id="koneksi" class="koneksi">Memuat...</span>
+  </header>
+  <p class="keterangan">Halaman ini disajikan dari file di LittleFS.</p>
+  <div class="grid">
+    <div class="kartu">
+      <div class="label">Suhu</div>
+      <div class="nilai"><span id="suhu">--</span> <span class="satuan">°C</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Kelembapan</div>
+      <div class="nilai"><span id="lembap">--</span> <span class="satuan">%RH</span></div>
+    </div>
+    <div class="kartu">
+      <div class="label">Potensiometer</div>
+      <div class="nilai"><span id="pot">--</span> <span class="satuan">%</span></div>
+    </div>
+  </div>
+  <p class="keterangan">Diperbarui pukul <span id="jam">--</span></p>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,350 +1,157 @@
 /*
- * BAB 46 - Program 1: Web Server Statis Dasar
- *
- * Fitur:
- *   ▶ GET /      → Halaman beranda: status perangkat (auto-refresh 10s)
- *   ▶ GET /about → Identitas chip ESP32 lengkap
- *   ▶ 404 handler yang informatif (bukan redirect)
- *   ▶ Integrasi mDNS: http://bluino.local
- *   ▶ LED IO2 berkedip saat ada HTTP request masuk
- *
- * Cara Uji:
- *   1. Upload, buka Serial Monitor (115200 baud)
- *   2. Browser: http://bluino.local  ATAU  http://<IP dari Serial>
- *   3. Klik "Tentang" untuk melihat halaman kedua
- *   4. Coba URL aneh misal http://bluino.local/xyz → lihat halaman 404
- *   5. Amati LED IO2 berkedip singkat setiap ada request masuk
- *
- * Library: WiFi.h, ESPmDNS.h, WebServer.h — Bawaan ESP32 Arduino Core
- *
- * ⚠️ ESP32 hanya mendukung WiFi 2.4 GHz!
- * ⚠️ Ganti SSID dan PASSWORD sesuai jaringan WiFi kamu!
+ * BAB 46 - Program 1: Web Server Pertama
+ * - http://<IP>/            -> halaman beranda (HTML tetap, disimpan di flash)
+ * - http://<IP>/halo?nama=X -> halaman sapaan yang membaca parameter "nama"
+ * - alamat lain             -> halaman 404
+ * Setiap request dicatat di Serial Monitor.
+ * Rangkaian: tidak perlu (cukup ESP32 dan WiFi 2,4 GHz)
  */
 
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
 
-// ── Konfigurasi ───────────────────────────────────────────────────
-const char* WIFI_SSID    = "NamaWiFiKamu";    // ← Ganti!
-const char* WIFI_PASS    = "PasswordWiFi";    // ← Ganti!
-const char* MDNS_NAME    = "bluino";          // Akses via bluino.local
-const char* DEVICE_MODEL = "Bluino IoT Kit v3.2";
+const char *NAMA_WIFI = "NamaWiFiKamu";          // ← ganti dengan WiFi kamu
+const char *PASSWORD_WIFI = "PasswordWiFiKamu";  // ← ganti dengan WiFi kamu
 
-// ── Pin ──────────────────────────────────────────────────────────
-#define LED_PIN 2   // LED built-in ESP32 (active HIGH)
+WebServer server(80);  // port 80 = port bawaan HTTP
 
-// ── Objek ────────────────────────────────────────────────────────
-WebServer server(80);
-
-// ─────────────────────────────────────────────────────────────────
-// HTML Builder: Halaman Beranda (/)
-// ─────────────────────────────────────────────────────────────────
-String buildHomePage() {
-  // ── Kalkulasi uptime tanpa String() constructor (zero-copy) ──
-  String uptime;
-  uint32_t s = millis() / 1000;
-  uint32_t h = s / 3600; s %= 3600;
-  uint32_t m = s / 60;   s %= 60;
-  uptime.reserve(20);
-  uptime += h; uptime += "j "; uptime += m; uptime += "m "; uptime += s; uptime += "d";
-
-  // ── Single-Shot Heap Allocation ───────────────────────────────
-  // Memesan seluruh memori buffer di awal untuk menghindari
-  // heap fragmentation akibat realokasi berulang.
-  String html;
-  html.reserve(2800);
-
-  html += R"rawhtml(
+// Halaman beranda. Karena "const", teks ini tetap di flash, bukan di RAM.
+const char HALAMAN_BERANDA[] = R"rawliteral(
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="10">
-  <title>Bluino IoT — Beranda</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0d1a;
-           color: #e0e0e0; min-height: 100vh;
-           display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #1a1a2e; border-radius: 16px; padding: 32px;
-            width: 100%; max-width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-    h1 { color: #4fc3f7; font-size: 1.4rem; margin-bottom: 4px; }
-    .sub { color: #555; font-size: 0.8rem; margin-bottom: 24px; }
-    .row { display: flex; justify-content: space-between; align-items: center;
-           padding: 10px 0; border-bottom: 1px solid #1e2a3a; font-size: 0.88rem; }
-    .row:last-child { border-bottom: none; }
-    .label { color: #888; }
-    .value { color: #eee; font-weight: bold; }
-    .badge { background: #0f3460; color: #4fc3f7; padding: 2px 8px;
-             border-radius: 6px; font-size: 0.75rem; }
-    .online { color: #81c784; }
-    nav { margin-top: 20px; display: flex; gap: 10px; }
-    nav a { display: block; flex: 1; text-align: center; padding: 10px;
-            background: #0f3460; color: #4fc3f7; text-decoration: none;
-            border-radius: 8px; font-size: 0.85rem; }
-    nav a:hover { background: #1565c0; }
-    .footer { text-align: center; color: #333; font-size: 0.72rem; margin-top: 16px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Bluino</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f2f4f7; color: #222;
+         max-width: 480px; margin: 0 auto; padding: 16px; }
+  .kartu { background: #fff; border-radius: 12px; padding: 16px;
+           box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); }
+  h1 { font-size: 1.4em; color: #1565c0; margin-top: 0; }
+  input, button { font-size: 1em; padding: 10px; border-radius: 8px; }
+  input { border: 1px solid #999; width: 60%; }
+  button { border: none; background: #1565c0; color: #fff; }
+  a { color: #1565c0; }
+</style>
 </head>
 <body>
-<div class="card">
-  <h1>⚡ Bluino IoT Kit</h1>
-  <p class="sub">Web Server Dasar — BAB 46 · Auto-refresh 10s</p>
-  <div class="row">
-    <span class="label">Status Jaringan</span>
-    <span class="value online">🟢 Online</span>
-  </div>
-)rawhtml";
-
-  // ── Bagian Dinamis: disuntikkan ke buffer yang sudah dipesan ──
-  html += "  <div class=\"row\"><span class=\"label\">Hostname mDNS</span>";
-  html += "<span class=\"value\"><span class=\"badge\">";
-  html += MDNS_NAME;
-  html += ".local</span></span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Alamat IP</span>";
-  html += "<span class=\"value\">";
-  html += WiFi.localIP().toString();
-  html += "</span></div>\n";
-
-  // Sanitasi XSS: escape karakter berbahaya pada nilai SSID
-  String safeSSID = WiFi.SSID();
-  safeSSID.replace("&", "&amp;");
-  safeSSID.replace("<", "&lt;");
-  safeSSID.replace(">", "&gt;");
-  html += "  <div class=\"row\"><span class=\"label\">SSID WiFi</span>";
-  html += "<span class=\"value\">";
-  html += safeSSID;
-  html += "</span></div>\n";
-
-  int rssi = WiFi.RSSI();
-  const char* rssiEmoji = (rssi >= -65) ? "🟢" : (rssi >= -80) ? "🟡" : "🔴";
-  html += "  <div class=\"row\"><span class=\"label\">Sinyal WiFi</span>";
-  html += "<span class=\"value\">";
-  html += rssiEmoji;
-  html += " ";
-  html += rssi;
-  html += " dBm</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Uptime</span>";
-  html += "<span class=\"value\">";
-  html += uptime;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Heap Bebas</span>";
-  html += "<span class=\"value\">";
-  html += (ESP.getFreeHeap() / 1024);
-  html += " KB</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Model Perangkat</span>";
-  html += "<span class=\"value\">";
-  html += DEVICE_MODEL;
-  html += "</span></div>\n";
-
-  html += R"rawhtml(
-  <nav>
-    <a href="/">🏠 Beranda</a>
-    <a href="/about">ℹ️ Tentang</a>
-  </nav>
-  <p class="footer">Bluino IoT Kit 2026 — BAB 46: Web Server</p>
+<div class="kartu">
+  <h1>Halo dari ESP32!</h1>
+  <p>Halaman ini dikirim oleh web server di kit Bluino.</p>
+  <form action="/halo" method="GET">
+    <p><label for="nama">Siapa namamu?</label></p>
+    <input id="nama" name="nama" maxlength="30" required>
+    <button type="submit">Kirim</button>
+  </form>
+  <p>Atau coba buka <a href="/tidak-ada">alamat yang tidak ada</a>.</p>
 </div>
 </body>
 </html>
-)rawhtml";
+)rawliteral";
 
-  return html;
+// Mengganti karakter khusus HTML supaya teks dari pengguna
+// tampil apa adanya dan tidak dianggap sebagai kode HTML
+String amankanHtml(String teks) {
+  teks.replace("&", "&amp;");
+  teks.replace("<", "&lt;");
+  teks.replace(">", "&gt;");
+  teks.replace("\"", "&quot;");
+  return teks;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// HTML Builder: Halaman Tentang (/about)
-// ─────────────────────────────────────────────────────────────────
-String buildAboutPage() {
+// Mencetak satu baris catatan request di Serial Monitor
+void catatRequest(int kodeStatus) {
+  Serial.printf("[HTTP] %s %s -> %d (dari %s)\n",
+                http_method_str(server.method()), server.uri().c_str(),
+                kodeStatus, server.client().remoteIP().toString().c_str());
+}
+
+// Handler untuk GET /
+void halamanBeranda() {
+  server.send(200, "text/html", HALAMAN_BERANDA);
+  catatRequest(200);
+}
+
+// Handler untuk GET /halo?nama=...
+void halamanHalo() {
+  String nama = "tamu";  // dipakai kalau parameter "nama" tidak ada atau kosong
+  if (server.hasArg("nama") && server.arg("nama").length() > 0) {
+    nama = server.arg("nama").substring(0, 30);  // ambil paling banyak 30 karakter
+  }
+
+  // Halaman kecil yang isinya berubah-ubah disusun dengan String
   String html;
-  html.reserve(2000);
+  html.reserve(500);  // pesan memori sekaligus supaya tidak berkali-kali
+  html += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>Halo</title></head>";
+  html += "<body style=\"font-family: Arial, sans-serif; padding: 16px;\">";
+  html += "<h1>Halo, ";
+  html += amankanHtml(nama);
+  html += "!</h1><p>ESP32 sudah menyala selama ";
+  html += String(millis() / 1000);
+  html += " detik.</p><p><a href=\"/\">Kembali ke beranda</a></p></body></html>";
 
-  // Chip ID: 48-bit dari eFuse MAC Address (unik per chip)
-  uint64_t chipId = ESP.getEfuseMac();
-  char cidBuf[13];
-  snprintf(cidBuf, 13, "%04X%08X", (uint16_t)(chipId >> 32), (uint32_t)chipId);
-
-  html += R"rawhtml(
-<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluino IoT — Tentang</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d0d1a;
-           color: #e0e0e0; min-height: 100vh;
-           display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { background: #1a1a2e; border-radius: 16px; padding: 32px;
-            width: 100%; max-width: 440px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
-    h1 { color: #4fc3f7; font-size: 1.4rem; margin-bottom: 4px; }
-    .sub { color: #555; font-size: 0.8rem; margin-bottom: 24px; }
-    .row { display: flex; justify-content: space-between; align-items: center;
-           padding: 10px 0; border-bottom: 1px solid #1e2a3a; font-size: 0.88rem; }
-    .row:last-child { border-bottom: none; }
-    .label { color: #888; }
-    .value { color: #eee; font-weight: bold; word-break: break-all; text-align: right; max-width: 60%; }
-    nav { margin-top: 20px; }
-    nav a { display: block; text-align: center; padding: 10px;
-            background: #0f3460; color: #4fc3f7; text-decoration: none; border-radius: 8px; font-size: 0.85rem; }
-    nav a:hover { background: #1565c0; }
-  </style>
-</head>
-<body>
-<div class="card">
-  <h1>ℹ️ Tentang Perangkat</h1>
-  <p class="sub">Identitas Lengkap ESP32 Ini</p>
-)rawhtml";
-
-  html += "  <div class=\"row\"><span class=\"label\">Model Kit</span><span class=\"value\">";
-  html += DEVICE_MODEL;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Chip ID (MAC)</span><span class=\"value\">";
-  html += cidBuf;
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">MAC Address</span><span class=\"value\">";
-  html += WiFi.macAddress();
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">SDK Version</span><span class=\"value\">";
-  html += ESP.getSdkVersion();
-  html += "</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">CPU Freq.</span><span class=\"value\">";
-  html += ESP.getCpuFreqMHz();
-  html += " MHz</span></div>\n";
-
-  html += "  <div class=\"row\"><span class=\"label\">Flash Size</span><span class=\"value\">";
-  html += (ESP.getFlashChipSize() / 1024 / 1024);
-  html += " MB</span></div>\n";
-
-  html += R"rawhtml(
-  <nav><a href="/">← Kembali ke Beranda</a></nav>
-</div>
-</body>
-</html>
-)rawhtml";
-
-  return html;
+  server.send(200, "text/html", html);
+  catatRequest(200);
+  Serial.printf("       nama = %s\n", nama.c_str());
 }
 
-// ─────────────────────────────────────────────────────────────────
+// Handler untuk semua alamat yang tidak didaftarkan
+void halaman404() {
+  String html;
+  html.reserve(400);
+  html += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>404</title></head>";
+  html += "<body style=\"font-family: Arial, sans-serif; padding: 16px;\">";
+  html += "<h1>404 - Tidak Ditemukan</h1><p>Alamat <b>";
+  html += amankanHtml(server.uri());
+  html += "</b> tidak ada di ESP32 ini.</p><p><a href=\"/\">Kembali ke beranda</a></p></body></html>";
+
+  server.send(404, "text/html", html);
+  catatRequest(404);
+}
+
+void sambungkanWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(NAMA_WIFI, PASSWORD_WIFI);
+  Serial.printf("Menyambung ke WiFi \"%s\"", NAMA_WIFI);
+
+  unsigned long mulai = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - mulai > 20000) {  // menyerah setelah 20 detik
+      Serial.println("\nGagal tersambung. Periksa nama/password WiFi dan pastikan 2,4 GHz.");
+      Serial.println("ESP32 restart dalam 5 detik...");
+      delay(5000);
+      ESP.restart();
+    }
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" tersambung!");
+  WiFi.setSleep(false);  // matikan hemat daya WiFi supaya halaman lebih cepat dijawab
+}
+
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
-  delay(500);
+  delay(1000);  // beri waktu Serial Monitor bersiap
+  Serial.println("\nBAB 46 - Program 1: Web Server Pertama");
 
-  Serial.println("\n=== BAB 46 Program 1: Web Server Statis Dasar ===");
+  sambungkanWiFi();
 
-  // ── Koneksi WiFi ──────────────────────────────────────────────
-  Serial.printf("[WiFi] Menghubungkan ke '%s'...\n", WIFI_SSID);
-  WiFi.mode(WIFI_STA);
-  WiFi.setHostname(MDNS_NAME);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint32_t tStart = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - tStart >= 15000UL) {
-      Serial.println("\n[ERR] Timeout WiFi. Restart...");
-      delay(2000); ESP.restart();
-    }
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println();
-  Serial.printf("[WiFi] ✅ IP: %s | SSID: %s\n",
-    WiFi.localIP().toString().c_str(), WiFi.SSID().c_str());
-
-  // ── mDNS ──────────────────────────────────────────────────────
-  if (MDNS.begin(MDNS_NAME)) {
-    MDNS.addService("http", "tcp", 80);
-    Serial.printf("[mDNS] ✅ http://%s.local\n", MDNS_NAME);
-  } else {
-    Serial.println("[mDNS] ⚠️ Gagal — gunakan alamat IP langsung.");
-  }
-
-  // ── Routes ────────────────────────────────────────────────────
-  server.on("/", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW);    // Kedip: indikator request masuk
-    server.send(200, "text/html", buildHomePage());
-    digitalWrite(LED_PIN, HIGH);
-  });
-
-  server.on("/about", HTTP_GET, []() {
-    digitalWrite(LED_PIN, LOW);
-    server.send(200, "text/html", buildAboutPage());
-    digitalWrite(LED_PIN, HIGH);
-  });
-
-  // 404 Handler: tampilkan halaman error yang informatif
-  server.onNotFound([]() {
-    String body;
-    body.reserve(500);
-    body += "<!DOCTYPE html><html lang=\"id\"><head><meta charset=\"UTF-8\">";
-    body += "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">";
-    body += "<title>404 — Tidak Ditemukan</title>";
-    body += "<style>body{background:#0d0d1a;color:#e0e0e0;font-family:Arial,sans-serif;";
-    body += "text-align:center;padding-top:80px;}h1{color:#ef5350;margin-bottom:12px;}";
-    body += "p{color:#888;margin-bottom:20px;}a{color:#4fc3f7;text-decoration:none;}</style></head>";
-    body += "<body><h1>404 — Halaman Tidak Ditemukan</h1>";
-
-    // XSS sanitasi pada URI sebelum tampil ke HTML
-    String safeUri = server.uri();
-    safeUri.replace("&", "&amp;");
-    safeUri.replace("<", "&lt;");
-    safeUri.replace(">", "&gt;");
-
-    body += "<p>URL <b style=\"color:#ef9a9a\">";
-    body += safeUri;
-    body += "</b> tidak tersedia di server ini.</p>";
-    body += "<a href=\"/\">← Kembali ke Beranda</a></body></html>";
-    server.send(404, "text/html", body);
-  });
-
+  // Daftar route: alamat + method + fungsi handler
+  server.on("/", HTTP_GET, halamanBeranda);
+  server.on("/halo", HTTP_GET, halamanHalo);
+  server.onNotFound(halaman404);
   server.begin();
-  Serial.println("[HTTP] Web Server aktif di port 80.");
-  Serial.printf("[INFO] Buka browser → http://%s.local\n", MDNS_NAME);
 
-  digitalWrite(LED_PIN, HIGH);
+  Serial.print("Web server siap. Buka di browser: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/");
 }
 
-// ─────────────────────────────────────────────────────────────────
 void loop() {
-  server.handleClient();
-
-  // ── Deteksi Transisi WiFi ─────────────────────────────────────
-  // prevWiFiState = true: sudah konek sejak setup() selesai
-  // sehingga tidak memicu print "Reconnect!" palsu saat loop pertama
-  static bool prevWiFiState = true;
-  bool currWiFiState = (WiFi.status() == WL_CONNECTED);
-
-  if (!prevWiFiState && currWiFiState) {
-    Serial.printf("[WiFi] ✅ Reconnect! IP: %s\n",
-      WiFi.localIP().toString().c_str());
-    digitalWrite(LED_PIN, HIGH);
-  }
-  if (prevWiFiState && !currWiFiState) {
-    Serial.println("[WiFi] ⚠️ Koneksi terputus...");
-    digitalWrite(LED_PIN, LOW);
-  }
-  prevWiFiState = currWiFiState;
-
-  // ── Heartbeat Log (tiap 15 detik) ───────────────────────────
-  static unsigned long tHb = 0;
-  if (millis() - tHb >= 15000UL) {
-    tHb = millis();
-    Serial.printf("[Heartbeat] IP: %s | RSSI: %d | Heap: %u B | Uptime: %lu s\n",
-      WiFi.localIP().toString().c_str(), WiFi.RSSI(),
-      ESP.getFreeHeap(), millis() / 1000UL);
-  }
+  server.handleClient();  // layani request yang masuk
 }
